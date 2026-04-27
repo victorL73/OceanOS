@@ -322,7 +322,8 @@ function generateQuotePdf(quote, settings = {}) {
 
     pdf.stroke([222, 231, 232]);
     pdf.line(15, 281, 195, 281);
-    pdf.text(47, 287, 'RenovBoat - Reparation nautique - Devis genere avec la base graphique Invocean', 7.5, 'F1', [102, 115, 120]);
+    const footerCompany = settings.quote_company_name || 'RenovBoat';
+    pdf.text(47, 287, `${footerCompany} - Reparation nautique - Devis genere avec la base graphique Invocean`, 7.5, 'F1', [102, 115, 120]);
 
     fs.writeFileSync(absolutePath, pdf.finish());
     return { absolutePath, relativePath, filename };

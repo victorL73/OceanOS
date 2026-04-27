@@ -3,6 +3,7 @@ const MOBY_TOKEN_URL = "/OceanOS/api/mobywork-token.php";
 const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
+const COMPANY_URL = "/OceanOS/api/company.php";
 const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-systemctl-fallback";
 
 const apps = [
@@ -104,6 +105,7 @@ const elements = {
   userMenuBackdrop: $("user-menu-backdrop"),
   closeUserMenu: $("close-user-menu"),
   userTabAdmin: $("user-tab-admin"),
+  userTabCompany: $("user-tab-company"),
   userTabPrestashop: $("user-tab-prestashop"),
   userTabServices: $("user-tab-services"),
   menuUserAvatar: $("menu-user-avatar"),
@@ -128,6 +130,21 @@ const elements = {
   testPrestashopButton: $("test-prestashop-button"),
   deletePrestashopButton: $("delete-prestashop-button"),
   prestashopStatus: $("prestashop-status"),
+  companyForm: $("company-form"),
+  companyName: $("company-name"),
+  companyPhone: $("company-phone"),
+  companyAddress: $("company-address"),
+  companyCity: $("company-city"),
+  companyEmail: $("company-email"),
+  companySiret: $("company-siret"),
+  companyVatNumber: $("company-vat-number"),
+  companyCountryIso: $("company-country-iso"),
+  companyPaymentTerms: $("company-payment-terms"),
+  companyValidityDays: $("company-validity-days"),
+  companyFooterNote: $("company-footer-note"),
+  saveCompanyButton: $("save-company-button"),
+  resetCompanyButton: $("reset-company-button"),
+  companyStatus: $("company-status"),
   appGrid: $("app-grid"),
   adminPanel: $("admin-panel"),
   reloadUsers: $("reload-users"),
@@ -154,6 +171,7 @@ let authState = {
 let usersState = [];
 let aiSettings = null;
 let prestashopSettings = null;
+let companySettings = null;
 let servicesState = [];
 let servicesControlAvailable = false;
 
@@ -185,6 +203,11 @@ function showPrestashopStatus(message = "", type = "") {
   elements.prestashopStatus.dataset.type = type;
 }
 
+function showCompanyStatus(message = "", type = "") {
+  elements.companyStatus.textContent = message;
+  elements.companyStatus.dataset.type = type;
+}
+
 function showServicesStatus(message = "", type = "") {
   elements.servicesStatus.textContent = message;
   elements.servicesStatus.dataset.type = type;
@@ -210,6 +233,10 @@ function canManageUsers() {
 
 function canManagePrestashop() {
   return Boolean(authState.user?.permissions?.canManagePrestashop || canManageUsers());
+}
+
+function canManageCompany() {
+  return Boolean(authState.user?.permissions?.canManageCompany || canManageUsers());
 }
 
 function canManageServices() {
@@ -265,6 +292,9 @@ function showUserMenuSection(sectionId = "account") {
 
   if (nextSectionId === "ai") {
     void loadAiSettings();
+  }
+  if (nextSectionId === "company") {
+    void loadCompanySettings();
   }
   if (nextSectionId === "prestashop") {
     void loadPrestashopSettings();
@@ -332,6 +362,8 @@ function applyAuthState(payload) {
     void loadAiSettings();
     if (window.location.hash === "#ia") {
       openUserMenu("ai");
+    } else if (window.location.hash === "#entreprise") {
+      openUserMenu("company");
     } else if (window.location.hash === "#prestashop") {
       openUserMenu("prestashop");
     } else if (window.location.hash === "#services") {
@@ -516,6 +548,95 @@ async function deletePrestashopSettings() {
   prestashopSettings = payload.settings || null;
   renderPrestashopSettings();
   showPrestashopStatus(payload.message || "Configuration PrestaShop supprimee.", "success");
+}
+
+function renderCompanySettings() {
+  const settings = companySettings || {};
+  const canManage = Boolean(settings.canManage);
+  elements.companyName.value = settings.companyName || "";
+  elements.companyPhone.value = settings.companyPhone || "";
+  elements.companyAddress.value = settings.companyAddress || "";
+  elements.companyCity.value = settings.companyCity || "";
+  elements.companyEmail.value = settings.companyEmail || "";
+  elements.companySiret.value = settings.companySiret || "";
+  elements.companyVatNumber.value = settings.companyVatNumber || "";
+  elements.companyCountryIso.value = settings.companyCountryIso || "FR";
+  elements.companyPaymentTerms.value = settings.paymentTerms || "";
+  elements.companyValidityDays.value = settings.quoteValidityDays || 30;
+  elements.companyFooterNote.value = settings.footerNote || "";
+
+  [
+    elements.companyName,
+    elements.companyPhone,
+    elements.companyAddress,
+    elements.companyCity,
+    elements.companyEmail,
+    elements.companySiret,
+    elements.companyVatNumber,
+    elements.companyCountryIso,
+    elements.companyPaymentTerms,
+    elements.companyValidityDays,
+    elements.companyFooterNote,
+    elements.saveCompanyButton,
+    elements.resetCompanyButton,
+  ].forEach((element) => {
+    element.disabled = !canManage;
+  });
+}
+
+async function loadCompanySettings() {
+  if (!authState.authenticated) return;
+
+  showCompanyStatus("Chargement des informations entreprise...");
+  try {
+    const payload = await requestJson(COMPANY_URL);
+    companySettings = payload.settings || null;
+    renderCompanySettings();
+    showCompanyStatus(
+      companySettings?.canManage
+        ? "Ces informations sont partagees avec les modules OceanOS."
+        : "Consultation seule : seuls les administrateurs peuvent modifier ces informations.",
+      companySettings?.canManage ? "success" : ""
+    );
+  } catch (error) {
+    showCompanyStatus(error.message || "Impossible de charger les informations entreprise.", "error");
+  }
+}
+
+async function saveCompanySettings() {
+  const payload = await requestJson(COMPANY_URL, {
+    method: "POST",
+    body: JSON.stringify({
+      action: "settings",
+      companyName: elements.companyName.value.trim(),
+      companyPhone: elements.companyPhone.value.trim(),
+      companyAddress: elements.companyAddress.value.trim(),
+      companyCity: elements.companyCity.value.trim(),
+      companyEmail: elements.companyEmail.value.trim(),
+      companySiret: elements.companySiret.value.trim(),
+      companyVatNumber: elements.companyVatNumber.value.trim(),
+      companyCountryIso: elements.companyCountryIso.value.trim(),
+      paymentTerms: elements.companyPaymentTerms.value.trim(),
+      quoteValidityDays: Number(elements.companyValidityDays.value || 30),
+      footerNote: elements.companyFooterNote.value.trim(),
+    }),
+  });
+  companySettings = payload.settings || null;
+  renderCompanySettings();
+  showCompanyStatus(payload.message || "Informations entreprise enregistrees.", "success");
+}
+
+async function resetCompanySettings() {
+  const ok = window.confirm("Reinitialiser les informations entreprise OceanOS ?");
+  if (!ok) return;
+
+  const payload = await requestJson(COMPANY_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "reset" }),
+  });
+  companySettings = payload.settings || null;
+  renderCompanySettings();
+  showCompanyStatus(payload.message || "Informations entreprise reinitialisees.", "success");
 }
 
 function serviceStatusType(service) {
@@ -1094,6 +1215,37 @@ elements.deletePrestashopButton.addEventListener("click", async () => {
   }
 });
 
+elements.companyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!canManageCompany()) return;
+
+  elements.saveCompanyButton.disabled = true;
+  showCompanyStatus("");
+  try {
+    await saveCompanySettings();
+  } catch (error) {
+    showCompanyStatus(error.message || "Impossible d'enregistrer les informations entreprise.", "error");
+  } finally {
+    elements.saveCompanyButton.disabled = false;
+    renderCompanySettings();
+  }
+});
+
+elements.resetCompanyButton.addEventListener("click", async () => {
+  if (!canManageCompany()) return;
+
+  elements.resetCompanyButton.disabled = true;
+  showCompanyStatus("");
+  try {
+    await resetCompanySettings();
+  } catch (error) {
+    showCompanyStatus(error.message || "Reinitialisation impossible.", "error");
+  } finally {
+    elements.resetCompanyButton.disabled = false;
+    renderCompanySettings();
+  }
+});
+
 elements.userCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!canManageUsers()) return;
@@ -1138,6 +1290,8 @@ elements.menuAdminPageButton.addEventListener("click", () => {
 window.addEventListener("hashchange", () => {
   if (window.location.hash === "#ia") {
     openUserMenu("ai");
+  } else if (window.location.hash === "#entreprise") {
+    openUserMenu("company");
   } else if (window.location.hash === "#prestashop") {
     openUserMenu("prestashop");
   } else if (window.location.hash === "#services") {

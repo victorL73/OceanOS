@@ -225,6 +225,7 @@ try {
     $input = mobywork_read_json();
     $action = mb_strtolower(trim((string) ($input['action'] ?? '')));
     $pdo = mobywork_pdo();
+    oceanos_ensure_schema($pdo);
 
     if ($action === 'login') {
         $user = mobywork_find_user_by_email($pdo, (string) ($input['email'] ?? ''));
@@ -276,6 +277,13 @@ try {
                 'syncWindowDays' => (int) ($settings['syncWindowDays'] ?? 30),
                 'managedBy' => 'OceanOS',
             ],
+        ]);
+    }
+
+    if ($action === 'company') {
+        mobywork_json([
+            'ok' => true,
+            'settings' => oceanos_company_private_settings($pdo),
         ]);
     }
 

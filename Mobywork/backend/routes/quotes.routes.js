@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { generateQuotePdf } = require('../services/quotePdf.service');
+const { getSharedCompanySettings } = require('../flowceanAccounts');
 
 function dbGet(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -38,7 +39,7 @@ function parseLines(linesJson) {
 }
 
 async function getQuoteSettings(userId) {
-    return await dbGet(`
+    const localSettings = await dbGet(`
         SELECT
             nom,
             quote_company_name,
@@ -53,6 +54,20 @@ async function getQuoteSettings(userId) {
         FROM user_settings
         WHERE user_id = ?
     `, [userId]) || {};
+    const sharedCompany = await getSharedCompanySettings().catch(() => ({}));
+
+    return {
+        ...localSettings,
+        quote_company_name: sharedCompany.companyName || localSettings.quote_company_name || '',
+        quote_company_address: sharedCompany.companyAddress || localSettings.quote_company_address || '',
+        quote_company_city: sharedCompany.companyCity || localSettings.quote_company_city || '',
+        quote_company_phone: sharedCompany.companyPhone || localSettings.quote_company_phone || '',
+        quote_company_email: sharedCompany.companyEmail || localSettings.quote_company_email || '',
+        quote_company_siret: sharedCompany.companySiret || localSettings.quote_company_siret || '',
+        quote_payment_terms: sharedCompany.paymentTerms || localSettings.quote_payment_terms || '',
+        quote_validity_days: sharedCompany.quoteValidityDays || localSettings.quote_validity_days || 30,
+        quote_footer_note: sharedCompany.footerNote || localSettings.quote_footer_note || '',
+    };
 }
 
 async function saveQuotePdf(quote, userId) {

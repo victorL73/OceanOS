@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
   <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.">
   <link rel="stylesheet" href="assets/guard.css">
-  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-services">
+  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company">
 </head>
 <body>
   <main class="shell" data-state="loading">
@@ -96,6 +96,10 @@
                 <strong>IA Groq</strong>
                 <span>Cle partagee</span>
               </button>
+              <button class="user-control-tab" data-user-tab="company" id="user-tab-company" type="button">
+                <strong>Entreprise</strong>
+                <span>Infos communes</span>
+              </button>
               <button class="user-control-tab hidden" data-user-tab="prestashop" id="user-tab-prestashop" type="button">
                 <strong>PrestaShop</strong>
                 <span>Connecteur commun</span>
@@ -146,6 +150,13 @@
                     </span>
                     <em>Admin</em>
                   </button>
+                  <button class="user-control-action" data-user-jump="company" type="button">
+                    <span>
+                      <strong>Informations entreprise</strong>
+                      <small>Coordonnees communes utilisees dans les modules et les documents.</small>
+                    </span>
+                    <em>Commun</em>
+                  </button>
                   <button class="user-control-action hidden" id="menu-admin-page-button" type="button">
                     <span>
                       <strong>Admin serveur</strong>
@@ -192,6 +203,65 @@
                   </div>
                 </form>
                 <p class="ai-status" id="ai-status"></p>
+              </section>
+
+              <section class="user-menu-section" data-user-section="company">
+                <div class="user-control-heading">
+                  <h3>Informations entreprise</h3>
+                  <p>Ces coordonnees sont communes a toutes les sessions et reutilisees par les modules OceanOS.</p>
+                </div>
+
+                <form class="company-form" id="company-form">
+                  <label class="field">
+                    <span>Nom de l'entreprise</span>
+                    <input id="company-name" type="text" autocomplete="organization">
+                  </label>
+                  <label class="field">
+                    <span>Telephone</span>
+                    <input id="company-phone" type="text" autocomplete="tel">
+                  </label>
+                  <label class="field">
+                    <span>Adresse</span>
+                    <input id="company-address" type="text" autocomplete="street-address">
+                  </label>
+                  <label class="field">
+                    <span>Ville et code postal</span>
+                    <input id="company-city" type="text" autocomplete="address-level2">
+                  </label>
+                  <label class="field">
+                    <span>Email entreprise</span>
+                    <input id="company-email" type="email" autocomplete="email">
+                  </label>
+                  <label class="field">
+                    <span>SIRET</span>
+                    <input id="company-siret" type="text" inputmode="numeric">
+                  </label>
+                  <label class="field">
+                    <span>TVA intracommunautaire</span>
+                    <input id="company-vat-number" type="text" placeholder="FR...">
+                  </label>
+                  <label class="field">
+                    <span>Pays ISO</span>
+                    <input id="company-country-iso" type="text" maxlength="2" value="FR">
+                  </label>
+                  <label class="field">
+                    <span>Conditions de paiement</span>
+                    <input id="company-payment-terms" type="text">
+                  </label>
+                  <label class="field">
+                    <span>Validite devis (jours)</span>
+                    <input id="company-validity-days" type="number" min="1" max="365" value="30">
+                  </label>
+                  <label class="field company-wide-field">
+                    <span>Note de pied de page</span>
+                    <input id="company-footer-note" type="text">
+                  </label>
+                  <div class="company-actions">
+                    <button class="primary-button" id="save-company-button" type="submit">Enregistrer</button>
+                    <button class="ghost-button" id="reset-company-button" type="button">Reinitialiser</button>
+                  </div>
+                </form>
+                <p class="ai-status" id="company-status"></p>
               </section>
 
               <section class="user-menu-section" data-user-section="prestashop">
@@ -294,6 +364,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260427-systemctl-fallback"></script>
+  <script src="assets/oceanos.js?v=20260427-company"></script>
 </body>
 </html>

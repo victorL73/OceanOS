@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('./database');
 const { authMiddleware, adminMiddleware } = require('./authMiddleware');
-const { getSharedPrestashopSettings } = require('./flowceanAccounts');
+const { getSharedCompanySettings, getSharedPrestashopSettings } = require('./flowceanAccounts');
 const { getAvailableSenders } = require('./smtpService');
 
 const router = express.Router();
@@ -19,16 +19,29 @@ const ALL_FIELDS = [
     'finance_expense_coef', 'finance_client_delay', 'finance_supplier_delay',
     'marketing_target_roas', 'marketing_auto_pilot', 'marketing_daily_budget',
     'marketing_google_ads_id', 'marketing_meta_ads_id', 'marketing_tiktok_ads_id',
-    'quote_company_name', 'quote_company_address', 'quote_company_city',
-    'quote_company_phone', 'quote_company_email', 'quote_company_siret',
-    'quote_company_logo', 'quote_payment_terms', 'quote_validity_days', 'quote_footer_note',
-    'quote_html_template',
+    'quote_company_logo', 'quote_html_template',
 ];
 
-router.get('/', (req, res) => {
+function quoteSettingsFromCompany(settings = {}) {
+    return {
+        quote_company_name: settings.companyName || '',
+        quote_company_address: settings.companyAddress || '',
+        quote_company_city: settings.companyCity || '',
+        quote_company_phone: settings.companyPhone || '',
+        quote_company_email: settings.companyEmail || '',
+        quote_company_siret: settings.companySiret || '',
+        quote_payment_terms: settings.paymentTerms || 'Virement bancaire a 30 jours',
+        quote_validity_days: settings.quoteValidityDays || 30,
+        quote_footer_note: settings.footerNote || 'Merci de votre confiance.',
+        company_managed_by: 'OceanOS',
+    };
+}
+
+router.get('/', async (req, res) => {
+    const sharedCompany = await getSharedCompanySettings().catch(() => ({}));
     db.get(`SELECT ${ALL_FIELDS.join(',')} FROM user_settings WHERE user_id = ?`, [req.user.id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message || 'Erreur lors de la recuperation des parametres' });
-        res.json(row || {});
+        res.json({ ...(row || {}), ...quoteSettingsFromCompany(sharedCompany) });
     });
 });
 

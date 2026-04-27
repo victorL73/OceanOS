@@ -84,12 +84,18 @@ async function getSharedPrestashopSettings() {
     return data.settings || {};
 }
 
+async function getSharedCompanySettings() {
+    const data = await callBridge('company');
+    return data.settings || {};
+}
+
 module.exports = {
     authenticateSharedUser,
     createSharedUser,
     deactivateSharedUser,
     findSharedUserById,
     getSharedAiSettings,
+    getSharedCompanySettings,
     getSharedPrestashopSettings,
     listSharedUsers,
     publicSharedUser,

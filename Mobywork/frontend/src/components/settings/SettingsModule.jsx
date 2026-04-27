@@ -9,6 +9,7 @@ import {
 } from '../quotes/invoceanQuoteTemplate';
 
 const API = import.meta.env.VITE_API_URL || '/api';
+const OCEANOS_COMPANY_URL = '/OceanOS/#entreprise';
 
 const inputStyle = {
   width: '100%', padding: '0.75rem 1rem',
@@ -113,6 +114,7 @@ export default function SettingsModule({ user, onLogout }) {
     quote_company_phone: '', quote_company_email: '', quote_company_siret: '',
     quote_company_logo: '', quote_payment_terms: 'Virement bancaire à 30 jours',
     quote_validity_days: 30, quote_footer_note: 'Merci de votre confiance.',
+    company_managed_by: 'OceanOS',
   });
   const [newCollab, setNewCollab] = useState({ nom: '', email: '', password: '', role: 'user' });
   const [usersList, setUsersList] = useState([]);
@@ -680,6 +682,10 @@ export default function SettingsModule({ user, onLogout }) {
 </div>`;
 
             const templateValue = getQuoteTemplate(settings.quote_html_template || INVOCEAN_QUOTE_TEMPLATE);
+            const companyManagedByOceanOS = (settings.company_managed_by || settings.companyManagedBy) === 'OceanOS';
+            const companyFieldStyle = companyManagedByOceanOS
+              ? { ...inputStyle, opacity: 0.62, cursor: 'not-allowed' }
+              : inputStyle;
             const previewHtml = buildQuotePreviewHtml({ ...settings, quote_html_template: templateValue })
               .replace(/{company_name}/g, settings.quote_company_name || 'Mon Entreprise')
               .replace(/{company_address}/g, settings.quote_company_address || '12 Rue du Port')
@@ -717,23 +723,33 @@ export default function SettingsModule({ user, onLogout }) {
             return (
               <div>
                 <Section title="🏢 Coordonnées entreprise (injectées dans le template)">
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0 0 1rem' }}>
+                    Ces informations sont centralisees dans OceanOS et appliquees a toutes les sessions.
+                  </p>
+                  <button type="button" onClick={() => { window.location.href = OCEANOS_COMPANY_URL; }}
+                    style={{ marginBottom: '1rem', padding: '0.55rem 0.9rem', background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.28)', borderRadius: '8px', color: '#3b82f6', cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem' }}
+                  >
+                    Ouvrir dans OceanOS
+                  </button>
+                  <fieldset disabled={companyManagedByOceanOS} style={{ border: 0, padding: 0, margin: 0 }}>
                   <Grid2>
-                    <Field label="Nom de l'entreprise"><input name="quote_company_name" value={settings.quote_company_name || ''} onChange={handleChange} placeholder="RenovBoat SAS" style={inputStyle} /></Field>
+                    <Field label="Nom de l'entreprise"><input name="quote_company_name" value={settings.quote_company_name || ''} onChange={handleChange} placeholder="RenovBoat SAS" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
                     <Field label="Téléphone"><input name="quote_company_phone" value={settings.quote_company_phone || ''} onChange={handleChange} placeholder="+33 6 XX XX XX XX" style={inputStyle} /></Field>
                   </Grid2>
                   <Grid2>
-                    <Field label="Adresse (rue)"><input name="quote_company_address" value={settings.quote_company_address || ''} onChange={handleChange} placeholder="12 Rue du Port" style={inputStyle} /></Field>
-                    <Field label="Ville & Code postal"><input name="quote_company_city" value={settings.quote_company_city || ''} onChange={handleChange} placeholder="13600 La Ciotat" style={inputStyle} /></Field>
+                    <Field label="Adresse (rue)"><input name="quote_company_address" value={settings.quote_company_address || ''} onChange={handleChange} placeholder="12 Rue du Port" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
+                    <Field label="Ville & Code postal"><input name="quote_company_city" value={settings.quote_company_city || ''} onChange={handleChange} placeholder="13600 La Ciotat" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
                   </Grid2>
                   <Grid2>
-                    <Field label="Email entreprise"><input name="quote_company_email" value={settings.quote_company_email || ''} onChange={handleChange} placeholder="contact@renovboat.fr" style={inputStyle} /></Field>
-                    <Field label="SIRET"><input name="quote_company_siret" value={settings.quote_company_siret || ''} onChange={handleChange} placeholder="123 456 789 00010" style={inputStyle} /></Field>
+                    <Field label="Email entreprise"><input name="quote_company_email" value={settings.quote_company_email || ''} onChange={handleChange} placeholder="contact@renovboat.fr" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
+                    <Field label="SIRET"><input name="quote_company_siret" value={settings.quote_company_siret || ''} onChange={handleChange} placeholder="123 456 789 00010" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
                   </Grid2>
                   <Grid2>
                     <Field label="Conditions de paiement"><input name="quote_payment_terms" value={settings.quote_payment_terms || ''} onChange={handleChange} placeholder="Virement bancaire à 30 jours" style={inputStyle} /></Field>
                     <Field label="Validité (jours)"><input name="quote_validity_days" type="number" value={settings.quote_validity_days || 30} onChange={handleChange} min="1" max="365" style={inputStyle} /></Field>
                   </Grid2>
-                  <Field label="Note de pied de page"><input name="quote_footer_note" value={settings.quote_footer_note || ''} onChange={handleChange} placeholder="Merci de votre confiance." style={inputStyle} /></Field>
+                  <Field label="Note de pied de page"><input name="quote_footer_note" value={settings.quote_footer_note || ''} onChange={handleChange} placeholder="Merci de votre confiance." disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
+                  </fieldset>
                 </Section>
 
                 <Section title="📝 Template HTML du devis">

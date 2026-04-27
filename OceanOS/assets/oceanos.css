@@ -218,6 +218,12 @@ button {
   box-shadow: 0 0 0 3px rgba(56, 163, 255, 0.14);
 }
 
+.field input:disabled,
+.field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .primary-button,
 .ghost-button,
 .app-card {
@@ -503,7 +509,8 @@ button {
 }
 
 .ai-form,
-.prestashop-form {
+.prestashop-form,
+.company-form {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.3fr) auto;
   gap: 12px;
@@ -515,13 +522,19 @@ button {
   grid-template-columns: minmax(200px, 1.2fr) minmax(220px, 1.2fr) minmax(140px, 0.7fr);
 }
 
+.company-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .ai-form .field,
-.prestashop-form .field {
+.prestashop-form .field,
+.company-form .field {
   margin: 0;
 }
 
 .ai-actions,
-.prestashop-actions {
+.prestashop-actions,
+.company-actions {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -529,13 +542,20 @@ button {
   flex-wrap: wrap;
 }
 
-.prestashop-actions {
+.prestashop-actions,
+.company-actions,
+.company-wide-field {
   grid-column: 1 / -1;
+}
+
+.prestashop-actions,
+.company-actions {
   justify-content: flex-start;
 }
 
 .ai-actions .primary-button,
-.prestashop-actions .primary-button {
+.prestashop-actions .primary-button,
+.company-actions .primary-button {
   width: auto;
 }
 
@@ -1067,7 +1087,8 @@ button {
   .user-row,
   .user-row-fields,
   .ai-form,
-  .prestashop-form {
+  .prestashop-form,
+  .company-form {
     grid-template-columns: 1fr;
   }
 

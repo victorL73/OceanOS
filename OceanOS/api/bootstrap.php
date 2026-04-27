@@ -123,6 +123,31 @@ function oceanos_ensure_schema(PDO $pdo): void
     );
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS oceanos_company_settings (
+            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+            company_name VARCHAR(190) NULL,
+            company_phone VARCHAR(80) NULL,
+            company_address VARCHAR(255) NULL,
+            company_city VARCHAR(190) NULL,
+            company_email VARCHAR(190) NULL,
+            company_siret VARCHAR(80) NULL,
+            company_vat_number VARCHAR(80) NULL,
+            company_country_iso VARCHAR(2) NOT NULL DEFAULT 'FR',
+            payment_terms VARCHAR(255) NULL,
+            quote_validity_days INT UNSIGNED NOT NULL DEFAULT 30,
+            footer_note VARCHAR(500) NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+    if (!oceanos_column_exists($pdo, 'oceanos_company_settings', 'company_vat_number')) {
+        $pdo->exec("ALTER TABLE oceanos_company_settings ADD COLUMN company_vat_number VARCHAR(80) NULL AFTER company_siret");
+    }
+    if (!oceanos_column_exists($pdo, 'oceanos_company_settings', 'company_country_iso')) {
+        $pdo->exec("ALTER TABLE oceanos_company_settings ADD COLUMN company_country_iso VARCHAR(2) NOT NULL DEFAULT 'FR' AFTER company_vat_number");
+    }
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS oceanos_notifications (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id BIGINT UNSIGNED NOT NULL,
@@ -161,6 +186,7 @@ function oceanos_ensure_schema(PDO $pdo): void
 
     oceanos_import_legacy_flowcean_users($pdo);
     oceanos_migrate_legacy_prestashop_settings($pdo);
+    oceanos_company_settings_row($pdo);
 }
 
 function oceanos_table_exists(PDO $pdo, string $table): bool
@@ -291,6 +317,7 @@ function oceanos_user_permissions(array $user): array
         'canManageModuleAccess' => $isAdmin,
         'canManageWorkspace' => $isAdmin,
         'canManagePrestashop' => $isAdmin,
+        'canManageCompany' => $isAdmin,
         'canManageServices' => $isAdmin,
         'canAccessAllWorkspaces' => $isSuper,
         'canSuperviseEverything' => $isSuper,
@@ -1051,6 +1078,160 @@ function oceanos_delete_prestashop_settings(PDO $pdo): void
 {
     $pdo->exec('INSERT IGNORE INTO oceanos_prestashop_settings (id, sync_window_days) VALUES (1, 30)');
     $pdo->exec('UPDATE oceanos_prestashop_settings SET shop_url = NULL, webservice_key_cipher = NULL, webservice_key_hint = NULL WHERE id = 1');
+}
+
+function oceanos_company_defaults(): array
+{
+    return [
+        'companyName' => 'RenovBoat SAS',
+        'companyPhone' => '+33 6 XX XX XX XX',
+        'companyAddress' => '12 Rue du Port',
+        'companyCity' => '13600 La Ciotat',
+        'companyEmail' => 'contact@renovboat.fr',
+        'companySiret' => '123 456 789 00010',
+        'companyVatNumber' => '',
+        'companyCountryIso' => 'FR',
+        'paymentTerms' => 'Virement bancaire a 30 jours',
+        'quoteValidityDays' => 30,
+        'footerNote' => 'Merci de votre confiance.',
+    ];
+}
+
+function oceanos_company_settings_row(PDO $pdo): array
+{
+    $defaults = oceanos_company_defaults();
+    $statement = $pdo->prepare(
+        'INSERT IGNORE INTO oceanos_company_settings
+            (id, company_name, company_phone, company_address, company_city, company_email, company_siret, company_vat_number, company_country_iso, payment_terms, quote_validity_days, footer_note)
+         VALUES
+            (1, :company_name, :company_phone, :company_address, :company_city, :company_email, :company_siret, :company_vat_number, :company_country_iso, :payment_terms, :quote_validity_days, :footer_note)'
+    );
+    $statement->execute([
+        'company_name' => $defaults['companyName'],
+        'company_phone' => $defaults['companyPhone'],
+        'company_address' => $defaults['companyAddress'],
+        'company_city' => $defaults['companyCity'],
+        'company_email' => $defaults['companyEmail'],
+        'company_siret' => $defaults['companySiret'],
+        'company_vat_number' => $defaults['companyVatNumber'],
+        'company_country_iso' => $defaults['companyCountryIso'],
+        'payment_terms' => $defaults['paymentTerms'],
+        'quote_validity_days' => $defaults['quoteValidityDays'],
+        'footer_note' => $defaults['footerNote'],
+    ]);
+
+    $row = $pdo->query('SELECT * FROM oceanos_company_settings WHERE id = 1 LIMIT 1')->fetch();
+    if (!is_array($row)) {
+        throw new RuntimeException('Configuration entreprise OceanOS introuvable.');
+    }
+
+    return $row;
+}
+
+function oceanos_company_city_parts(string $companyCity): array
+{
+    $companyCity = trim($companyCity);
+    if (preg_match('/^(\d{4,6})\s+(.+)$/u', $companyCity, $matches)) {
+        return [
+            'postcode' => (string) $matches[1],
+            'city' => trim((string) $matches[2]),
+        ];
+    }
+
+    return [
+        'postcode' => '',
+        'city' => $companyCity,
+    ];
+}
+
+function oceanos_company_private_settings(PDO $pdo): array
+{
+    $row = oceanos_company_settings_row($pdo);
+    $countryIso = strtoupper(trim((string) ($row['company_country_iso'] ?? 'FR')));
+    if (!preg_match('/^[A-Z]{2}$/', $countryIso)) {
+        $countryIso = 'FR';
+    }
+    $cityParts = oceanos_company_city_parts((string) ($row['company_city'] ?? ''));
+
+    return [
+        'companyName' => (string) ($row['company_name'] ?? ''),
+        'companyPhone' => (string) ($row['company_phone'] ?? ''),
+        'companyAddress' => (string) ($row['company_address'] ?? ''),
+        'companyCity' => (string) ($row['company_city'] ?? ''),
+        'companyEmail' => (string) ($row['company_email'] ?? ''),
+        'companySiret' => (string) ($row['company_siret'] ?? ''),
+        'companyVatNumber' => (string) ($row['company_vat_number'] ?? ''),
+        'companyCountryIso' => $countryIso,
+        'companyPostcode' => $cityParts['postcode'],
+        'companyCityName' => $cityParts['city'],
+        'paymentTerms' => (string) ($row['payment_terms'] ?? ''),
+        'quoteValidityDays' => (int) ($row['quote_validity_days'] ?? 30),
+        'footerNote' => (string) ($row['footer_note'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
+function oceanos_company_public_settings(PDO $pdo, bool $canManage = false): array
+{
+    $settings = oceanos_company_private_settings($pdo);
+    $settings['canManage'] = $canManage;
+    $settings['managedBy'] = 'OceanOS';
+
+    return $settings;
+}
+
+function oceanos_save_company_settings(PDO $pdo, array $input): array
+{
+    oceanos_company_settings_row($pdo);
+
+    $companyEmail = trim((string) ($input['companyEmail'] ?? ''));
+    if ($companyEmail !== '' && !filter_var($companyEmail, FILTER_VALIDATE_EMAIL)) {
+        throw new InvalidArgumentException('Email entreprise invalide.');
+    }
+
+    $countryIso = strtoupper(trim((string) ($input['companyCountryIso'] ?? 'FR')));
+    if (!preg_match('/^[A-Z]{2}$/', $countryIso)) {
+        $countryIso = 'FR';
+    }
+
+    $quoteValidityDays = max(1, min(365, (int) ($input['quoteValidityDays'] ?? 30)));
+
+    $statement = $pdo->prepare(
+        'UPDATE oceanos_company_settings
+         SET company_name = :company_name,
+             company_phone = :company_phone,
+             company_address = :company_address,
+             company_city = :company_city,
+             company_email = :company_email,
+             company_siret = :company_siret,
+             company_vat_number = :company_vat_number,
+             company_country_iso = :company_country_iso,
+             payment_terms = :payment_terms,
+             quote_validity_days = :quote_validity_days,
+             footer_note = :footer_note
+         WHERE id = 1'
+    );
+    $statement->execute([
+        'company_name' => trim((string) ($input['companyName'] ?? '')) ?: null,
+        'company_phone' => trim((string) ($input['companyPhone'] ?? '')) ?: null,
+        'company_address' => trim((string) ($input['companyAddress'] ?? '')) ?: null,
+        'company_city' => trim((string) ($input['companyCity'] ?? '')) ?: null,
+        'company_email' => $companyEmail !== '' ? $companyEmail : null,
+        'company_siret' => trim((string) ($input['companySiret'] ?? '')) ?: null,
+        'company_vat_number' => strtoupper(str_replace(' ', '', trim((string) ($input['companyVatNumber'] ?? '')))) ?: null,
+        'company_country_iso' => $countryIso,
+        'payment_terms' => trim((string) ($input['paymentTerms'] ?? '')) ?: null,
+        'quote_validity_days' => $quoteValidityDays,
+        'footer_note' => trim((string) ($input['footerNote'] ?? '')) ?: null,
+    ]);
+
+    return oceanos_company_public_settings($pdo, true);
+}
+
+function oceanos_reset_company_settings(PDO $pdo): array
+{
+    $defaults = oceanos_company_defaults();
+    return oceanos_save_company_settings($pdo, $defaults);
 }
 
 function oceanos_require_prestashop_settings(array $settings): array

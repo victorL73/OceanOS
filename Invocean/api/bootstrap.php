@@ -94,6 +94,7 @@ function invocean_pdo(): PDO
     );
 
     invocean_ensure_schema($pdo);
+    oceanos_ensure_schema($pdo);
 
     return $pdo;
 }
@@ -684,24 +685,18 @@ function invocean_get_settings(PDO $pdo, bool $includeSecret = false): array
 
     $prestashopSettings = oceanos_prestashop_private_settings($pdo);
     $secret = $includeSecret ? (string) ($prestashopSettings['webserviceKey'] ?? '') : '';
+    $sellerSettings = invocean_company_seller_settings($pdo, $row);
 
-    return [
+    return array_merge([
         'shopUrl' => invocean_normalize_shop_url((string) ($prestashopSettings['shopUrl'] ?? '')),
         'webserviceKey' => $secret,
         'webserviceKeyHint' => (string) ($prestashopSettings['webserviceKeyHint'] ?? ''),
         'hasWebserviceKey' => (bool) ($prestashopSettings['hasWebserviceKey'] ?? false),
         'pdfUrlTemplate' => (string) ($row['pdf_url_template'] ?? ''),
         'syncWindowDays' => (int) ($prestashopSettings['syncWindowDays'] ?? 30),
-        'sellerName' => (string) ($row['seller_name'] ?? ''),
-        'sellerVatNumber' => (string) ($row['seller_vat_number'] ?? ''),
-        'sellerSiret' => (string) ($row['seller_siret'] ?? ''),
-        'sellerStreet' => (string) ($row['seller_street'] ?? ''),
-        'sellerPostcode' => (string) ($row['seller_postcode'] ?? ''),
-        'sellerCity' => (string) ($row['seller_city'] ?? ''),
-        'sellerCountryIso' => strtoupper((string) ($row['seller_country_iso'] ?? 'FR')) ?: 'FR',
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
         'managedBy' => 'OceanOS',
-    ];
+    ], $sellerSettings);
 }
 
 function invocean_public_settings(array $settings, bool $canManage): array
@@ -712,15 +707,37 @@ function invocean_public_settings(array $settings, bool $canManage): array
     return $settings;
 }
 
+function invocean_company_seller_settings(PDO $pdo, array $legacyRow): array
+{
+    try {
+        $company = oceanos_company_private_settings($pdo);
+    } catch (Throwable) {
+        $company = [];
+    }
+
+    $postcode = trim((string) ($company['companyPostcode'] ?? ''));
+    $city = trim((string) ($company['companyCityName'] ?? ''));
+    if ($postcode === '' && $city === '') {
+        $city = trim((string) ($company['companyCity'] ?? ''));
+    }
+
+    return [
+        'sellerName' => trim((string) ($company['companyName'] ?? '')) ?: (string) ($legacyRow['seller_name'] ?? ''),
+        'sellerVatNumber' => trim((string) ($company['companyVatNumber'] ?? '')) ?: (string) ($legacyRow['seller_vat_number'] ?? ''),
+        'sellerSiret' => trim((string) ($company['companySiret'] ?? '')) ?: (string) ($legacyRow['seller_siret'] ?? ''),
+        'sellerStreet' => trim((string) ($company['companyAddress'] ?? '')) ?: (string) ($legacyRow['seller_street'] ?? ''),
+        'sellerPostcode' => $postcode !== '' ? $postcode : (string) ($legacyRow['seller_postcode'] ?? ''),
+        'sellerCity' => $city !== '' ? $city : (string) ($legacyRow['seller_city'] ?? ''),
+        'sellerCountryIso' => strtoupper(trim((string) ($company['companyCountryIso'] ?? 'FR'))) ?: 'FR',
+        'companyManagedBy' => 'OceanOS',
+    ];
+}
+
 function invocean_save_settings(PDO $pdo, array $input): array
 {
     $shopUrl = invocean_normalize_shop_url((string) ($input['shopUrl'] ?? ''));
     $pdfUrlTemplate = trim((string) ($input['pdfUrlTemplate'] ?? ''));
     $syncWindowDays = max(1, min(365, (int) ($input['syncWindowDays'] ?? 30)));
-    $sellerCountryIso = strtoupper(trim((string) ($input['sellerCountryIso'] ?? 'FR')));
-    if (!preg_match('/^[A-Z]{2}$/', $sellerCountryIso)) {
-        $sellerCountryIso = 'FR';
-    }
     $webserviceKey = array_key_exists('webserviceKey', $input) ? trim((string) $input['webserviceKey']) : null;
     $clearKey = !empty($input['clearWebserviceKey']);
 
@@ -745,25 +762,11 @@ function invocean_save_settings(PDO $pdo, array $input): array
         'shop_url = :shop_url',
         'pdf_url_template = :pdf_url_template',
         'sync_window_days = :sync_window_days',
-        'seller_name = :seller_name',
-        'seller_vat_number = :seller_vat_number',
-        'seller_siret = :seller_siret',
-        'seller_street = :seller_street',
-        'seller_postcode = :seller_postcode',
-        'seller_city = :seller_city',
-        'seller_country_iso = :seller_country_iso',
     ];
     $params = [
         'shop_url' => $shopUrl !== '' ? rtrim($shopUrl, '/') : null,
         'pdf_url_template' => $pdfUrlTemplate !== '' ? $pdfUrlTemplate : null,
         'sync_window_days' => $syncWindowDays,
-        'seller_name' => trim((string) ($input['sellerName'] ?? '')) ?: null,
-        'seller_vat_number' => strtoupper(str_replace(' ', '', trim((string) ($input['sellerVatNumber'] ?? '')))) ?: null,
-        'seller_siret' => preg_replace('/\D+/', '', (string) ($input['sellerSiret'] ?? '')) ?: null,
-        'seller_street' => trim((string) ($input['sellerStreet'] ?? '')) ?: null,
-        'seller_postcode' => trim((string) ($input['sellerPostcode'] ?? '')) ?: null,
-        'seller_city' => trim((string) ($input['sellerCity'] ?? '')) ?: null,
-        'seller_country_iso' => $sellerCountryIso,
     ];
 
     if ($webserviceKey !== null && $webserviceKey !== '') {
