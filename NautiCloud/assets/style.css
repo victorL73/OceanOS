@@ -27,6 +27,7 @@ body {
   background:
     linear-gradient(180deg, rgba(8, 125, 121, 0.08), transparent 260px),
     var(--bg);
+  overflow-x: hidden;
 }
 
 button,
@@ -48,6 +49,8 @@ a {
 .app-shell {
   min-height: 100vh;
   padding: 22px;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .loading-view {
@@ -85,6 +88,7 @@ a {
   gap: 18px;
   max-width: 1600px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .topbar {
@@ -93,6 +97,7 @@ a {
   justify-content: space-between;
   gap: 18px;
   min-height: 88px;
+  min-width: 0;
 }
 
 .brand-block h1 {
@@ -116,6 +121,7 @@ a {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .sync-pill,
@@ -1155,6 +1161,20 @@ body.focus-mode .preview-frame video {
   .preview-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar-actions,
+  .toolbar-actions,
+  .search-row {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .topbar-actions > *,
+  .toolbar-actions > *,
+  .search-row > * {
+    flex: 1 1 150px;
+    min-width: 0;
   }
 
   .metrics-grid,

@@ -406,6 +406,7 @@ $csrf = oceanos_admin_csrf_token();
       font-family: Inter, Segoe UI, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
+      overflow-x: hidden;
     }
 
     button,
@@ -417,6 +418,8 @@ $csrf = oceanos_admin_csrf_token();
       width: min(1180px, calc(100% - 32px));
       margin: 0 auto;
       padding: 28px 0 52px;
+      max-width: 100%;
+      overflow-x: hidden;
     }
 
     .topbar {
@@ -499,6 +502,7 @@ $csrf = oceanos_admin_csrf_token();
 
     .login-panel {
       width: min(440px, 100%);
+      max-width: 100%;
       padding: 26px;
     }
 
@@ -706,6 +710,33 @@ $csrf = oceanos_admin_csrf_token();
 
       .top-actions {
         justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .shell {
+        width: min(100% - 24px, 1180px);
+        padding: 18px 0 36px;
+      }
+
+      .login-wrap {
+        min-height: calc(100vh - 80px);
+        place-items: start stretch;
+        align-content: center;
+      }
+
+      .login-panel,
+      .panel {
+        width: 100%;
+        padding: 20px;
+      }
+
+      .actions button,
+      .actions .button-link,
+      .top-actions button,
+      .top-actions .button-link {
+        flex: 1 1 150px;
+        min-width: 0;
       }
     }
   </style>

@@ -29,6 +29,7 @@ body {
     linear-gradient(120deg, rgba(47, 158, 100, 0.10), transparent 38%),
     linear-gradient(180deg, #fbfcfa 0%, var(--bg) 100%);
   color: var(--text);
+  overflow-x: hidden;
 }
 
 button,
@@ -51,6 +52,8 @@ button {
   min-height: 100vh;
   margin: 0 auto;
   padding: 24px 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .loading-view {
@@ -93,6 +96,7 @@ button {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .brand-row,
@@ -101,6 +105,7 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .topbar h1 {
@@ -292,6 +297,8 @@ button {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
   gap: 16px;
   align-items: start;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .panel {
@@ -299,6 +306,8 @@ button {
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .panel-header {
@@ -381,6 +390,7 @@ textarea:focus {
 
 .table-wrap {
   overflow-x: auto;
+  max-width: 100%;
 }
 
 table {
@@ -666,6 +676,13 @@ td span {
   .filters-form {
     width: 100%;
     justify-content: flex-start;
+    max-width: none;
+  }
+
+  .topbar-actions > *,
+  .filters-form > * {
+    flex: 1 1 150px;
+    min-width: 0;
   }
 
   .sync-chip {

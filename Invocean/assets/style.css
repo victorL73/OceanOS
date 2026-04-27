@@ -25,6 +25,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
+  overflow-x: hidden;
 }
 
 button,
@@ -235,6 +236,8 @@ h2 {
 
 .app-shell {
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .topbar {
@@ -249,6 +252,7 @@ h2 {
   background: rgba(246, 248, 247, 0.92);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
+  min-width: 0;
 }
 
 .brand-row,
@@ -257,6 +261,7 @@ h2 {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .topbar h1 {
@@ -295,6 +300,8 @@ h2 {
   grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
   gap: 18px;
   padding: 22px clamp(18px, 3vw, 34px) 34px;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .content-column,
@@ -302,6 +309,7 @@ h2 {
   display: grid;
   align-content: start;
   gap: 18px;
+  min-width: 0;
 }
 
 .metrics-grid {
@@ -339,6 +347,8 @@ h2 {
 
 .panel {
   padding: 18px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .panel-header {
@@ -377,6 +387,7 @@ h2 {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
+  max-width: 100%;
 }
 
 .invoice-table {
@@ -650,10 +661,13 @@ h2 {
 
   .topbar-actions {
     align-items: stretch;
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .topbar-actions > * {
-    flex: 1 1 auto;
+    flex: 1 1 150px;
+    min-width: 0;
   }
 
   .main-grid {
