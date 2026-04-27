@@ -8,7 +8,7 @@ import AutomationPanel from './AutomationPanel';
 import MarketingCopilot from './MarketingCopilot';
 import NautiPostModule from '../marketing/NautiPostModule';
 
-const API_URL = 'http://localhost:3002/api/marketing';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/marketing`;
 
 export default function MarketingModule() {
   const [activeTab, setActiveTab] = useState('dashboard'); // Dashboard by default

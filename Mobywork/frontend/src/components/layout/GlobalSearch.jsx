@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Loader2, Package, Mail, User } from 'lucide-react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3002/api';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 export default function GlobalSearch({ onNavigate }) {
   const [query, setQuery] = useState('');

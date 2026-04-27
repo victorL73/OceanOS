@@ -13,7 +13,7 @@ export default function AiPanel({ mail, onStatusChange, onReplyFilled }) {
     const handleRegen = async () => {
         setIsRegen(true);
         try {
-            await axios.post(`http://localhost:3002/api/ai/generate-reply/${mail.id}`, { style: selectedStyle });
+            await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/ai/generate-reply/${mail.id}`, { style: selectedStyle });
             onStatusChange(); // trigger refresh parent
         } catch (error) {
             console.error(error);

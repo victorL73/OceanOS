@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+const API_PUBLIC_URL = API_URL.replace(/\/api\/?$/, '/api-public');
 
 const NAV_ITEMS = [
   { id: 'dashboard',   label: 'Dashboard IA',    icon: LayoutDashboard },
@@ -24,11 +25,11 @@ const NAV_ITEMS = [
 async function checkServices() {
   const results = { backend: false, imap: false, prestashop: false };
   try {
-    await axios.get('http://localhost:3002/api-public/health', { timeout: 3000 });
+    await axios.get(`${API_PUBLIC_URL}/health`, { timeout: 3000 });
     results.backend = true;
   } catch {}
   try {
-    const r = await axios.get('http://localhost:3002/api/settings/status', { timeout: 3000 });
+    const r = await axios.get(`${API_URL}/settings/status`, { timeout: 3000 });
     results.imap = r.data?.imap === true;
     results.prestashop = r.data?.prestashop === true;
   } catch {

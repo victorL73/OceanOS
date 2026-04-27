@@ -35,7 +35,7 @@ export default function SalesChart() {
       try {
         setIsLoading(true);
         const token = localStorage.getItem('moby_token');
-        const res = await axios.get('http://localhost:3002/api/dashboard/sales', {
+        const res = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/dashboard/sales`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setRawSalesData(res.data);

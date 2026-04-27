@@ -63,12 +63,16 @@ router.get('/status', async (req, res) => {
     try {
         const sharedPrestashop = await getSharedPrestashopSettings().catch(() => ({}));
         db.get(`SELECT imap_host, imap_user, ps_api_url, ps_api_key FROM user_settings WHERE user_id = ?`, [req.user.id], async (err, row) => {
-            const status = { backend: true, imap: false, prestashop: false };
+            const status = {
+                backend: true,
+                imap: false,
+                prestashop: !!(sharedPrestashop.shopUrl && sharedPrestashop.apiKey),
+            };
             if (!err && row) {
                 // IMAP: connecté si host + user renseignés
                 status.imap = !!(row.imap_host && row.imap_user);
                 // PrestaShop: connecté si url + clé renseignées
-                status.prestashop = !!((sharedPrestashop.shopUrl && sharedPrestashop.apiKey) || (row.ps_api_url && row.ps_api_key && row.ps_api_key.length > 5));
+                status.prestashop = status.prestashop || !!(row.ps_api_url && row.ps_api_key && row.ps_api_key.length > 5);
             }
             res.json(status);
         });

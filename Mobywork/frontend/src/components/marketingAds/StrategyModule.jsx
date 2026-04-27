@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3002/api/marketing';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/marketing`;
 
 export default function StrategyModule({ initialData = null }) {
   const [formData, setFormData] = useState({

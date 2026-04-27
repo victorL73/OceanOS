@@ -16,7 +16,7 @@ export default function TopProducts() {
       try {
         setIsLoading(true);
         const token = localStorage.getItem('moby_token');
-        const res = await axios.get('http://localhost:3002/api/dashboard/top-products', {
+        const res = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/dashboard/top-products`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setProducts(res.data);

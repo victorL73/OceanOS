@@ -10,7 +10,7 @@ export default function Sidebar({ stats, onFilterChange, activeFilter, onSync, o
         if(isAutoPilotGearing) return;
         setIsAutoPilotGearing(true);
         try {
-            const res = await axios.post('http://localhost:3002/api/autopilot');
+            const res = await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/autopilot`);
             alert(res.data.message);
             onSync(); // rafraichit les listes
         } catch (err) {

@@ -7,7 +7,7 @@ import {
   Shield, Eye, Settings, Plus, Trash2, Edit3
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3002/api';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 // Règles d'automatisation prédéfinies
 const DEFAULT_RULES = [

@@ -26,7 +26,7 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 import './index.css';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 const OCEANOS_URL = '/OceanOS/';
 const OCEANOS_AUTH_URL = '/OceanOS/api/auth.php';
 const OCEANOS_MOBY_TOKEN_URL = '/OceanOS/api/mobywork-token.php';

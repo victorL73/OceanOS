@@ -7,7 +7,7 @@ import OrderTimeline from './OrderTimeline';
 import OrderDetail from './OrderDetail';
 import { Target, LayoutGrid, List, Clock, Zap, FileText, LayoutDashboard, ChevronRight } from 'lucide-react';
 
-const API_URL = 'http://localhost:3002/api/orders';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/orders`;
 
 export default function OrdersLayout({ navContext, setNavContext }) {
   const [orders, setOrders] = useState([]);

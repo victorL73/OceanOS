@@ -4,7 +4,7 @@ import { Plus, Search, FileText, Download, Trash2, Save, Send, X } from 'lucide-
 import QuoteList from './QuoteList';
 import QuoteBuilder from './QuoteBuilder';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export default function QuotesLayout({ navContext, setNavContext }) {
   const [quotes, setQuotes] = useState([]);

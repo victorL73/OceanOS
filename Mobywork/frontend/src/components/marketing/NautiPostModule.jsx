@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 
-const API = 'http://localhost:3002/api';
+const API = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 const GROQ_MODEL = "llama-3.1-8b-instant";
 const GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";

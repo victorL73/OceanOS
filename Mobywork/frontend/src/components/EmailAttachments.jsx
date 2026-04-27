@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const API_URL = 'http://localhost:3002/api';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 // Icône selon le type MIME
 function getFileIcon(contentType = '') {

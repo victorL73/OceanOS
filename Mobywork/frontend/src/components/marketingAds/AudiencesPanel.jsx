@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3002/api/marketing';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/marketing`;
 
 export default function AudiencesPanel() {
   const [audiences, setAudiences] = useState([]);
@@ -29,7 +29,7 @@ export default function AudiencesPanel() {
     try {
         setIsSuggesting(true);
         // Simuler un appel avec analyse du CRM pour suggérer des audiences
-        const crmRes = await axios.get('http://localhost:3002/api/dashboard/alerts');
+        const crmRes = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/dashboard/alerts`);
         const crmSummary = `Segments: ${crmRes.data.clientsSegments.map(s => `${s.label} (${s.count})`).join(', ')}`;
         
         const res = await axios.post(`${API_URL}/suggest-audiences`, { crmSummary });

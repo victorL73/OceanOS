@@ -3,7 +3,7 @@ import axios from 'axios';
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Euro, TrendingUp, AlertTriangle, ShieldAlert, Sparkles, RefreshCw, BarChart2 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3002/api';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 const COLORS = ['#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#10b981'];
 

@@ -7,7 +7,7 @@ import {
   Trash2, Edit2, Save, X
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:3002/api/prospects';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/prospects`;
 
 export default function ProspectDetail({ prospect, onUpdate, onDelete }) {
   const [isGenerating, setIsGenerating] = useState(false);

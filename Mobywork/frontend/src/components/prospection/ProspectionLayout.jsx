@@ -10,7 +10,7 @@ import ProspectList from './ProspectList';
 import ProspectKanban from './ProspectKanban';
 import ProspectDetail from './ProspectDetail';
 
-const API_URL = 'http://localhost:3002/api/prospects';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/prospects`;
 
 export default function ProspectionLayout() {
   const [prospects, setProspects] = useState([]);

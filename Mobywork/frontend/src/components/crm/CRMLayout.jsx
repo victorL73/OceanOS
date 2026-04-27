@@ -5,7 +5,7 @@ import ClientList from './ClientList';
 import ClientDetails from './ClientDetails';
 import EditorModal from './EditorModal';
 
-const API_URL = 'http://localhost:3002/api/crm';
+const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/crm`;
 
 export default function CRMLayout({ navContext, setNavContext, onGlobalNavigate }) {
   const [clients, setClients] = useState([]);

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Sparkles, CheckCircle, Pencil, X, ChevronRight, Loader2 } from 'lucide-react';
 
-const API = 'http://localhost:3002/api';
+const API = `${import.meta.env.VITE_API_URL || '/api'}`;
 
 const authConfig = () => {
   const token = localStorage.getItem('moby_token');

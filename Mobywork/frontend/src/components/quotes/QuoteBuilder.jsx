@@ -8,7 +8,7 @@ import {
   getQuoteTemplate,
 } from './invoceanQuoteTemplate';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export default function QuoteBuilder({ quote, onSave, onCancel, onDelete }) {
   const [formData, setFormData] = useState({ ...quote });

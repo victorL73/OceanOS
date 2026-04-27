@@ -8,7 +8,7 @@ import {
   getQuoteTemplate,
 } from '../quotes/invoceanQuoteTemplate';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API = import.meta.env.VITE_API_URL || '/api';
 
 const inputStyle = {
   width: '100%', padding: '0.75rem 1rem',

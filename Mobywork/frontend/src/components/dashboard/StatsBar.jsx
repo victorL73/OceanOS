@@ -54,7 +54,7 @@ export default function StatsBar() {
       try {
         setIsLoading(true);
         const token = localStorage.getItem('moby_token');
-        const res = await axios.get(`http://localhost:3002/api/dashboard/stats?range=${range}`, {
+        const res = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/dashboard/stats?range=${range}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setStats(res.data);

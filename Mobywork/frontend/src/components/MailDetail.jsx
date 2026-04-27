@@ -38,7 +38,7 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   useEffect(() => {
     const loadSenders = async () => {
       try {
-        const res = await axios.get('http://localhost:3002/api/settings/mail-senders');
+        const res = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/settings/mail-senders`);
         const list = Array.isArray(res.data) ? res.data : [];
         setSenders(list);
         setSenderId(list.find(sender => sender.isDefault)?.id || list[0]?.id || '');
@@ -79,7 +79,7 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
               formData.append('attachments', file);
           });
           
-          await axios.post(`http://localhost:3002/api/emails/${mail.id}/reply`, formData, {
+          await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/emails/${mail.id}/reply`, formData, {
               headers: { 'Content-Type': 'multipart/form-data' }
           });
           onMarkDone(mail.id);

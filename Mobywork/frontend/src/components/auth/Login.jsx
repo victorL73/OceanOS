@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Mail, Lock, Zap, ChevronRight, Shield, BarChart2, Users, ShoppingCart, Eye, EyeOff } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const FEATURES = [
   { icon: <BarChart2 size={18} />, title: 'Dashboard IA', desc: 'KPIs PrestaShop en temps réel' },
