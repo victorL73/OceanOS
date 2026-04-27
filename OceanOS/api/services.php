@@ -38,6 +38,50 @@ function oceanos_service_control_available(): bool
     return PHP_OS_FAMILY === 'Linux' && is_file($path) && is_executable($path);
 }
 
+function oceanos_systemctl_path(): string
+{
+    foreach (['/usr/bin/systemctl', '/bin/systemctl'] as $path) {
+        if (is_executable($path)) {
+            return $path;
+        }
+    }
+
+    return 'systemctl';
+}
+
+function oceanos_run_process(array $parts): array
+{
+    if (!function_exists('proc_open')) {
+        throw new RuntimeException('La fonction PHP proc_open est requise pour lire les services.');
+    }
+
+    $command = implode(' ', array_map('escapeshellarg', $parts));
+    $pipes = [];
+    $process = proc_open(
+        $command,
+        [
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ],
+        $pipes
+    );
+
+    if (!is_resource($process)) {
+        throw new RuntimeException('Impossible de lancer la commande systeme.');
+    }
+
+    $stdout = stream_get_contents($pipes[1]) ?: '';
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]) ?: '';
+    fclose($pipes[2]);
+
+    return [
+        'status' => proc_close($process),
+        'stdout' => trim($stdout),
+        'stderr' => trim($stderr),
+    ];
+}
+
 function oceanos_unknown_services(string $message): array
 {
     return array_map(
@@ -54,6 +98,20 @@ function oceanos_unknown_services(string $message): array
         ],
         array_values(oceanos_services_catalog())
     );
+}
+
+function oceanos_systemctl_value(string $unit, array $args, string $default = 'unknown'): string
+{
+    try {
+        $result = oceanos_run_process(array_merge([oceanos_systemctl_path()], $args, [$unit]));
+        $value = trim((string) ($result['stdout'] ?? ''));
+        if ($value !== '') {
+            return strtok($value, "\r\n") ?: $default;
+        }
+    } catch (Throwable) {
+    }
+
+    return $default;
 }
 
 function oceanos_normalize_service_row(array $service, bool $canControl = true): array
@@ -89,7 +147,30 @@ function oceanos_normalize_service_row(array $service, bool $canControl = true):
         'stateLabel' => $stateLabels[$active] ?? ucfirst($active !== '' ? $active : 'unknown'),
         'isRunning' => $active === 'active',
         'canControl' => $canControl,
+        'message' => (string) ($service['message'] ?? ''),
     ];
+}
+
+function oceanos_read_service_status_direct(string $message): array
+{
+    return array_map(
+        static function (array $service) use ($message): array {
+            $unit = (string) ($service['unit'] ?? '');
+
+            return oceanos_normalize_service_row(
+                [
+                    ...$service,
+                    'active' => oceanos_systemctl_value($unit, ['is-active']),
+                    'enabled' => oceanos_systemctl_value($unit, ['is-enabled']),
+                    'subState' => oceanos_systemctl_value($unit, ['show', '--property=SubState', '--value']),
+                    'loadState' => oceanos_systemctl_value($unit, ['show', '--property=LoadState', '--value']),
+                    'message' => $message,
+                ],
+                false
+            );
+        },
+        array_values(oceanos_services_catalog())
+    );
 }
 
 function oceanos_run_service_control(string $action, string $service = 'all'): array
@@ -144,8 +225,21 @@ function oceanos_service_status_payload(): array
 {
     $controlAvailable = oceanos_service_control_available();
     if (!$controlAvailable) {
+        if (PHP_OS_FAMILY === 'Linux' && function_exists('proc_open')) {
+            $message = 'Etats lus via systemctl. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control pour activer les boutons.';
+
+            return [
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'controlAvailable' => false,
+                'controller' => oceanos_service_control_path(),
+                'services' => oceanos_read_service_status_direct($message),
+                'message' => $message,
+            ];
+        }
+
         $message = PHP_OS_FAMILY === 'Linux'
-            ? 'Controleur systeme non installe ou non executable.'
+            ? 'Controleur systeme non installe, non executable ou proc_open indisponible.'
             : 'Controle systeme disponible uniquement sur Ubuntu/Linux.';
 
         return [

@@ -11,6 +11,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
   const [selectedQuoteId, setSelectedQuoteId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [draftQuoteContext, setDraftQuoteContext] = useState(null);
   
   // Si on clique sur "Créer devis" depuis le CRM, on l'intercepte ici 
   const isCreatingNew = selectedQuoteId === 'new';
@@ -32,6 +33,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
     
     if (navContext?.id) {
         setSelectedQuoteId(navContext.id); // ex: 'new' passé depuis CRM
+        setDraftQuoteContext(navContext.id === 'new' ? navContext : null);
         setNavContext(null);
     }
   }, [navContext]);
@@ -41,9 +43,15 @@ export default function QuotesLayout({ navContext, setNavContext }) {
     q.reference?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const selectedQuote = isCreatingNew ? { 
-    id: 'new', client_id: navContext?.client_id || '', client_name: navContext?.client_name || '', 
-    status: 'Brouillon', lines: [], total_ht: 0, total_ttc: 0 
+  const selectedQuote = isCreatingNew ? {
+    id: 'new',
+    client_id: draftQuoteContext?.client_id || '',
+    client_name: draftQuoteContext?.client_name || '',
+    client_email: draftQuoteContext?.client_email || '',
+    status: 'Brouillon',
+    lines: [],
+    total_ht: 0,
+    total_ttc: 0
   } : quotes.find(q => q.id === selectedQuoteId);
 
   const handleSaveQuote = async (quoteData) => {
@@ -55,6 +63,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         }
         fetchQuotes();
         setSelectedQuoteId(null);
+        setDraftQuoteContext(null);
     } catch(e) {
         console.error('Erreur save: ', e);
         alert('Erreur: ' + e.message);
@@ -66,6 +75,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
     try {
         await axios.delete(`${API_URL}/quotes/${id}`);
         setSelectedQuoteId(null);
+        setDraftQuoteContext(null);
         fetchQuotes();
     } catch(e) {
         console.error('Del error:', e);
@@ -82,7 +92,10 @@ export default function QuotesLayout({ navContext, setNavContext }) {
              <FileText size={20} /> Devis
           </h2>
           <button 
-             onClick={() => setSelectedQuoteId('new')}
+             onClick={() => {
+               setDraftQuoteContext(null);
+               setSelectedQuoteId('new');
+             }}
              style={{ 
                marginTop: '1.5rem', width: '100%', padding: '0.75rem', 
                background: 'var(--accent-blue)', color: 'white', borderRadius: '8px',
@@ -129,10 +142,13 @@ export default function QuotesLayout({ navContext, setNavContext }) {
             {/* DROITE: BUILDER / DETAILS DU DEVIS */}
             <div className="detail-panel" style={{ flex: 1, background: 'var(--bg-base)', overflowY: 'auto' }}>
                {selectedQuote ? (
-                  <QuoteBuilder 
+                 <QuoteBuilder 
                      quote={selectedQuote} 
                      onSave={handleSaveQuote} 
-                     onCancel={() => setSelectedQuoteId(null)} 
+                     onCancel={() => {
+                       setSelectedQuoteId(null);
+                       setDraftQuoteContext(null);
+                     }} 
                      onDelete={() => handleDelete(selectedQuote.id)}
                   />
                ) : (

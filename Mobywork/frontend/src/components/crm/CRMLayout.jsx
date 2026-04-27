@@ -102,7 +102,12 @@ export default function CRMLayout({ navContext, setNavContext, onGlobalNavigate 
               isLoading={isClientLoading}
               onAction={openEditor}
               onBack={() => handleSelectClient(null)}
-              onQuote={() => onGlobalNavigate && onGlobalNavigate('quotes', { id: 'new', client_id: selectedClientData.client.id, client_name: selectedClientData.client.nom })}
+              onQuote={() => onGlobalNavigate && onGlobalNavigate('quotes', {
+                id: 'new',
+                client_id: selectedClientData.client.id,
+                client_name: selectedClientData.client.nom,
+                client_email: selectedClientData.client.email,
+              })}
             />
           </div>
         </div>
