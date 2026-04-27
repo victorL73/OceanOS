@@ -19,7 +19,8 @@ const ALL_FIELDS = [
     'finance_expense_coef', 'finance_client_delay', 'finance_supplier_delay',
     'marketing_target_roas', 'marketing_auto_pilot', 'marketing_daily_budget',
     'marketing_google_ads_id', 'marketing_meta_ads_id', 'marketing_tiktok_ads_id',
-    'quote_company_logo', 'quote_html_template',
+    'quote_company_logo', 'quote_payment_terms', 'quote_validity_days', 'quote_footer_note',
+    'quote_html_template',
 ];
 
 function quoteSettingsFromCompany(settings = {}) {
@@ -30,9 +31,6 @@ function quoteSettingsFromCompany(settings = {}) {
         quote_company_phone: settings.companyPhone || '',
         quote_company_email: settings.companyEmail || '',
         quote_company_siret: settings.companySiret || '',
-        quote_payment_terms: settings.paymentTerms || 'Virement bancaire a 30 jours',
-        quote_validity_days: settings.quoteValidityDays || 30,
-        quote_footer_note: settings.footerNote || 'Merci de votre confiance.',
         company_managed_by: 'OceanOS',
     };
 }

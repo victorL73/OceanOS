@@ -64,9 +64,9 @@ async function getQuoteSettings(userId) {
         quote_company_phone: sharedCompany.companyPhone || localSettings.quote_company_phone || '',
         quote_company_email: sharedCompany.companyEmail || localSettings.quote_company_email || '',
         quote_company_siret: sharedCompany.companySiret || localSettings.quote_company_siret || '',
-        quote_payment_terms: sharedCompany.paymentTerms || localSettings.quote_payment_terms || '',
-        quote_validity_days: sharedCompany.quoteValidityDays || localSettings.quote_validity_days || 30,
-        quote_footer_note: sharedCompany.footerNote || localSettings.quote_footer_note || '',
+        quote_payment_terms: localSettings.quote_payment_terms || '',
+        quote_validity_days: localSettings.quote_validity_days || 30,
+        quote_footer_note: localSettings.quote_footer_note || '',
     };
 }
 

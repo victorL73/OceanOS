@@ -373,15 +373,21 @@ function renderSettings() {
 
   [
     elements.sellerName,
-    elements.sellerVatNumber,
     elements.sellerSiret,
     elements.sellerStreet,
     elements.sellerPostcode,
     elements.sellerCity,
-    elements.sellerCountryIso,
   ].forEach((element) => {
     element.disabled = true;
     element.title = "Information geree dans OceanOS";
+  });
+
+  [
+    elements.sellerVatNumber,
+    elements.sellerCountryIso,
+  ].forEach((element) => {
+    element.disabled = !canManage;
+    element.title = "";
   });
 
   elements.connectionChip.textContent = settings.shopUrl && settings.hasWebserviceKey

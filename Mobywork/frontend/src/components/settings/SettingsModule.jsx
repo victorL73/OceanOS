@@ -744,12 +744,18 @@ export default function SettingsModule({ user, onLogout }) {
                     <Field label="Email entreprise"><input name="quote_company_email" value={settings.quote_company_email || ''} onChange={handleChange} placeholder="contact@renovboat.fr" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
                     <Field label="SIRET"><input name="quote_company_siret" value={settings.quote_company_siret || ''} onChange={handleChange} placeholder="123 456 789 00010" disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
                   </Grid2>
+                  </fieldset>
+                  <div style={{ margin: '1.25rem 0 1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-primary)' }}>Parametres du devis Mobywork</h4>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.35rem 0 0' }}>
+                      Ces champs restent geres dans Mobywork.
+                    </p>
+                  </div>
                   <Grid2>
                     <Field label="Conditions de paiement"><input name="quote_payment_terms" value={settings.quote_payment_terms || ''} onChange={handleChange} placeholder="Virement bancaire à 30 jours" style={inputStyle} /></Field>
                     <Field label="Validité (jours)"><input name="quote_validity_days" type="number" value={settings.quote_validity_days || 30} onChange={handleChange} min="1" max="365" style={inputStyle} /></Field>
                   </Grid2>
-                  <Field label="Note de pied de page"><input name="quote_footer_note" value={settings.quote_footer_note || ''} onChange={handleChange} placeholder="Merci de votre confiance." disabled={companyManagedByOceanOS} style={companyFieldStyle} /></Field>
-                  </fieldset>
+                  <Field label="Note de pied de page"><input name="quote_footer_note" value={settings.quote_footer_note || ''} onChange={handleChange} placeholder="Merci de votre confiance." style={inputStyle} /></Field>
                 </Section>
 
                 <Section title="📝 Template HTML du devis">

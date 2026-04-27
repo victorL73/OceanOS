@@ -1147,10 +1147,6 @@ function oceanos_company_city_parts(string $companyCity): array
 function oceanos_company_private_settings(PDO $pdo): array
 {
     $row = oceanos_company_settings_row($pdo);
-    $countryIso = strtoupper(trim((string) ($row['company_country_iso'] ?? 'FR')));
-    if (!preg_match('/^[A-Z]{2}$/', $countryIso)) {
-        $countryIso = 'FR';
-    }
     $cityParts = oceanos_company_city_parts((string) ($row['company_city'] ?? ''));
 
     return [
@@ -1160,13 +1156,8 @@ function oceanos_company_private_settings(PDO $pdo): array
         'companyCity' => (string) ($row['company_city'] ?? ''),
         'companyEmail' => (string) ($row['company_email'] ?? ''),
         'companySiret' => (string) ($row['company_siret'] ?? ''),
-        'companyVatNumber' => (string) ($row['company_vat_number'] ?? ''),
-        'companyCountryIso' => $countryIso,
         'companyPostcode' => $cityParts['postcode'],
         'companyCityName' => $cityParts['city'],
-        'paymentTerms' => (string) ($row['payment_terms'] ?? ''),
-        'quoteValidityDays' => (int) ($row['quote_validity_days'] ?? 30),
-        'footerNote' => (string) ($row['footer_note'] ?? ''),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
     ];
 }
@@ -1189,13 +1180,6 @@ function oceanos_save_company_settings(PDO $pdo, array $input): array
         throw new InvalidArgumentException('Email entreprise invalide.');
     }
 
-    $countryIso = strtoupper(trim((string) ($input['companyCountryIso'] ?? 'FR')));
-    if (!preg_match('/^[A-Z]{2}$/', $countryIso)) {
-        $countryIso = 'FR';
-    }
-
-    $quoteValidityDays = max(1, min(365, (int) ($input['quoteValidityDays'] ?? 30)));
-
     $statement = $pdo->prepare(
         'UPDATE oceanos_company_settings
          SET company_name = :company_name,
@@ -1203,12 +1187,7 @@ function oceanos_save_company_settings(PDO $pdo, array $input): array
              company_address = :company_address,
              company_city = :company_city,
              company_email = :company_email,
-             company_siret = :company_siret,
-             company_vat_number = :company_vat_number,
-             company_country_iso = :company_country_iso,
-             payment_terms = :payment_terms,
-             quote_validity_days = :quote_validity_days,
-             footer_note = :footer_note
+             company_siret = :company_siret
          WHERE id = 1'
     );
     $statement->execute([
@@ -1218,11 +1197,6 @@ function oceanos_save_company_settings(PDO $pdo, array $input): array
         'company_city' => trim((string) ($input['companyCity'] ?? '')) ?: null,
         'company_email' => $companyEmail !== '' ? $companyEmail : null,
         'company_siret' => trim((string) ($input['companySiret'] ?? '')) ?: null,
-        'company_vat_number' => strtoupper(str_replace(' ', '', trim((string) ($input['companyVatNumber'] ?? '')))) ?: null,
-        'company_country_iso' => $countryIso,
-        'payment_terms' => trim((string) ($input['paymentTerms'] ?? '')) ?: null,
-        'quote_validity_days' => $quoteValidityDays,
-        'footer_note' => trim((string) ($input['footerNote'] ?? '')) ?: null,
     ]);
 
     return oceanos_company_public_settings($pdo, true);

@@ -137,11 +137,6 @@ const elements = {
   companyCity: $("company-city"),
   companyEmail: $("company-email"),
   companySiret: $("company-siret"),
-  companyVatNumber: $("company-vat-number"),
-  companyCountryIso: $("company-country-iso"),
-  companyPaymentTerms: $("company-payment-terms"),
-  companyValidityDays: $("company-validity-days"),
-  companyFooterNote: $("company-footer-note"),
   saveCompanyButton: $("save-company-button"),
   resetCompanyButton: $("reset-company-button"),
   companyStatus: $("company-status"),
@@ -560,11 +555,6 @@ function renderCompanySettings() {
   elements.companyCity.value = settings.companyCity || "";
   elements.companyEmail.value = settings.companyEmail || "";
   elements.companySiret.value = settings.companySiret || "";
-  elements.companyVatNumber.value = settings.companyVatNumber || "";
-  elements.companyCountryIso.value = settings.companyCountryIso || "FR";
-  elements.companyPaymentTerms.value = settings.paymentTerms || "";
-  elements.companyValidityDays.value = settings.quoteValidityDays || 30;
-  elements.companyFooterNote.value = settings.footerNote || "";
 
   [
     elements.companyName,
@@ -573,11 +563,6 @@ function renderCompanySettings() {
     elements.companyCity,
     elements.companyEmail,
     elements.companySiret,
-    elements.companyVatNumber,
-    elements.companyCountryIso,
-    elements.companyPaymentTerms,
-    elements.companyValidityDays,
-    elements.companyFooterNote,
     elements.saveCompanyButton,
     elements.resetCompanyButton,
   ].forEach((element) => {
@@ -615,11 +600,6 @@ async function saveCompanySettings() {
       companyCity: elements.companyCity.value.trim(),
       companyEmail: elements.companyEmail.value.trim(),
       companySiret: elements.companySiret.value.trim(),
-      companyVatNumber: elements.companyVatNumber.value.trim(),
-      companyCountryIso: elements.companyCountryIso.value.trim(),
-      paymentTerms: elements.companyPaymentTerms.value.trim(),
-      quoteValidityDays: Number(elements.companyValidityDays.value || 30),
-      footerNote: elements.companyFooterNote.value.trim(),
     }),
   });
   companySettings = payload.settings || null;

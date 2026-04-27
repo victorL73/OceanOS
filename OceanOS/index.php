@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
   <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.">
   <link rel="stylesheet" href="assets/guard.css">
-  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-update-services">
+  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
 <body>
   <main class="shell" data-state="loading">
@@ -236,26 +236,6 @@
                     <span>SIRET</span>
                     <input id="company-siret" type="text" inputmode="numeric">
                   </label>
-                  <label class="field">
-                    <span>TVA intracommunautaire</span>
-                    <input id="company-vat-number" type="text" placeholder="FR...">
-                  </label>
-                  <label class="field">
-                    <span>Pays ISO</span>
-                    <input id="company-country-iso" type="text" maxlength="2" value="FR">
-                  </label>
-                  <label class="field">
-                    <span>Conditions de paiement</span>
-                    <input id="company-payment-terms" type="text">
-                  </label>
-                  <label class="field">
-                    <span>Validite devis (jours)</span>
-                    <input id="company-validity-days" type="number" min="1" max="365" value="30">
-                  </label>
-                  <label class="field company-wide-field">
-                    <span>Note de pied de page</span>
-                    <input id="company-footer-note" type="text">
-                  </label>
                   <div class="company-actions">
                     <button class="primary-button" id="save-company-button" type="submit">Enregistrer</button>
                     <button class="ghost-button" id="reset-company-button" type="button">Reinitialiser</button>
@@ -367,6 +347,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260427-update-services"></script>
+  <script src="assets/oceanos.js?v=20260427-company-scope"></script>
 </body>
 </html>
