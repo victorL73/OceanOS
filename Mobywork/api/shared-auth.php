@@ -38,11 +38,60 @@ function mobywork_config(): array
     ];
 }
 
+function mobywork_env_file_value(string $path, array $keys): string
+{
+    if (!is_file($path)) {
+        return '';
+    }
+
+    $wanted = array_flip($keys);
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return '';
+    }
+
+    foreach ($lines as $line) {
+        $line = trim((string) $line);
+        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+            continue;
+        }
+
+        if (str_starts_with($line, 'export ')) {
+            $line = trim(substr($line, 7));
+        }
+
+        [$key, $value] = array_map('trim', explode('=', $line, 2));
+        if (!isset($wanted[$key])) {
+            continue;
+        }
+
+        $value = trim($value, "\"'");
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
+}
+
 function mobywork_bridge_token(): string
 {
     $env = trim((string) (getenv('MOBYWORK_BRIDGE_TOKEN') ?: ''));
     if ($env !== '') {
         return $env;
+    }
+
+    $serverToken = mobywork_env_file_value('/etc/oceanos/mobywork-backend.env', ['MOBYWORK_BRIDGE_TOKEN']);
+    if ($serverToken !== '') {
+        return $serverToken;
+    }
+
+    $envFileToken = mobywork_env_file_value(
+        dirname(__DIR__) . DIRECTORY_SEPARATOR . 'backend' . DIRECTORY_SEPARATOR . '.env',
+        ['MOBYWORK_BRIDGE_TOKEN']
+    );
+    if ($envFileToken !== '') {
+        return $envFileToken;
     }
 
     $file = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'backend' . DIRECTORY_SEPARATOR . '.mobywork_bridge_secret';

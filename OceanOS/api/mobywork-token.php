@@ -32,6 +32,14 @@ function oceanos_mobywork_secret(): string
         return $env;
     }
 
+    $serverSecret = oceanos_env_file_value(
+        '/etc/oceanos/mobywork-backend.env',
+        ['JWT_SECRET', 'OCEANOS_SECRET', 'FLOWCEAN_AI_SECRET']
+    );
+    if ($serverSecret !== '') {
+        return $serverSecret;
+    }
+
     $fileSecret = oceanos_env_file_value(
         dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Mobywork' . DIRECTORY_SEPARATOR . 'backend' . DIRECTORY_SEPARATOR . '.env',
         ['JWT_SECRET', 'OCEANOS_SECRET', 'FLOWCEAN_AI_SECRET']
