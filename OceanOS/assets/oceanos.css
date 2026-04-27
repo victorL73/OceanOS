@@ -896,6 +896,90 @@ button {
   color: var(--teal);
 }
 
+.services-list {
+  display: grid;
+  gap: 12px;
+}
+
+.service-row {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.service-row-head,
+.service-details,
+.service-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.service-row-head {
+  justify-content: space-between;
+}
+
+.service-row-head strong,
+.service-row-head small {
+  display: block;
+}
+
+.service-row-head small,
+.service-details,
+.service-message {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.service-details {
+  font-size: 0.82rem;
+}
+
+.service-status {
+  min-width: 92px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-align: center;
+}
+
+.service-status.success {
+  border-color: rgba(31, 209, 178, 0.35);
+  background: rgba(31, 209, 178, 0.1);
+  color: var(--teal);
+}
+
+.service-status.warning {
+  border-color: rgba(242, 184, 75, 0.35);
+  background: rgba(242, 184, 75, 0.1);
+  color: var(--amber);
+}
+
+.service-status.error {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--red);
+}
+
+.service-actions .ghost-button,
+.service-actions .danger-button {
+  width: 120px;
+  flex: 0 0 120px;
+  text-align: center;
+}
+
+.service-message {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
 @media (max-width: 1180px) {
   .user-create-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));

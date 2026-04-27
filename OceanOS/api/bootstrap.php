@@ -269,6 +269,14 @@ function oceanos_is_super_user(array $user): bool
     return (string) ($user['role'] ?? 'member') === 'super';
 }
 
+function oceanos_store_session_user(array $user): void
+{
+    $_SESSION['oceanos_user_id'] = (int) $user['id'];
+    $_SESSION['oceanos_user_role'] = (string) ($user['role'] ?? 'member');
+    $_SESSION['oceanos_user_email'] = (string) ($user['email'] ?? '');
+    $_SESSION['oceanos_user_name'] = (string) ($user['display_name'] ?? '');
+}
+
 function oceanos_user_permissions(array $user): array
 {
     $isSuper = oceanos_is_super_user($user);
@@ -280,6 +288,7 @@ function oceanos_user_permissions(array $user): array
         'canManageModuleAccess' => $isAdmin,
         'canManageWorkspace' => $isAdmin,
         'canManagePrestashop' => $isAdmin,
+        'canManageServices' => $isAdmin,
         'canAccessAllWorkspaces' => $isSuper,
         'canSuperviseEverything' => $isSuper,
     ];
@@ -380,10 +389,16 @@ function oceanos_current_user(PDO $pdo): ?array
 
     $user = oceanos_find_user_by_id($pdo, $userId);
     if ($user === null || !(bool) $user['is_active']) {
-        unset($_SESSION['oceanos_user_id']);
+        unset(
+            $_SESSION['oceanos_user_id'],
+            $_SESSION['oceanos_user_role'],
+            $_SESSION['oceanos_user_email'],
+            $_SESSION['oceanos_user_name']
+        );
         return null;
     }
 
+    oceanos_store_session_user($user);
     return $user;
 }
 
@@ -424,7 +439,7 @@ function oceanos_login_user(PDO $pdo, string $email, string $password): ?array
 
     oceanos_start_session();
     session_regenerate_id(true);
-    $_SESSION['oceanos_user_id'] = (int) $user['id'];
+    oceanos_store_session_user($user);
     return $user;
 }
 
@@ -498,7 +513,7 @@ function oceanos_bootstrap_admin(PDO $pdo, string $displayName, string $email, s
     $user = oceanos_create_user($pdo, $displayName, $email, $password, 'super');
     oceanos_start_session();
     session_regenerate_id(true);
-    $_SESSION['oceanos_user_id'] = (int) $user['id'];
+    oceanos_store_session_user($user);
     return $user;
 }
 

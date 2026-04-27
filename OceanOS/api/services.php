@@ -1,0 +1,261 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/bootstrap.php';
+
+function oceanos_service_control_path(): string
+{
+    return '/usr/local/sbin/oceanos-service-control';
+}
+
+function oceanos_services_catalog(): array
+{
+    return [
+        'web' => [
+            'id' => 'web',
+            'label' => 'Serveur web',
+            'description' => 'Apache sert OceanOS et les modules PHP.',
+            'unit' => 'apache2',
+        ],
+        'database' => [
+            'id' => 'database',
+            'label' => 'Base de donnees',
+            'description' => 'MariaDB/MySQL stocke les comptes et donnees applicatives.',
+            'unit' => 'mariadb',
+        ],
+        'mobywork' => [
+            'id' => 'mobywork',
+            'label' => 'Mobywork API',
+            'description' => 'API Node utilisee par Mobywork.',
+            'unit' => 'mobywork-backend',
+        ],
+    ];
+}
+
+function oceanos_service_control_available(): bool
+{
+    $path = oceanos_service_control_path();
+    return PHP_OS_FAMILY === 'Linux' && is_file($path) && is_executable($path);
+}
+
+function oceanos_unknown_services(string $message): array
+{
+    return array_map(
+        static fn(array $service): array => [
+            ...$service,
+            'active' => 'unknown',
+            'enabled' => 'unknown',
+            'subState' => 'unknown',
+            'loadState' => 'unknown',
+            'stateLabel' => 'Indisponible',
+            'isRunning' => false,
+            'canControl' => false,
+            'message' => $message,
+        ],
+        array_values(oceanos_services_catalog())
+    );
+}
+
+function oceanos_normalize_service_row(array $service, bool $canControl = true): array
+{
+    $catalog = oceanos_services_catalog();
+    $id = strtolower(trim((string) ($service['id'] ?? '')));
+    $base = $catalog[$id] ?? [
+        'id' => $id,
+        'label' => $id !== '' ? $id : 'Service',
+        'description' => '',
+        'unit' => '',
+    ];
+
+    $active = trim((string) ($service['active'] ?? 'unknown'));
+    $stateLabels = [
+        'active' => 'Lance',
+        'inactive' => 'Arrete',
+        'failed' => 'Erreur',
+        'activating' => 'Demarrage',
+        'deactivating' => 'Arret',
+        'unknown' => 'Inconnu',
+    ];
+
+    return [
+        ...$base,
+        'label' => (string) ($service['label'] ?? $base['label']),
+        'description' => (string) ($service['description'] ?? $base['description']),
+        'unit' => (string) ($service['unit'] ?? $base['unit']),
+        'active' => $active,
+        'enabled' => (string) ($service['enabled'] ?? 'unknown'),
+        'subState' => (string) ($service['subState'] ?? 'unknown'),
+        'loadState' => (string) ($service['loadState'] ?? 'unknown'),
+        'stateLabel' => $stateLabels[$active] ?? ucfirst($active !== '' ? $active : 'unknown'),
+        'isRunning' => $active === 'active',
+        'canControl' => $canControl,
+    ];
+}
+
+function oceanos_run_service_control(string $action, string $service = 'all'): array
+{
+    if (!oceanos_service_control_available()) {
+        throw new RuntimeException('Controle systeme non installe. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control sur le serveur Ubuntu.');
+    }
+    if (!function_exists('proc_open')) {
+        throw new RuntimeException('La fonction PHP proc_open est requise pour piloter les services.');
+    }
+
+    $command = 'sudo -n '
+        . escapeshellarg(oceanos_service_control_path())
+        . ' '
+        . escapeshellarg($action)
+        . ' '
+        . escapeshellarg($service);
+
+    $pipes = [];
+    $process = proc_open(
+        $command,
+        [
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ],
+        $pipes
+    );
+
+    if (!is_resource($process)) {
+        throw new RuntimeException('Impossible de lancer le controleur de services.');
+    }
+
+    $stdout = stream_get_contents($pipes[1]) ?: '';
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]) ?: '';
+    fclose($pipes[2]);
+    $status = proc_close($process);
+
+    $decoded = json_decode($stdout, true);
+    if (!is_array($decoded)) {
+        $details = trim($stderr) !== '' ? trim($stderr) : trim($stdout);
+        throw new RuntimeException($details !== '' ? $details : 'Reponse invalide du controleur de services.');
+    }
+    if ($status !== 0 || ($decoded['ok'] ?? false) !== true) {
+        throw new RuntimeException((string) ($decoded['message'] ?? trim($stderr) ?: 'Action systeme refusee.'));
+    }
+
+    return $decoded;
+}
+
+function oceanos_service_status_payload(): array
+{
+    $controlAvailable = oceanos_service_control_available();
+    if (!$controlAvailable) {
+        $message = PHP_OS_FAMILY === 'Linux'
+            ? 'Controleur systeme non installe ou non executable.'
+            : 'Controle systeme disponible uniquement sur Ubuntu/Linux.';
+
+        return [
+            'ok' => true,
+            'managedBy' => 'OceanOS',
+            'controlAvailable' => false,
+            'controller' => oceanos_service_control_path(),
+            'services' => oceanos_unknown_services($message),
+            'message' => $message,
+        ];
+    }
+
+    $payload = oceanos_run_service_control('status', 'all');
+    $services = array_map(
+        static fn(array $service): array => oceanos_normalize_service_row($service, true),
+        is_array($payload['services'] ?? null) ? $payload['services'] : []
+    );
+
+    return [
+        'ok' => true,
+        'managedBy' => 'OceanOS',
+        'controlAvailable' => true,
+        'controller' => oceanos_service_control_path(),
+        'services' => $services,
+        'message' => 'Etat des services charge.',
+    ];
+}
+
+function oceanos_require_services_admin(): array
+{
+    try {
+        $pdo = oceanos_pdo();
+        return [$pdo, oceanos_require_admin($pdo)];
+    } catch (Throwable $exception) {
+        oceanos_start_session();
+        $role = oceanos_normalize_role((string) ($_SESSION['oceanos_user_role'] ?? 'member'));
+        $userId = (int) ($_SESSION['oceanos_user_id'] ?? 0);
+        if ($userId > 0 && in_array($role, ['super', 'admin'], true)) {
+            return [
+                null,
+                [
+                    'id' => $userId,
+                    'email' => (string) ($_SESSION['oceanos_user_email'] ?? ''),
+                    'display_name' => (string) ($_SESSION['oceanos_user_name'] ?? 'Administrateur'),
+                    'role' => $role,
+                    'is_active' => 1,
+                    'visible_modules_json' => null,
+                    'created_at' => '',
+                ],
+            ];
+        }
+
+        throw $exception;
+    }
+}
+
+try {
+    [$pdo, $admin] = oceanos_require_services_admin();
+    $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+
+    if ($method === 'GET') {
+        oceanos_json_response([
+            ...oceanos_service_status_payload(),
+            'currentUser' => oceanos_public_user($admin),
+        ]);
+    }
+
+    if ($method === 'POST') {
+        $input = oceanos_read_json_request();
+        $action = strtolower(trim((string) ($input['action'] ?? 'status')));
+        $service = strtolower(trim((string) ($input['service'] ?? 'all')));
+
+        if (!in_array($action, ['status', 'start', 'stop', 'restart'], true)) {
+            throw new InvalidArgumentException('Action service non supportee.');
+        }
+        if (!in_array($service, ['all', 'web', 'database', 'mobywork'], true)) {
+            throw new InvalidArgumentException('Service non supporte.');
+        }
+        if ($action !== 'status' && $service === 'all') {
+            throw new InvalidArgumentException('Choisissez un service precis pour cette action.');
+        }
+
+        $actionResult = $action === 'status'
+            ? ['ok' => true]
+            : oceanos_run_service_control($action, $service);
+
+        oceanos_json_response([
+            ...oceanos_service_status_payload(),
+            'currentUser' => oceanos_public_user($admin),
+            'action' => $action,
+            'service' => $service,
+            'actionResult' => $actionResult,
+        ]);
+    }
+
+    oceanos_json_response([
+        'ok' => false,
+        'error' => 'method_not_allowed',
+        'message' => 'Methode non supportee.',
+    ], 405);
+} catch (InvalidArgumentException $exception) {
+    oceanos_json_response([
+        'ok' => false,
+        'error' => 'validation_error',
+        'message' => $exception->getMessage(),
+    ], 422);
+} catch (Throwable $exception) {
+    oceanos_json_response([
+        'ok' => false,
+        'error' => 'server_error',
+        'message' => $exception->getMessage(),
+    ], 500);
+}

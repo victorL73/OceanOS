@@ -3,6 +3,7 @@ const MOBY_TOKEN_URL = "/OceanOS/api/mobywork-token.php";
 const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
+const SERVICES_URL = "/OceanOS/api/services.php";
 
 const apps = [
   {
@@ -104,6 +105,7 @@ const elements = {
   closeUserMenu: $("close-user-menu"),
   userTabAdmin: $("user-tab-admin"),
   userTabPrestashop: $("user-tab-prestashop"),
+  userTabServices: $("user-tab-services"),
   menuUserAvatar: $("menu-user-avatar"),
   menuUserName: $("menu-user-name"),
   menuUserEmail: $("menu-user-email"),
@@ -138,6 +140,10 @@ const elements = {
   createUserButton: $("create-user-button"),
   usersMessage: $("users-message"),
   usersList: $("users-list"),
+  servicesPanel: $("services-panel"),
+  reloadServices: $("reload-services"),
+  servicesStatus: $("services-status"),
+  servicesList: $("services-list"),
 };
 
 let authState = {
@@ -148,6 +154,8 @@ let authState = {
 let usersState = [];
 let aiSettings = null;
 let prestashopSettings = null;
+let servicesState = [];
+let servicesControlAvailable = false;
 
 function setVisible(view) {
   elements.loadingView.classList.toggle("hidden", view !== "loading");
@@ -177,6 +185,11 @@ function showPrestashopStatus(message = "", type = "") {
   elements.prestashopStatus.dataset.type = type;
 }
 
+function showServicesStatus(message = "", type = "") {
+  elements.servicesStatus.textContent = message;
+  elements.servicesStatus.dataset.type = type;
+}
+
 function roleLabel(role) {
   if (role === "super") return "Super-utilisateur";
   return role === "admin" ? "Administrateur" : "Membre";
@@ -197,6 +210,10 @@ function canManageUsers() {
 
 function canManagePrestashop() {
   return Boolean(authState.user?.permissions?.canManagePrestashop || canManageUsers());
+}
+
+function canManageServices() {
+  return Boolean(authState.user?.permissions?.canManageServices || canManageUsers());
 }
 
 function canManageSuperUsers() {
@@ -230,7 +247,11 @@ function canDeleteAccount(user) {
 function showUserMenuSection(sectionId = "account") {
   const canShowAdmin = canManageUsers();
   const canShowPrestashop = canManagePrestashop();
-  const nextSectionId = (sectionId === "admin" && !canShowAdmin) || (sectionId === "prestashop" && !canShowPrestashop)
+  const canShowServices = canManageServices();
+  const nextSectionId =
+    (sectionId === "admin" && !canShowAdmin)
+    || (sectionId === "prestashop" && !canShowPrestashop)
+    || (sectionId === "services" && !canShowServices)
     ? "account"
     : sectionId;
 
@@ -250,6 +271,9 @@ function showUserMenuSection(sectionId = "account") {
   }
   if (nextSectionId === "admin") {
     void loadUsers();
+  }
+  if (nextSectionId === "services") {
+    void loadServices();
   }
 }
 
@@ -310,6 +334,8 @@ function applyAuthState(payload) {
       openUserMenu("ai");
     } else if (window.location.hash === "#prestashop") {
       openUserMenu("prestashop");
+    } else if (window.location.hash === "#services") {
+      openUserMenu("services");
     }
     return;
   }
@@ -326,7 +352,9 @@ function applyAuthState(payload) {
   elements.adminPanel.classList.add("hidden");
   elements.menuAdminPageButton.classList.add("hidden");
   elements.userTabPrestashop.classList.add("hidden");
+  elements.userTabServices.classList.add("hidden");
   document.querySelectorAll(".admin-only-action").forEach((element) => element.classList.add("hidden"));
+  document.querySelectorAll(".services-only-action").forEach((element) => element.classList.add("hidden"));
   closeUserMenu();
 }
 
@@ -490,6 +518,135 @@ async function deletePrestashopSettings() {
   showPrestashopStatus(payload.message || "Configuration PrestaShop supprimee.", "success");
 }
 
+function serviceStatusType(service) {
+  if (service.active === "active") return "success";
+  if (service.active === "failed") return "error";
+  if (service.active === "unknown") return "";
+  return "warning";
+}
+
+function serviceActionLabel(action) {
+  if (action === "start") return "Allumer";
+  if (action === "stop") return "Eteindre";
+  return "Relancer";
+}
+
+async function loadServices() {
+  if (!canManageServices()) return;
+
+  showServicesStatus("Chargement de l'etat serveur...");
+  elements.servicesList.innerHTML = '<div class="users-empty">Chargement des services...</div>';
+  try {
+    const payload = await requestJson(SERVICES_URL);
+    servicesState = payload.services || [];
+    servicesControlAvailable = Boolean(payload.controlAvailable);
+    renderServices();
+    showServicesStatus(payload.message || "Etat des services charge.", servicesControlAvailable ? "success" : "");
+  } catch (error) {
+    servicesState = [];
+    elements.servicesList.innerHTML = "";
+    showServicesStatus(error.message || "Impossible de charger les services.", "error");
+  }
+}
+
+async function runServiceAction(serviceId, action) {
+  const service = servicesState.find((item) => item.id === serviceId);
+  const label = service?.label || serviceId;
+  if (action === "stop") {
+    const warning = serviceId === "web"
+      ? " OceanOS ne repondra plus tant qu'Apache ne sera pas relance."
+      : serviceId === "database"
+        ? " Les modules qui utilisent MySQL seront indisponibles tant que la base ne sera pas relancee."
+        : "";
+    const ok = window.confirm(`Eteindre ${label} ?${warning}`);
+    if (!ok) return;
+  }
+
+  showServicesStatus(`${serviceActionLabel(action)} ${label}...`);
+  try {
+    const payload = await requestJson(SERVICES_URL, {
+      method: "POST",
+      body: JSON.stringify({ service: serviceId, action }),
+    });
+    servicesState = payload.services || [];
+    servicesControlAvailable = Boolean(payload.controlAvailable);
+    renderServices();
+    showServicesStatus(`${label} : action ${serviceActionLabel(action).toLowerCase()} terminee.`, "success");
+  } catch (error) {
+    showServicesStatus(error.message || "Action service impossible.", "error");
+    await loadServices();
+  }
+}
+
+function renderServices() {
+  elements.servicesList.innerHTML = "";
+
+  if (servicesState.length === 0) {
+    elements.servicesList.innerHTML = '<div class="users-empty">Aucun service detecte.</div>';
+    return;
+  }
+
+  servicesState.forEach((service) => {
+    const row = document.createElement("article");
+    row.className = "service-row";
+
+    const head = document.createElement("div");
+    head.className = "service-row-head";
+
+    const title = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = service.label || service.id || "Service";
+    const meta = document.createElement("small");
+    meta.textContent = service.unit ? `${service.unit} - ${service.description || ""}` : service.description || "";
+    title.append(name, meta);
+
+    const badge = document.createElement("span");
+    badge.className = `service-status ${serviceStatusType(service)}`;
+    badge.textContent = service.stateLabel || service.active || "Inconnu";
+    head.append(title, badge);
+
+    const details = document.createElement("div");
+    details.className = "service-details";
+    const enabled = document.createElement("span");
+    enabled.textContent = `Activation : ${service.enabled || "unknown"}`;
+    const subState = document.createElement("span");
+    subState.textContent = `Etat : ${service.subState || "unknown"}`;
+    details.append(enabled, subState);
+
+    const actions = document.createElement("div");
+    actions.className = "service-actions";
+    [
+      ["start", "Allumer"],
+      ["restart", "Relancer"],
+      ["stop", "Eteindre"],
+    ].forEach(([action, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = action === "stop" ? "danger-button" : "ghost-button";
+      button.textContent = label;
+      button.disabled = !servicesControlAvailable || service.canControl === false;
+      button.addEventListener("click", async () => {
+        actions.querySelectorAll("button").forEach((item) => {
+          item.disabled = true;
+        });
+        await runServiceAction(service.id, action);
+      });
+      actions.appendChild(button);
+    });
+
+    if (service.message) {
+      const message = document.createElement("p");
+      message.className = "service-message";
+      message.textContent = service.message;
+      row.append(head, details, message, actions);
+    } else {
+      row.append(head, details, actions);
+    }
+
+    elements.servicesList.appendChild(row);
+  });
+}
+
 function renderApps() {
   elements.appGrid.innerHTML = "";
   const userVisibleModules = visibleModuleSet();
@@ -526,12 +683,18 @@ function renderApps() {
 function setupAdminPanel() {
   const admin = canManageUsers();
   const prestashopAdmin = canManagePrestashop();
+  const servicesAdmin = canManageServices();
   elements.menuAdminPageButton.classList.toggle("hidden", !canManageSuperUsers());
   elements.adminPanel.classList.toggle("hidden", !admin);
   elements.userTabAdmin.classList.toggle("hidden", !admin);
   elements.userTabPrestashop.classList.toggle("hidden", !prestashopAdmin);
+  elements.servicesPanel.classList.toggle("hidden", !servicesAdmin);
+  elements.userTabServices.classList.toggle("hidden", !servicesAdmin);
   document.querySelectorAll(".admin-only-action").forEach((element) => {
     element.classList.toggle("hidden", !prestashopAdmin);
+  });
+  document.querySelectorAll(".services-only-action").forEach((element) => {
+    element.classList.toggle("hidden", !servicesAdmin);
   });
   if (!admin) {
     showUserMenuSection("account");
@@ -824,6 +987,10 @@ elements.reloadUsers.addEventListener("click", () => {
   void loadUsers();
 });
 
+elements.reloadServices.addEventListener("click", () => {
+  void loadServices();
+});
+
 elements.userChip.addEventListener("click", () => {
   openUserMenu("account");
 });
@@ -973,6 +1140,8 @@ window.addEventListener("hashchange", () => {
     openUserMenu("ai");
   } else if (window.location.hash === "#prestashop") {
     openUserMenu("prestashop");
+  } else if (window.location.hash === "#services") {
+    openUserMenu("services");
   }
 });
 

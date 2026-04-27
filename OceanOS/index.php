@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
   <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.">
   <link rel="stylesheet" href="assets/guard.css">
-  <link rel="stylesheet" href="assets/oceanos.css?v=20260426-module-rights">
+  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-services">
 </head>
 <body>
   <main class="shell" data-state="loading">
@@ -104,6 +104,10 @@
                 <strong>Admin</strong>
                 <span>Comptes et droits</span>
               </button>
+              <button class="user-control-tab hidden" data-user-tab="services" id="user-tab-services" type="button">
+                <strong>Serveurs</strong>
+                <span>Etat et services</span>
+              </button>
             </nav>
 
             <div class="user-control-content">
@@ -148,6 +152,13 @@
                       <small>Ouvrir la configuration initiale, la BDD et les super-utilisateurs.</small>
                     </span>
                     <em>Page</em>
+                  </button>
+                  <button class="user-control-action services-only-action hidden" data-user-jump="services" type="button">
+                    <span>
+                      <strong>Services Ubuntu</strong>
+                      <small>Suivre et piloter Apache, la base de donnees et Mobywork.</small>
+                    </span>
+                    <em>Admin</em>
                   </button>
                   <button class="user-control-action danger" id="menu-logout-button" type="button">
                     <span>
@@ -251,6 +262,19 @@
                 <p class="form-message hidden" id="users-message"></p>
                 <div class="users-list" id="users-list"></div>
               </section>
+
+              <section class="user-menu-section services-panel hidden" id="services-panel" data-user-section="services">
+                <div class="admin-heading">
+                  <div>
+                    <p class="eyebrow">Services serveur</p>
+                    <h2>Etat Ubuntu</h2>
+                  </div>
+                  <button class="ghost-button" id="reload-services" type="button">Actualiser</button>
+                </div>
+
+                <p class="ai-status" id="services-status"></p>
+                <div class="services-list" id="services-list"></div>
+              </section>
             </div>
           </div>
         </div>
@@ -270,6 +294,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260426-nautisign"></script>
+  <script src="assets/oceanos.js?v=20260427-services"></script>
 </body>
 </html>

@@ -371,6 +371,42 @@ Points à vérifier avant production :
 - Restreindre l'accès à `/admin/` par IP ou authentification serveur si possible.
 - Sauvegarder régulièrement la base OceanOS.
 
+## Lanceur Ubuntu
+
+Un script de preparation serveur est disponible ici :
+
+```bash
+scripts/ubuntu/oceanos-ubuntu.sh
+```
+
+Sur Ubuntu, depuis la racine du projet :
+
+```bash
+chmod +x scripts/ubuntu/oceanos-ubuntu.sh
+sudo APP_ROOT=/var/www/oceanos DOMAIN=votre-domaine.fr scripts/ubuntu/oceanos-ubuntu.sh install
+```
+
+Il installe les dependances systeme, les dependances Composer/npm, genere le build Mobywork, configure Apache, installe le service systemd `mobywork-backend` et installe un wrapper limite pour piloter les services depuis OceanOS.
+
+Les administrateurs et super-utilisateurs voient ensuite l'onglet `Serveurs` dans le menu utilisateur OceanOS. Cet onglet interroge :
+
+```text
+OceanOS/api/services.php
+```
+
+Le controle web repose sur :
+
+```text
+/usr/local/sbin/oceanos-service-control
+/etc/sudoers.d/oceanos-service-control
+```
+
+Ces fichiers sont crees par :
+
+```bash
+sudo scripts/ubuntu/oceanos-ubuntu.sh control
+```
+
 ## URLs utiles en local
 
 ```text
