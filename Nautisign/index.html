@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nautisign</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nautisign.svg?v=20260427">
+  <meta name="description" content="Nautisign - signature de devis PDF OceanOS.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260426-nautisign">
+  <script defer src="assets/app.js?v=20260426-nautisign"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <span class="brand-mark">NS</span>
+      <p>Chargement Nautisign...</p>
+    </section>
+
+    <section class="public-view hidden" id="public-view">
+      <header class="public-topbar">
+        <a class="brand-line" href="/Nautisign/">
+          <span class="brand-mark compact">NS</span>
+          <strong>Nautisign</strong>
+        </a>
+        <span class="status-pill" id="public-status">Signature</span>
+      </header>
+
+      <p class="app-message hidden" id="public-message"></p>
+
+      <section class="sign-layout">
+        <div class="pdf-panel">
+          <iframe id="public-pdf" title="Devis PDF"></iframe>
+        </div>
+
+        <form class="sign-panel" id="sign-form">
+          <div class="panel-heading">
+            <p class="eyebrow">Devis</p>
+            <h1 id="public-title"></h1>
+            <p id="public-meta"></p>
+          </div>
+
+          <label class="field">
+            <span>Nom du signataire</span>
+            <input id="public-signer-name" type="text" maxlength="190" autocomplete="name" required>
+          </label>
+
+          <label class="field">
+            <span>Email</span>
+            <input id="public-signer-email" type="email" maxlength="190" autocomplete="email">
+          </label>
+
+          <label class="field">
+            <span>Signature</span>
+            <canvas class="signature-canvas" id="signature-canvas" width="720" height="260"></canvas>
+          </label>
+
+          <div class="sign-actions">
+            <button class="ghost-button" id="clear-signature" type="button">Effacer</button>
+          </div>
+
+          <label class="check-row">
+            <input id="public-accept" type="checkbox" required>
+            <span>J accepte le devis et confirme ma signature.</span>
+          </label>
+
+          <button class="primary-button" id="public-submit" type="submit">Signer et valider</button>
+        </form>
+      </section>
+    </section>
+
+    <section class="workspace-view hidden" id="workspace-view">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-line">
+            <span class="brand-mark compact">NS</span>
+            <span class="status-pill">Connecte</span>
+          </div>
+          <h1>Nautisign</h1>
+          <p>Signature de devis PDF</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="ghost-button" id="refresh-button" type="button">Actualiser</button>
+          <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+          <span class="user-chip" id="current-user"></span>
+        </div>
+      </header>
+
+      <p class="app-message hidden" id="app-message"></p>
+
+      <section class="workspace-layout">
+        <aside class="create-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Nouveau lien</p>
+            <h2>Choisir un devis</h2>
+          </div>
+
+          <form id="create-form">
+            <label class="field">
+              <span>PDF</span>
+              <select id="quote-select" required></select>
+            </label>
+            <label class="field">
+              <span>Nom client</span>
+              <input id="signer-name" type="text" maxlength="190">
+            </label>
+            <label class="field">
+              <span>Email client</span>
+              <input id="signer-email" type="email" maxlength="190">
+            </label>
+            <label class="field">
+              <span>Validite</span>
+              <select id="expires-days">
+                <option value="7">7 jours</option>
+                <option value="15">15 jours</option>
+                <option value="30" selected>30 jours</option>
+                <option value="60">60 jours</option>
+                <option value="0">Sans expiration</option>
+              </select>
+            </label>
+            <button class="primary-button full-width" id="create-button" type="submit">Creer le lien</button>
+          </form>
+        </aside>
+
+        <section class="requests-panel">
+          <div class="requests-head">
+            <div>
+              <p class="eyebrow">Backoffice</p>
+              <h2>Demandes</h2>
+            </div>
+            <label class="search-field">
+              <span>Recherche</span>
+              <input id="request-search" type="search" placeholder="DEV, client, statut">
+            </label>
+          </div>
+
+          <div class="requests-layout">
+            <div class="requests-list" id="requests-list"></div>
+
+            <article class="detail-panel" id="detail-panel">
+              <div class="empty-state" id="detail-empty">
+                <strong>Aucune demande selectionnee</strong>
+              </div>
+
+              <div class="detail-content hidden" id="detail-content">
+                <div class="detail-header">
+                  <div>
+                    <span class="status-badge" id="detail-status"></span>
+                    <h3 id="detail-title"></h3>
+                    <p id="detail-meta"></p>
+                  </div>
+                  <div class="detail-actions">
+                    <button class="ghost-button" id="copy-link-button" type="button">Copier lien</button>
+                    <a class="ghost-button" id="open-link-button" href="#" target="_blank" rel="noreferrer">Ouvrir</a>
+                    <a class="primary-button hidden" id="download-signed-button" href="#">PDF signe</a>
+                  </div>
+                </div>
+
+                <iframe class="detail-pdf" id="detail-pdf" title="Apercu du devis"></iframe>
+
+                <div class="secondary-actions">
+                  <button class="ghost-button" id="toggle-status-button" type="button">Desactiver</button>
+                  <button class="danger-button" id="delete-request-button" type="button">Supprimer</button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

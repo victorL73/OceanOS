@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NautiCloud</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nauticloud.svg?v=20260427">
+  <meta name="description" content="NautiCloud - drive OceanOS avec apercu, edition et synchronisation temps reel.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260426-multi-upload">
+  <script defer src="/OceanOS/assets/guard.js?v=20260426-nauticloud"></script>
+  <script defer src="assets/xlsx.full.min.js?v=0.18.5"></script>
+  <script defer src="assets/jszip.min.js?v=3.10.1"></script>
+  <script defer src="assets/mammoth.browser.min.js?v=1.9.1"></script>
+  <script defer src="assets/app.js?v=20260426-multi-upload"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">NC</div>
+      <p>Chargement NautiCloud...</p>
+    </section>
+
+    <section class="drive-view hidden" id="drive-view">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-line">
+            <span class="brand-mark compact">NC</span>
+            <span class="sync-pill" id="sync-pill">Connexion...</span>
+          </div>
+          <h1>NautiCloud</h1>
+          <p>Drive partage OceanOS</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="ghost-button" id="refresh-button" type="button">Actualiser</button>
+          <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+          <span class="user-chip" id="current-user"></span>
+        </div>
+      </header>
+
+      <p class="app-message hidden" id="app-message"></p>
+
+      <section class="metrics-grid" aria-label="Statistiques NautiCloud">
+        <article class="metric">
+          <span>Fichiers</span>
+          <strong id="metric-files">0</strong>
+        </article>
+        <article class="metric">
+          <span>Dossiers</span>
+          <strong id="metric-folders">0</strong>
+        </article>
+        <article class="metric">
+          <span>Stockage</span>
+          <strong id="metric-size">0 o</strong>
+        </article>
+        <article class="metric live">
+          <span>Temps reel</span>
+          <strong id="metric-live">Actif</strong>
+        </article>
+      </section>
+
+      <section class="drive-layout">
+        <aside class="sidebar">
+          <form class="search-box" id="search-form">
+            <label for="search-input">Recherche</label>
+            <div class="search-row">
+              <input id="search-input" type="search" placeholder="Nom de fichier">
+              <button class="icon-button" type="submit" title="Rechercher" aria-label="Rechercher">OK</button>
+            </div>
+          </form>
+
+          <nav class="side-actions" aria-label="Actions NautiCloud">
+            <button class="side-action is-active" id="all-files-button" type="button">
+              <strong>Tous les fichiers</strong>
+              <span id="current-path-label">Racine</span>
+            </button>
+            <button class="side-action" id="upload-button" type="button">
+              <strong>Importer</strong>
+              <span>Ajouter des fichiers</span>
+            </button>
+            <button class="side-action" id="new-folder-button" type="button">
+              <strong>Nouveau dossier</strong>
+              <span>Organiser le drive</span>
+            </button>
+            <button class="side-action" id="new-file-button" type="button">
+              <strong>Nouveau fichier</strong>
+              <span>Texte, notes, code</span>
+            </button>
+          </nav>
+
+          <section class="presence-panel">
+            <div class="panel-title">
+              <span>Presences</span>
+              <small id="presence-count">0</small>
+            </div>
+            <div class="presence-list" id="presence-list"></div>
+          </section>
+        </aside>
+
+        <section class="file-panel">
+          <div class="toolbar">
+            <div class="breadcrumb" id="breadcrumb"></div>
+            <div class="toolbar-actions">
+              <div class="view-toggle" aria-label="Mode d'affichage">
+                <button class="toolbar-button is-active" id="list-view-button" type="button">Liste</button>
+                <button class="toolbar-button" id="mosaic-view-button" type="button">Mosaique</button>
+              </div>
+              <button class="toolbar-button" id="rename-button" type="button" disabled>Renommer</button>
+              <button class="toolbar-button" id="copy-button" type="button" disabled>Copier</button>
+              <button class="toolbar-button" id="move-button" type="button" disabled>Deplacer</button>
+              <button class="toolbar-button danger-text" id="delete-button" type="button" disabled>Supprimer</button>
+            </div>
+          </div>
+
+          <input class="hidden" id="file-input" name="files[]" type="file" multiple aria-label="Importer plusieurs fichiers">
+
+          <div class="table-shell">
+            <table class="files-table">
+              <thead>
+                <tr>
+                  <th class="select-cell">
+                    <input id="select-all" type="checkbox" aria-label="Tout selectionner">
+                  </th>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>Taille</th>
+                  <th>Modifie</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="files-body"></tbody>
+            </table>
+            <div class="mosaic-grid hidden" id="mosaic-grid"></div>
+            <div class="empty-state hidden" id="empty-state">
+              <strong>Aucun element</strong>
+              <span>Ajoutez un dossier ou importez des fichiers.</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="preview-panel" id="preview-panel">
+          <div class="preview-empty" id="preview-empty">
+            <strong>Aucun fichier selectionne</strong>
+            <span>Selectionnez un element pour voir son apercu.</span>
+          </div>
+
+          <section class="preview-content hidden" id="preview-content">
+            <div class="preview-header">
+              <div>
+                <p class="eyebrow" id="preview-kind">Fichier</p>
+                <h2 id="preview-title">Selection</h2>
+                <span id="preview-meta"></span>
+              </div>
+              <div class="preview-actions">
+                <button class="toolbar-button hidden" id="fullscreen-button" type="button">Pleine page</button>
+                <button class="toolbar-button hidden" id="close-fullscreen-button" type="button">Retour</button>
+                <a class="download-link hidden" id="download-link" href="#" download>Telecharger</a>
+              </div>
+            </div>
+
+            <div class="conflict-banner hidden" id="conflict-banner">
+              <span>Version distante disponible.</span>
+              <button id="reload-file-button" type="button">Recharger</button>
+              <button id="force-save-button" type="button">Forcer</button>
+            </div>
+
+            <div class="editor-toolbar hidden" id="editor-toolbar">
+              <span id="save-state">Pret</span>
+              <button class="toolbar-button" id="save-button" type="button">Enregistrer</button>
+            </div>
+
+            <div class="preview-frame" id="preview-frame"></div>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+
+  <section class="modal hidden" id="entry-modal" aria-modal="true" role="dialog" aria-labelledby="entry-modal-title">
+    <button class="modal-backdrop" id="entry-modal-backdrop" type="button" aria-label="Fermer"></button>
+    <form class="modal-panel" id="entry-form">
+      <h2 id="entry-modal-title">Nouveau</h2>
+      <label class="field">
+        <span>Nom</span>
+        <input id="entry-name" type="text" autocomplete="off" required>
+      </label>
+      <div class="modal-actions">
+        <button class="ghost-button" id="entry-cancel" type="button">Annuler</button>
+        <button class="primary-button" id="entry-submit" type="submit">Creer</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="modal hidden" id="destination-modal" aria-modal="true" role="dialog" aria-labelledby="destination-title">
+    <button class="modal-backdrop" id="destination-backdrop" type="button" aria-label="Fermer"></button>
+    <form class="modal-panel" id="destination-form">
+      <h2 id="destination-title">Destination</h2>
+      <label class="field">
+        <span>Dossier cible</span>
+        <select id="destination-select"></select>
+      </label>
+      <div class="modal-actions">
+        <button class="ghost-button" id="destination-cancel" type="button">Annuler</button>
+        <button class="primary-button" id="destination-submit" type="submit">Valider</button>
+      </div>
+    </form>
+  </section>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+    "require": {
+        "atgp/factur-x": "^3.3"
+    }
+}

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Invocean</title>
+    <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/invocean.svg?v=20260427">
+    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+    <script defer src="/OceanOS/assets/guard.js?v=20260426-module-rights"></script>
+  </head>
+  <body>
+    <section id="auth-screen" class="auth-screen hidden" aria-live="polite">
+      <div class="auth-panel">
+        <div class="brand-mark">Invocean</div>
+        <p id="auth-kicker" class="eyebrow">Connexion</p>
+        <h1 id="auth-title">Connectez-vous</h1>
+        <p id="auth-subtitle" class="muted">Les comptes sont ceux d'OceanOS.</p>
+
+        <form id="auth-form" class="auth-form">
+          <label id="auth-name-field" class="field hidden">
+            <span>Nom</span>
+            <input id="auth-name" type="text" autocomplete="name">
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input id="auth-email" type="email" autocomplete="email" required>
+          </label>
+          <label class="field">
+            <span>Mot de passe</span>
+            <input id="auth-password" type="password" autocomplete="current-password" required>
+          </label>
+          <button id="auth-submit" class="primary-button" type="submit">Se connecter</button>
+          <p id="auth-message" class="form-message hidden"></p>
+        </form>
+
+      </div>
+    </section>
+
+    <div id="app-shell" class="app-shell hidden">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">Invocean</span>
+            <span id="connection-chip" class="status-pill muted-pill">PrestaShop non configuré</span>
+          </div>
+          <h1>Factures PrestaShop</h1>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Déconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+        </div>
+      </header>
+
+      <main class="main-grid">
+        <section class="content-column">
+          <div class="metrics-grid">
+            <article class="metric-card">
+              <span>Factures</span>
+              <strong id="metric-count">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Total TTC</span>
+              <strong id="metric-total">0,00 €</strong>
+            </article>
+            <article class="metric-card">
+              <span>À traiter</span>
+              <strong id="metric-received">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Rejets</span>
+              <strong id="metric-rejected">0</strong>
+            </article>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Pilotage</p>
+                <h2>Synchronisation</h2>
+              </div>
+              <button id="sync-button" class="primary-button" type="button">Synchroniser</button>
+            </div>
+            <form id="sync-form" class="inline-form">
+              <label class="field compact-field">
+                <span>Du</span>
+                <input id="sync-date-from" type="date">
+              </label>
+              <label class="field compact-field">
+                <span>Au</span>
+                <input id="sync-date-to" type="date">
+              </label>
+              <label class="field compact-field">
+                <span>Limite</span>
+                <input id="sync-limit" type="number" min="1" max="250" value="80">
+              </label>
+            </form>
+            <p id="sync-message" class="form-message hidden"></p>
+          </section>
+
+          <section class="panel invoice-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Registre</p>
+                <h2>Factures récupérées</h2>
+              </div>
+              <div class="button-row">
+                <button id="export-facturx-button" class="primary-button" type="button">Exporter Factur-X PDF</button>
+                <button id="export-pdf-button" class="ghost-button" type="button">Exporter PDF</button>
+                <button id="export-button" class="ghost-button" type="button">Exporter CSV</button>
+              </div>
+            </div>
+
+            <form id="filters-form" class="filters-bar">
+              <label class="field search-field">
+                <span>Recherche</span>
+                <input id="filter-search" type="search" placeholder="Client, facture, commande">
+              </label>
+              <label class="field compact-field">
+                <span>Statut</span>
+                <select id="filter-status">
+                  <option value="">Tous</option>
+                  <option value="received">Reçue</option>
+                  <option value="ready">Prête</option>
+                  <option value="sent">Transmise</option>
+                  <option value="accepted">Acceptée</option>
+                  <option value="rejected">Rejetée</option>
+                  <option value="archived">Archivée</option>
+                </select>
+              </label>
+              <label class="field compact-field">
+                <span>Du</span>
+                <input id="filter-date-from" type="date">
+              </label>
+              <label class="field compact-field">
+                <span>Au</span>
+                <input id="filter-date-to" type="date">
+              </label>
+              <button class="primary-button" type="submit">Filtrer</button>
+              <button id="clear-filters" class="ghost-button" type="button">Réinitialiser</button>
+            </form>
+
+            <div class="table-wrap">
+              <table class="invoice-table">
+                <thead>
+                  <tr>
+                    <th>Facture</th>
+                    <th>Date</th>
+                    <th>Client</th>
+                    <th>Commande</th>
+                    <th>Total TTC</th>
+                    <th>Statut</th>
+                    <th>Exports</th>
+                  </tr>
+                </thead>
+                <tbody id="invoice-table-body"></tbody>
+              </table>
+            </div>
+
+            <div class="pagination-bar">
+              <button id="prev-page" class="ghost-button" type="button">Précédent</button>
+              <span id="page-label">Page 1</span>
+              <button id="next-page" class="ghost-button" type="button">Suivant</button>
+            </div>
+          </section>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel settings-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Connecteur</p>
+                <h2>PrestaShop</h2>
+              </div>
+              <button id="test-settings" class="ghost-button" type="button">Tester</button>
+            </div>
+
+            <form id="settings-form" class="stack-form">
+              <label class="field">
+                <span>URL boutique</span>
+                <input id="shop-url" type="url" placeholder="https://boutique.example.com">
+              </label>
+              <label class="field">
+                <span>Clé Webservice</span>
+                <input id="webservice-key" type="password" autocomplete="off" placeholder="Conserver la clé actuelle">
+              </label>
+              <label class="check-row">
+                <input id="clear-webservice-key" type="checkbox">
+                <span>Effacer la clé enregistrée</span>
+              </label>
+              <label class="field">
+                <span>Lien PDF optionnel</span>
+                <input id="pdf-url-template" type="url" placeholder="Non requis : PDF recréé depuis l'API">
+              </label>
+              <label class="field">
+                <span>Fenêtre par défaut</span>
+                <input id="sync-window-days" type="number" min="1" max="365" value="30">
+              </label>
+              <div class="form-divider">
+                <p class="eyebrow">Factur-X</p>
+                <strong>Vendeur</strong>
+              </div>
+              <label class="field">
+                <span>Raison sociale</span>
+                <input id="seller-name" type="text" autocomplete="organization">
+              </label>
+              <label class="field">
+                <span>TVA intracommunautaire</span>
+                <input id="seller-vat-number" type="text" placeholder="FR...">
+              </label>
+              <label class="field">
+                <span>SIRET</span>
+                <input id="seller-siret" type="text" inputmode="numeric">
+              </label>
+              <label class="field">
+                <span>Adresse</span>
+                <input id="seller-street" type="text" autocomplete="street-address">
+              </label>
+              <div class="split-fields">
+                <label class="field">
+                  <span>Code postal</span>
+                  <input id="seller-postcode" type="text" autocomplete="postal-code">
+                </label>
+                <label class="field">
+                  <span>Ville</span>
+                  <input id="seller-city" type="text" autocomplete="address-level2">
+                </label>
+              </div>
+              <label class="field">
+                <span>Pays ISO</span>
+                <input id="seller-country-iso" type="text" maxlength="2" value="FR">
+              </label>
+              <button id="save-settings" class="primary-button" type="submit">Enregistrer</button>
+              <p id="settings-message" class="form-message hidden"></p>
+            </form>
+          </section>
+
+          <section class="panel compliance-panel">
+            <p class="eyebrow">France</p>
+            <h2>Suivi e-facturation</h2>
+            <div class="status-list">
+              <div><span class="dot amber"></span><strong>Réception 2026</strong><small>Capacité de recevoir les factures électroniques.</small></div>
+              <div><span class="dot teal"></span><strong>Flux B2B</strong><small>Préparer l'envoi via une plateforme agréée.</small></div>
+              <div><span class="dot ink"></span><strong>Preuve</strong><small>Conserver le journal des imports et statuts.</small></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Journal</p>
+                <h2>Dernières synchros</h2>
+              </div>
+            </div>
+            <div id="runs-list" class="runs-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    <script src="assets/app.js?v=20260426-facturx-pdf"></script>
+  </body>
+</html>

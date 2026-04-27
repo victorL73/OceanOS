@@ -1,0 +1,243 @@
+.oceanos-return-button {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 7px;
+  border: 1px solid rgba(198, 221, 230, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 16, 24, 0.86);
+  color: #edf7f9;
+  text-decoration: none;
+  font: 800 13px/1 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
+}
+
+.oceanos-return-button:hover,
+.oceanos-return-button:focus-visible {
+  border-color: rgba(56, 163, 255, 0.7);
+  outline: none;
+}
+
+.oceanos-return-button span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #38a3ff, #1fd1b2);
+  color: #041018;
+}
+
+.oceanos-notification-hub {
+  position: fixed;
+  right: 16px;
+  bottom: 68px;
+  z-index: 2147482999;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.oceanos-notification-button {
+  position: relative;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 7px;
+  border: 1px solid rgba(198, 221, 230, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 16, 24, 0.86);
+  color: #edf7f9;
+  font: 800 13px/1 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
+  cursor: pointer;
+}
+
+.oceanos-notification-button:hover,
+.oceanos-notification-button:focus-visible {
+  border-color: rgba(52, 211, 153, 0.7);
+  outline: none;
+}
+
+.oceanos-notification-button > span:first-child {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #22c55e, #38a3ff);
+  color: #041018;
+}
+
+.oceanos-notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 0 0 2px rgba(7, 16, 24, 0.9);
+}
+
+.oceanos-notification-panel {
+  position: absolute;
+  right: 0;
+  bottom: 52px;
+  width: min(360px, calc(100vw - 28px));
+  max-height: min(480px, calc(100vh - 140px));
+  display: none;
+  overflow: hidden;
+  border: 1px solid rgba(198, 221, 230, 0.22);
+  border-radius: 14px;
+  background: rgba(7, 16, 24, 0.96);
+  color: #edf7f9;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(16px);
+}
+
+.oceanos-notification-hub.is-open .oceanos-notification-panel {
+  display: block;
+}
+
+.oceanos-notification-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid rgba(198, 221, 230, 0.16);
+}
+
+.oceanos-notification-panel-head strong {
+  font-size: 14px;
+}
+
+.oceanos-notification-panel-head button {
+  border: 1px solid rgba(198, 221, 230, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #edf7f9;
+  padding: 6px 10px;
+  font: 800 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.oceanos-notification-list {
+  max-height: calc(min(480px, 100vh - 140px) - 54px);
+  overflow: auto;
+  padding: 8px;
+}
+
+.oceanos-notification-empty,
+.oceanos-notification-status {
+  margin: 0;
+  padding: 16px;
+  color: rgba(237, 247, 249, 0.7);
+  font-size: 13px;
+}
+
+.oceanos-notification-status {
+  padding: 10px 14px 0;
+  color: #fbbf24;
+}
+
+.oceanos-notification-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-left: 3px solid rgba(148, 163, 184, 0.7);
+  border-radius: 10px;
+  background: transparent;
+  color: #edf7f9;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oceanos-notification-item + .oceanos-notification-item {
+  margin-top: 6px;
+}
+
+.oceanos-notification-item:hover,
+.oceanos-notification-item:focus-visible {
+  border-color: rgba(198, 221, 230, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.oceanos-notification-item.is-unread {
+  background: rgba(56, 163, 255, 0.11);
+}
+
+.oceanos-notification-item.is-success {
+  border-left-color: #22c55e;
+}
+
+.oceanos-notification-item.is-warning {
+  border-left-color: #f59e0b;
+}
+
+.oceanos-notification-item.is-danger {
+  border-left-color: #ef4444;
+}
+
+.oceanos-notification-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(237, 247, 249, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.oceanos-notification-item strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.oceanos-notification-body {
+  color: rgba(237, 247, 249, 0.78);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 620px) {
+  .oceanos-return-button {
+    right: 12px;
+    bottom: 12px;
+    padding-right: 7px;
+  }
+
+  .oceanos-return-button strong {
+    display: none;
+  }
+
+  .oceanos-notification-hub {
+    right: 12px;
+    bottom: 62px;
+  }
+
+  .oceanos-notification-button {
+    padding-right: 7px;
+  }
+
+  .oceanos-notification-button strong {
+    display: none;
+  }
+}

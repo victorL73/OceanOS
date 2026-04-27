@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stockcean</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/stockcean.svg?v=20260427">
+  <meta name="description" content="Stockcean - stocks, achats et fournisseurs connectes a PrestaShop.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="/OceanOS/assets/guard.js?v=20260426-module-rights"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">ST</div>
+      <p>Chargement Stockcean...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">ST</span>
+            <span id="connection-chip" class="status-pill muted-pill">PrestaShop non configure</span>
+          </div>
+          <h1>Stockcean</h1>
+          <p>Stocks, achats et fournisseurs.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <button id="sync-button" class="primary-button" type="button">Synchroniser</button>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Deconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+          <span id="last-sync" class="sync-chip">Derniere synchronisation: jamais</span>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <span>Produits</span>
+          <strong id="metric-products">0</strong>
+        </article>
+        <article class="metric-card alert">
+          <span>Stock bas</span>
+          <strong id="metric-low">0</strong>
+        </article>
+        <article class="metric-card danger">
+          <span>Ruptures</span>
+          <strong id="metric-out">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Valeur stock</span>
+          <strong id="metric-value">0 EUR</strong>
+        </article>
+        <article class="metric-card">
+          <span>Achats ouverts</span>
+          <strong id="metric-orders">0</strong>
+        </article>
+      </section>
+
+      <nav class="view-tabs" aria-label="Navigation Stockcean">
+        <button class="view-tab is-active" data-view="stock" type="button">Stocks</button>
+        <button class="view-tab" data-view="supplier-catalog" type="button">Catalogue fournisseurs</button>
+        <button class="view-tab" data-view="order-history" type="button">Historique commandes</button>
+      </nav>
+
+      <section id="view-stock" class="view-section content-grid" data-view-section="stock">
+        <section class="panel products-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Catalogue</p>
+              <h2>Stocks PrestaShop</h2>
+            </div>
+            <form id="filters-form" class="filters-form">
+              <input id="filter-search" type="search" placeholder="Recherche produit ou reference">
+              <select id="filter-stock">
+                <option value="">Tous les stocks</option>
+                <option value="low">Stock bas</option>
+                <option value="out">Rupture</option>
+              </select>
+              <select id="filter-active">
+                <option value="">Tous</option>
+                <option value="1" selected>Actifs</option>
+                <option value="0">Inactifs</option>
+              </select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Produit</th>
+                  <th>Reference</th>
+                  <th>Stock</th>
+                  <th>Alerte</th>
+                  <th>Fournisseur</th>
+                  <th>Prix HT</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="products-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Fournisseurs</p>
+                <h2>Contacts achats</h2>
+              </div>
+            </div>
+            <form id="supplier-form" class="stack-form">
+              <input id="supplier-id" type="hidden">
+              <label class="field">
+                <span>Nom</span>
+                <input id="supplier-name" type="text" required>
+              </label>
+              <label class="field">
+                <span>Contact</span>
+                <input id="supplier-contact" type="text">
+              </label>
+              <label class="field two">
+                <span>Email</span>
+                <input id="supplier-email" type="email">
+              </label>
+              <label class="field two">
+                <span>Telephone</span>
+                <input id="supplier-phone" type="text">
+              </label>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="supplier-notes" rows="3"></textarea>
+              </label>
+              <button id="supplier-save" class="primary-button" type="submit">Enregistrer</button>
+            </form>
+            <div id="suppliers-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Achats</p>
+                <h2>Commande fournisseur</h2>
+              </div>
+            </div>
+            <form id="purchase-form" class="stack-form">
+              <label class="field">
+                <span>Fournisseur</span>
+                <select id="purchase-supplier"></select>
+              </label>
+              <div class="order-lines-box">
+                <div class="order-lines-head">
+                  <span>Lignes de commande</span>
+                  <button id="purchase-add-line" class="ghost-button" type="button">Ajouter</button>
+                </div>
+                <div id="purchase-lines" class="purchase-lines"></div>
+                <p id="purchase-total" class="purchase-total">Total HT: 0,00 EUR</p>
+              </div>
+              <label class="field">
+                <span>Livraison prevue</span>
+                <input id="purchase-expected" type="date">
+              </label>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="purchase-notes" rows="3"></textarea>
+              </label>
+              <button id="purchase-create" class="primary-button" type="submit">Creer la commande</button>
+            </form>
+            <div id="orders-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Journal</p>
+                <h2>Synchronisations</h2>
+              </div>
+            </div>
+            <div id="runs-list" class="cards-list compact-list"></div>
+          </section>
+        </aside>
+      </section>
+
+      <section id="view-supplier-catalog" class="view-section hidden" data-view-section="supplier-catalog">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Fournisseurs</p>
+              <h2>Catalogue fournisseur</h2>
+            </div>
+            <form id="catalog-filters-form" class="filters-form">
+              <input id="catalog-search" type="search" placeholder="Recherche produit, reference ou fournisseur">
+              <select id="catalog-supplier-filter"></select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+          <div id="supplier-catalog" class="supplier-catalog"></div>
+        </section>
+      </section>
+
+      <section id="view-order-history" class="view-section hidden" data-view-section="order-history">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Achats</p>
+              <h2>Historique des commandes</h2>
+            </div>
+            <form id="history-filters-form" class="filters-form">
+              <input id="history-search" type="search" placeholder="Recherche commande, produit ou fournisseur">
+              <select id="history-status-filter">
+                <option value="">Tous les statuts</option>
+                <option value="draft">Brouillons</option>
+                <option value="ordered">Commandees</option>
+                <option value="received">Receptionnees</option>
+                <option value="cancelled">Annulees</option>
+              </select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+          <div id="order-history" class="order-history"></div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="assets/app.js?v=20260426-stockcean"></script>
+</body>
+</html>

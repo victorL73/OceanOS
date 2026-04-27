@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Formcean</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/formcean.svg?v=20260427">
+  <meta name="description" content="Formcean - formulaires OceanOS avec liens publics, collecte de reponses et export CSV.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260426-formcean">
+  <script defer src="assets/app.js?v=20260426-formcean"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <span class="brand-mark">FO</span>
+      <p>Chargement Formcean...</p>
+    </section>
+
+    <section class="public-view hidden" id="public-view">
+      <header class="public-topbar">
+        <a class="brand-line" href="/Formcean/">
+          <span class="brand-mark compact">FO</span>
+          <strong>Formcean</strong>
+        </a>
+      </header>
+
+      <form class="public-form" id="public-form">
+        <div class="public-heading">
+          <p class="eyebrow" id="public-status">Formulaire</p>
+          <h1 id="public-title"></h1>
+          <p id="public-description"></p>
+        </div>
+        <div class="public-fields" id="public-fields"></div>
+        <p class="app-message hidden" id="public-message"></p>
+        <button class="primary-button" id="public-submit" type="submit">Envoyer</button>
+      </form>
+    </section>
+
+    <section class="workspace-view hidden" id="workspace-view">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-line">
+            <span class="brand-mark compact">FO</span>
+            <span class="sync-pill" id="sync-pill">Connecte</span>
+          </div>
+          <h1>Formcean</h1>
+          <p>Formulaires OceanOS</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="primary-button" id="new-form-button" type="button">Nouveau</button>
+          <button class="ghost-button" id="refresh-button" type="button">Actualiser</button>
+          <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+          <span class="user-chip" id="current-user"></span>
+        </div>
+      </header>
+
+      <p class="app-message hidden" id="app-message"></p>
+
+      <section class="workspace-layout">
+        <aside class="forms-sidebar">
+          <div class="sidebar-head">
+            <span>Formulaires</span>
+            <strong id="forms-count">0</strong>
+          </div>
+          <div class="forms-list" id="forms-list"></div>
+        </aside>
+
+        <section class="editor-panel" id="editor-panel">
+          <div class="empty-state" id="empty-state">
+            <strong>Aucun formulaire selectionne</strong>
+            <button class="primary-button" id="empty-new-form" type="button">Creer</button>
+          </div>
+
+          <div class="editor-content hidden" id="editor-content">
+            <div class="editor-header">
+              <div class="editor-title-block">
+                <h2 id="editor-title-display"></h2>
+                <div class="editor-meta-row">
+                  <span class="status-badge" id="editor-kicker">Brouillon</span>
+                  <span id="editor-meta"></span>
+                </div>
+              </div>
+              <div class="editor-actions">
+                <a class="ghost-button hidden" id="open-public-link" href="#" target="_blank" rel="noreferrer">Ouvrir</a>
+                <button class="ghost-button" id="copy-link-button" type="button">Copier lien</button>
+                <button class="ghost-button" id="duplicate-button" type="button">Dupliquer</button>
+                <button class="danger-button" id="delete-form-button" type="button">Supprimer</button>
+                <button class="primary-button" id="save-form-button" type="button">Enregistrer</button>
+              </div>
+            </div>
+
+            <nav class="tabs" aria-label="Sections Formcean">
+              <button class="tab-button active" data-tab="design" type="button">Edition</button>
+              <button class="tab-button" data-tab="responses" type="button">Reponses</button>
+              <button class="tab-button" data-tab="preview" type="button">Apercu</button>
+            </nav>
+
+            <section class="tab-section active" data-section="design">
+              <div class="form-grid">
+                <label class="field wide">
+                  <span>Titre</span>
+                  <input id="form-title" type="text" maxlength="190">
+                </label>
+                <label class="field wide">
+                  <span>Description</span>
+                  <textarea id="form-description" rows="3"></textarea>
+                </label>
+                <label class="field">
+                  <span>Lien</span>
+                  <input id="form-slug" type="text" maxlength="120">
+                </label>
+                <label class="field">
+                  <span>Statut</span>
+                  <select id="form-status">
+                    <option value="draft">Brouillon</option>
+                    <option value="published">Publie</option>
+                  </select>
+                </label>
+                <label class="check-row">
+                  <input id="collect-email" type="checkbox">
+                  <span>Collecter l email</span>
+                </label>
+                <label class="field wide">
+                  <span>Message de confirmation</span>
+                  <input id="confirmation-message" type="text" maxlength="240">
+                </label>
+              </div>
+
+              <div class="builder-toolbar">
+                <select id="new-field-type" aria-label="Type de question">
+                  <option value="short">Texte court</option>
+                  <option value="paragraph">Paragraphe</option>
+                  <option value="email">Email</option>
+                  <option value="number">Nombre</option>
+                  <option value="date">Date</option>
+                  <option value="radio">Choix unique</option>
+                  <option value="checkbox">Cases a cocher</option>
+                  <option value="select">Liste</option>
+                  <option value="rating">Note</option>
+                  <option value="scale">Echelle</option>
+                </select>
+                <button class="ghost-button" id="add-field-button" type="button">Ajouter</button>
+              </div>
+
+              <div class="fields-list" id="fields-list"></div>
+            </section>
+
+            <section class="tab-section" data-section="responses">
+              <div class="responses-toolbar">
+                <div>
+                  <p class="eyebrow">Collecte</p>
+                  <h3 id="responses-title">0 reponse</h3>
+                </div>
+                <div class="responses-actions">
+                  <button class="ghost-button" id="reload-responses-button" type="button">Actualiser</button>
+                  <a class="primary-button" id="export-link" href="#">Exporter CSV</a>
+                </div>
+              </div>
+              <div class="summary-grid" id="summary-grid"></div>
+              <div class="responses-table-shell">
+                <table class="responses-table">
+                  <thead id="responses-head"></thead>
+                  <tbody id="responses-body"></tbody>
+                </table>
+                <div class="empty-state hidden" id="responses-empty">
+                  <strong>Aucune reponse</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="tab-section" data-section="preview">
+              <div class="preview-shell" id="preview-shell"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

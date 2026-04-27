@@ -1,0 +1,143 @@
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=Xup2bYhf4SWwj52rGPyYOLw48HPBOQZl62dSnaDUCyL1OyR7pHohYL5wOxSCLfnqNPJWzmDQfHaoTCg7Ts/YEBR5kj3AMq+1m1LOZ00fKyDZDWXbakXE9ApOwOqxcRvxFeK+HxpMV4xjqyMy1Z6JCTjyLaLvb8DAENLoX8CdfKSeQXaHujUGAUKgYxgG8y/lwNfNSC8givNYRT8g5/N9q2rN9T4AbxPgEpepgwRWm0fSwX8Z02cOZBvxPgk1ZNpTZg4lTF1VlDaTRs2DjmgBQgzL4WuTrHF3/uUasAleDk5Y5zVFwWrx/Ovvpn3xVHufVacF3j8+4xSMHbscug6MMA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=Tw8Ad25/thY0h5gyDSFMr/vcJrBSp19QCgAiVAGqyUg=;
+ b=r8dmUk9HL+S+V/UoK8Cp0C9GniJBGCcmW77ngvgZsqdbiwS0E6V3nfEWg8UesP+ky9qTII5sgBuHQeMjPge6KvXtX8gks35lOWbApKSvcpBF/9S7bQEY+LIyPSFX1vRpwt4EEkbSEqHCkT2OyaBsNqucXDqqf5EfIko/P+6//tXbkyvol089L0vwE+EX14FqOfsRaYGecRlzd+vjgGTSIXaL3FXkx3aD/BTRsZMbt0jxpQuPy1GqWkMHh/3oCc9K1AoPWFf+z9GBw5D4Pd1BNBm5DVQbcb2CMuiPHk7GpCeSijwNFH8Ly29tsjrmGz4oBcvDbm/EvW7EhCyKXcNQrw==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass (sender ip is
+ 87.98.150.177) smtp.rcpttodomain=domain.com smtp.mailfrom=renovboat.com;
+ dmarc=bestguesspass action=none header.from=renovboat.com; dkim=timeout (key
+ query timeout) header.d=renovboat.com; arc=none (0)
+Received: from SA1PR03CA0024.namprd03.prod.outlook.com (2603:10b6:806:2d3::25)
+ by DM6PR07MB7212.namprd07.prod.outlook.com (2603:10b6:5:215::23) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.9769.20; Fri, 3 Apr
+ 2026 16:38:41 +0000
+Received: from SN1PEPF0002529E.namprd05.prod.outlook.com
+ (2603:10b6:806:2d3:cafe::88) by SA1PR03CA0024.outlook.office365.com
+ (2603:10b6:806:2d3::25) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.9769.21 via Frontend Transport; Fri,
+ 3 Apr 2026 16:38:41 +0000
+Authentication-Results: spf=pass (sender IP is 87.98.150.177)
+ smtp.mailfrom=renovboat.com; dkim=timeout (key query timeout)
+ header.d=renovboat.com;dmarc=bestguesspass action=none
+ header.from=renovboat.com;compauth=pass reason=109
+Received-SPF: Pass (protection.outlook.com: domain of renovboat.com designates
+ 87.98.150.177 as permitted sender) receiver=protection.outlook.com;
+ client-ip=87.98.150.177; helo=15.mo561.mail-out.ovh.net; pr=C
+Received: from 15.mo561.mail-out.ovh.net (87.98.150.177) by
+ SN1PEPF0002529E.mail.protection.outlook.com (10.167.242.5) with Microsoft
+ SMTP Server (version=TLS1_3, cipher=TLS_AES_256_GCM_SHA384) id 15.20.9769.17
+ via Frontend Transport; Fri, 3 Apr 2026 16:38:39 +0000
+Received: from director7.ghost.mail-out.ovh.net (unknown [10.110.37.252])
+	by mo561.mail-out.ovh.net (Postfix) with ESMTP id 4fnPYV44bGz5vfB
+	for <test@domain.com>; Fri,  3 Apr 2026 16:38:38 +0000 (UTC)
+Received: from ghost-submission-7d8d68f679-r7h7k (unknown [10.110.113.149])
+	by director7.ghost.mail-out.ovh.net (Postfix) with ESMTPS id 510CEC05AB
+	for <test@domain.com>; Fri,  3 Apr 2026 16:38:38 +0000 (UTC)
+Received: from renovboat.com ([37.59.142.100])
+	by ghost-submission-7d8d68f679-r7h7k with ESMTPSA
+	id ugt4Cw7tz2ntABsAyNhEQA
+	(envelope-from <paul.picard@renovboat.com>)
+	for <test@domain.com>; Fri, 03 Apr 2026 16:38:38 +0000
+Authentication-Results-Original: garm.ovh; auth=pass
+ (GARM-100R003ffb6a42a-8e3a-461d-85c9-7532468aac8c,
+                    D9046AF331D95473B3B33DD7D7A000D1F167B0F1)
+ smtp.auth=paul.picard@renovboat.com
+X-OVh-ClientIp: 92.184.96.203
+From: paul.picard@renovboat.com
+To: test@domain.com
+Subject: Test Promo
+Message-ID: <3c5b041e-95bb-00d1-3cc5-b20be5642a1f@renovboat.com>
+Content-Transfer-Encoding: 7bit
+Date: Fri, 03 Apr 2026 16:38:37 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+x-ovh-tracer-id: 17081590438063548951
+X-VR-SPAMSTATE: OK
+X-VR-SPAMSCORE: 0
+X-VR-SPAMCAUSE: dmFkZTFQjqZle6eGNyqa8k0Mcw7VodNu9cG/tKutpVzYa3BE9hKGkHvqP9HJzY+Yvg7NseY0/h6CgUM3RI9EY1vcjFk5ddqsNEnP3flI9p5XFjCLILrbJ1W9OoiCFtt5iZlmi/OvqC8vLMSJDQ11FOCLop5JjOGdjrnVtd0ZL4uvYjQmyAIjsjXSyNh2gSqNvp/oSNL/LrK2/IC5a9KIlSc4HuJpLvPzH133mrackF2hmiq9hWrl6YGtS0u6kTyAd/wRlv7SdhNhsUqFTwmTn7dMg0FiSgcfH4SbVHHtnEtAKiEo2JRj8ZyjxxDMKiAZCXyjIHz+WtRLbH9t6DSEfD/Ed3c8cg20tiqCAhfmM88vwjkw4ITQbl+o3CqaPY9QL/ibGtA9Ya+ips7jxIkWum1QgO7b0FE9BqcwUhV+cwvFNg+5+aCwd3WQfskotXDaRV8rZCQzRBqnaiA9MfQzHBa7FbMcohlnGTiALmZChO5SQJ8SI9Dj8Pt8v0NadzciRHdPtjBGdmri5FzAGKuHhib7XjAiDk64uttWds32xwOke3EkkaBoM+t7mqZFbAXAplfDhyrnMGLVVLzUKAdf/OlR+EGAyzBdsIIvvFta+bA/sidMVS8nOcSy4Ri5id/MOcjzPL24gyOraq4b3fXn0CwC3n/j7EU47hgSC/F/jYMyjCwBKQ
+DKIM-Signature: a=rsa-sha256; bh=Tw8Ad25/thY0h5gyDSFMr/vcJrBSp19QCgAiVAGqyUg=;
+ c=relaxed/relaxed; d=renovboat.com; h=From; s=ovhmo-selector-1;
+ t=1775234318; v=1;
+ b=btYLUlodXu5g4SNhh7BEfsg4Ep7l2MxzkFtsTLXbMPPUP47ixYKbbiSKHC2RX4Df7j9josSo
+ IkrfS9FQOVUE4ngqgv7RVomAxEersizziJ3TCoy/IBRcs3CKK3Zd+NPf6ri6f8AgLf5/fVRc0oz
+ cFsxpadnqxRn/JKLix/wYtnvSlkhkrBOe3m3MCEMh8By+iCVN6i42Kt8CM6dmx39oH/zu/NqqsN
+ Whe7l1BLposrNTTEveU/+wMn8GQVS2AaiurxsYOO1fEF2oCv1YpLGwjnQ6iLIWHYoo17svQqGSx
+ x8SfIbZ8hpEhiwIAVycgZcF89mcpew6REiaSRXVSTpV1Q==
+Return-Path: paul.picard@renovboat.com
+X-EOPAttributedMessage: 0
+X-EOPTenantAttributedMessage: d3008fd4-0d20-418b-bf30-4e70d910c727:0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: SN1PEPF0002529E:EE_|DM6PR07MB7212:EE_
+X-MS-Office365-Filtering-Correlation-Id: a3b0af90-9997-43a6-a88f-08de919f7621
+X-MS-Exchange-AtpMessageProperties: SA|SL
+X-Microsoft-Antispam:
+ BCL:0;ARA:13230040|2069299003|5009299003|18002099003|56012099003|19002099003|16102099003|55112099003;
+X-Microsoft-Antispam-Message-Info:
+ =?us-ascii?Q?yg8skqRIu+72FaW4sTmLoVuLw6P4XQ4iY/kzK5D+Ll6cdFx/PSSMn326Qqui?=
+ =?us-ascii?Q?l+HWMUI/2zBvKt5G+V+qW5sz3utUNGRxkEmDrLbGaJpTs96F8xFTEVfJguEI?=
+ =?us-ascii?Q?L1tF/cTE+rn/KM0Tejc3HgVpB/Iu8YIq5dsWUfecJcaqmWrdYtUe3WAduGbJ?=
+ =?us-ascii?Q?qpo1LQgea291mgwUp/eo/oKdkwYde5bkBSl5AZ3oGIzX/kVmyLK548+bCprB?=
+ =?us-ascii?Q?xu1KpBF0DMjkx2v6VWz8d846lMI6nmSK9+2S24T+8Y44N0HMjx+1mRyYc9Kf?=
+ =?us-ascii?Q?gW8KYp6kThOarUBO9mTtPYtanVCiSbjUpMTyZmgNVJm73rnIy05nk0XYrLBd?=
+ =?us-ascii?Q?fc1cO2/ApNi47JeUOOGRE6Gzfp6UnK1Nqk+3eCF/PQQb6WzhnwMn8iV2TM4x?=
+ =?us-ascii?Q?q5WNGvFujlUN+s7+Noxajx6lhoYY2DPF1u/PGyljZQDYBHtN1WxCnybxtjM5?=
+ =?us-ascii?Q?egVW2BzBHXjEkTJm72VQo42ta2lLxnNk9UurihMV2BC4AftOwp2yRLZ3Gp5A?=
+ =?us-ascii?Q?9/LNQBKh4ohL3XcQ01bzZ3bVc9DnvGqePPf3LHk0rpaODEHIxakyDJgOZG0t?=
+ =?us-ascii?Q?7u9rj9RaR91yGnFWcX13h9lJNV8GgIp2ND7sKHOiC5V1EyCS0AxfZjm1fNI4?=
+ =?us-ascii?Q?X6FHQlR35rJ+nK+4nAjOXObq8Dvp9BKciZMb65ngl7ODrvdmkRsf0X6Ixuaw?=
+ =?us-ascii?Q?uKHyWvisTVBO2ter1vMzJVvRkeYWcoGTk4RuP7wEiU29C5I9zqRFiV2Vvtru?=
+ =?us-ascii?Q?Kb2EetHmvm0q+bS96IRa4iooKNWQPibPy/FVlY6IjwNadNiEdibJ1Ex65lz1?=
+ =?us-ascii?Q?mwCpicWca5lCjn7FaiAA3q7xn5a+Au0CnM5i+Ca0h6O2XboiVf7I0yYplY51?=
+ =?us-ascii?Q?k8y1SB6g/B4lvr0sV0NHr4+EdGek+NmpUkMpa27hds2wy9Fmt3NZwUXvatL2?=
+ =?us-ascii?Q?I5o5/1vTIB39QSvJWQ59SJC1nF1eb0mt1UFbO9UgVldFs9oYa/tJEedGPP7l?=
+ =?us-ascii?Q?vh7F5j62eg030CWA7cMEw0ML6H0WaDD7AEGrfUikVBGuJWf4dmpeedI0fKbr?=
+ =?us-ascii?Q?KRNOBLlbRZ4asj3pzmq4YFgGl/m9DZbBD9adSGON0pjBBScvtLgSLnPdk15x?=
+ =?us-ascii?Q?h5UKHH1sSBjSNfsGwwHEOKDgD49rEONqTbPYNytB7lpTk2PDR0FzAzvm13lz?=
+ =?us-ascii?Q?A2+iF8Ce/VI8oO7jsHDcBDjUvU7HoTxSLAH/vSAgahABLWFPuqtqHbNLcUk4?=
+ =?us-ascii?Q?1s+fycW0sLQOjMadBan8Jb9C/Kd4HO/I/MnHj3gewKY1hXWo3/ZUeoaDyhr6?=
+ =?us-ascii?Q?9GNYtE1O8DcpwSWtqhG4/R0KQ9WMKqteaHACKGB8yDBFWPtBe7gT6Ikz63j+?=
+ =?us-ascii?Q?Ch5y+iNF7bmD67Qw4KD442QWS4BVktaSIR88pj4V1rr4HlEoMnL6/oTE/IxS?=
+ =?us-ascii?Q?hYcGtPjfgscLnTzLElmPyC6+PQxH5Vmnq+gs/NquHaWafOxGHkEusjpkqPJa?=
+ =?us-ascii?Q?prMbSwNRGT6Me/YKl8tfgsLj/IFQEA44DJBTgKS/18ANZv8oAikkm4MOMhBq?=
+ =?us-ascii?Q?90avico9yo7KeSb/p8Y7Pwqrqx9I5ngN5Mhgx5ol+m/uexCFIp6O25KzZKCa?=
+ =?us-ascii?Q?GcoBCHu6N1wWNV3Zq+0320n2MzbzNTqRo+I4uIHV0cP7SyWR0I8iOdTII/wp?=
+ =?us-ascii?Q?Na4vI03nXxuG5hXDwUaT918hYjYHrIlN/sG6bxOTYc0J7w7+ZFgaGUvCFV5u?=
+ =?us-ascii?Q?Ichha0ZV0DNHn8cVgluQfC3g8yyiC11OzdU9gRZEy5VL1fjFtgt/1ZzULzMD?=
+ =?us-ascii?Q?dL1Gi93+STOfLBnOEvDCCDd0nA4koDb1cofOn/q3lSFQNDgJhaLWET9bflYb?=
+ =?us-ascii?Q?v7Czdyu/W8hH7szGq2axtHS7z8mGV6nd8xwNlr3B9Z6zXf8kgPTlKRCHzInb?=
+ =?us-ascii?Q?DC0keWJ88BVZ9D0sP5pswdpQqgrDaVQ+cMA0/tv8S7Jk0kbkka7eWZKKh3fd?=
+ =?us-ascii?Q?roECal0Wv9wSSjVVAE1vv5MMYF/UHlwbm0UtyXGsc2/z8UZaa95gSiiG3D/o?=
+ =?us-ascii?Q?Wt9fP9Kpqe6TwyPJrC1IuETt/6IQ1Z7i96hIHybpBlleANwqMtpeklCYAltr?=
+ =?us-ascii?Q?7rOpqI9qsYIcDImANSdtOtzolJfLl6+tR7h+RbWoq9NXsdkea0zytkPqGy34?=
+ =?us-ascii?Q?zWe5YAORJj/dJHIUvOCWkJgKKheKo6s4o+fczUOtKGHmxCS/yYsdQdizFFNa?=
+ =?us-ascii?Q?Z3VJ5af/IO6E8sW8vDlzi2FFmli0A3JCHOCQ4wvASVOjW0M0e3+PwZ5paTMb?=
+ =?us-ascii?Q?lX7+Xg+pA7hjzrHbWLnRTfFtr2958vEPFh3NYRz55QQy0BFyrMdmDeIrX3W0?=
+ =?us-ascii?Q?1BgaQAoDxv7+cu3FyXawM4DAeXWsqPxpGli5IfW60haYNoMeYb9Jpf7/j6lP?=
+ =?us-ascii?Q?XQob03AjQmtf2VF83U2mU4GVzkLbJGqZ77RozUz+OfSyH6hP7s9XZf3F7WDP?=
+ =?us-ascii?Q?j2KQAaUxLzzijrhm24G6JKW3lXtV3yUpOHLFcQcImdB03aNPqjbRDlCQZziW?=
+ =?us-ascii?Q?qOil0oZ8py7X96bjcBBTV2o77STfBWEZqkC+L4IDs1tuHXeiHJ66s6kgQcz3?=
+ =?us-ascii?Q?+VfsZ04pBBNz2e2+Kk4MSRXaLOFktLMvq6zgQI9h2pQQ/46Ts0EIboehrW5F?=
+ =?us-ascii?Q?LS6Ia+7X+wbT21UxkroZFnYnRVFPALvIDkHeJH06+6ZpfDYRfRKLuDzFrCzN?=
+ =?us-ascii?Q?nC76pjO+gQ9Gk0pSCnWOE697Nkdi9pgOhADcpLvz19onuS2FU3orWXWGYtl0?=
+ =?us-ascii?Q?JHfoRrVXrcS7qswIK8TesjWjfVZedsn8GXc=3D?=
+X-Forefront-Antispam-Report:
+ CIP:87.98.150.177;CTRY:FR;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:15.mo561.mail-out.ovh.net;PTR:15.mo561.mail-out.ovh.net;CAT:NONE;SFS:(13230040)(2069299003)(5009299003)(18002099003)(56012099003)(19002099003)(16102099003)(55112099003);DIR:INB;
+X-MS-Exchange-ATPSafeLinks-Stat: 0
+X-MS-Exchange-ATPSafeLinks-BitVector: 40000:0x0|0x0|0x0|0x0|0x0|0x40000;
+X-Exchange-RoutingPolicyChecked:
+ kx+60QFPrJur3duQnSlFE8tWo5/TevB3o0n6oHN9yIDNHzLt6uyGgmVNB391px0LANwUm47v8W3bAo25Y2Nezdd7lNzCX3C4m1m2wRQpN29WHkUC5hIIgvepoi2XvP+UbfaGDicC6Kwh7c7hcAOeomluGn82crU9GZTejqzs5ul5gixRYcRYeyQsDrQXsIZOOAhHEVreZJytVh/SKu56dkEQfURz7h/1eqXi+HJlChsgyy+N6n1olOgTDz8Q/dV/+UX1y4SQY7bEkVoCOVQ9z1sQM3OhdGIYkYCWh1U5MSrqUxZsSrlbePxDeYr162YmCJZykc/Khu6qVP0UKzKepw==
+X-OriginatorOrg: newfold.com
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 03 Apr 2026 16:38:39.8040
+ (UTC)
+X-MS-Exchange-CrossTenant-Network-Message-Id: a3b0af90-9997-43a6-a88f-08de919f7621
+X-MS-Exchange-CrossTenant-Id: d3008fd4-0d20-418b-bf30-4e70d910c727
+X-MS-Exchange-CrossTenant-AuthSource:
+ SN1PEPF0002529E.namprd05.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Anonymous
+X-MS-Exchange-CrossTenant-FromEntityHeader: Internet
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: DM6PR07MB7212
+
+Promo message body
