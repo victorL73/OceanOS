@@ -47,17 +47,34 @@ router.post('/', (req, res) => {
         return res.json({ success: true, message: 'Rien a mettre a jour' });
     }
 
-    const setClauses = fields.map((field) => `${field} = ?`).join(', ');
-    const values = fields.map((field) => req.body[field]);
-    values.push(req.user.id);
-
-    db.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [req.user.id], function(insertErr) {
-        if (insertErr) {
-            return res.status(500).json({ error: insertErr.message || 'Impossible de preparer les parametres utilisateur' });
+    db.get('SELECT user_id FROM user_settings WHERE user_id = ?', [req.user.id], (readErr, row) => {
+        if (readErr) {
+            console.error('[settings] read error:', readErr);
+            return res.status(500).json({ error: readErr.message || 'Impossible de lire les parametres utilisateur' });
         }
 
-        db.run(`UPDATE user_settings SET ${setClauses} WHERE user_id = ?`, values, function(updateErr) {
+        if (!row) {
+            const insertColumns = ['user_id', ...fields];
+            const placeholders = insertColumns.map(() => '?').join(', ');
+            const insertValues = [req.user.id, ...fields.map((field) => req.body[field])];
+
+            db.run(`INSERT INTO user_settings (${insertColumns.join(', ')}) VALUES (${placeholders})`, insertValues, function(insertErr) {
+                if (insertErr) {
+                    console.error('[settings] insert error:', insertErr);
+                    return res.status(500).json({ error: insertErr.message || 'Impossible de creer les parametres utilisateur' });
+                }
+                res.json({ success: true, message: 'Parametres mis a jour' });
+            });
+            return;
+        }
+
+        const setClauses = fields.map((field) => `${field} = ?`).join(', ');
+        const updateValues = fields.map((field) => req.body[field]);
+        updateValues.push(req.user.id);
+
+        db.run(`UPDATE user_settings SET ${setClauses} WHERE user_id = ?`, updateValues, function(updateErr) {
             if (updateErr) {
+                console.error('[settings] update error:', updateErr);
                 return res.status(500).json({ error: updateErr.message || 'Impossible de sauvegarder les parametres' });
             }
             res.json({ success: true, message: 'Parametres mis a jour' });

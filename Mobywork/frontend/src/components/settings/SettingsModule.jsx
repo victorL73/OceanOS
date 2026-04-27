@@ -151,7 +151,10 @@ export default function SettingsModule({ user, onLogout }) {
       setMessage({ type: 'success', text: 'Paramètres sauvegardés avec succès.' });
     } catch (err) {
       const status = err.response?.status;
-      const apiMessage = err.response?.data?.error;
+      const responseData = err.response?.data;
+      const apiMessage = typeof responseData === 'string'
+        ? responseData.slice(0, 500)
+        : (responseData?.error || responseData?.message);
       const serverOffline = err.code === 'ERR_NETWORK' || !err.response;
       setMessage({
         type: 'error',
