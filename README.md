@@ -1,6 +1,6 @@
 # OceanOS CRM
 
-OceanOS est le portail principal du dossier `www`. Il centralise la connexion, les comptes, les droits utilisateurs et la configuration IA commune aux applications.
+OceanOS est le portail principal du dossier `www`. Il centralise la connexion, les comptes, les droits utilisateurs, les informations entreprise et les configurations communes aux applications.
 
 ## Structure du dossier `www`
 
@@ -29,6 +29,7 @@ OceanOS est la passerelle d'entrée du CRM.
 - Les pages applicatives affichent un bouton de retour vers OceanOS.
 - La gestion des comptes et des droits se fait dans OceanOS.
 - La clé IA Groq est configurée dans le menu utilisateur OceanOS et partagée avec les applications qui en ont besoin.
+- Les informations entreprise sont configurées dans le menu utilisateur OceanOS et partagées avec les modules, notamment Mobywork et Invocean.
 
 Les applications concernées actuellement sont :
 
@@ -140,6 +141,7 @@ Tables OceanOS :
 oceanos_users
 oceanos_user_ai_settings
 oceanos_prestashop_settings
+oceanos_company_settings
 nautipost_history
 ```
 
@@ -255,6 +257,21 @@ Elle est partagee par :
 - Mobywork
 
 La cle Webservice n'est pas stockee en clair dans l'interface. Elle est chiffree cote serveur avant stockage.
+
+## Informations entreprise
+
+Les coordonnees entreprise communes sont configurees dans OceanOS :
+
+```text
+OceanOS > menu utilisateur > Entreprise
+```
+
+Elles sont communes a toutes les sessions utilisateur. Les membres peuvent les consulter, mais seuls les `admin` et `super-utilisateur` peuvent les modifier.
+
+Ces informations alimentent notamment :
+
+- les devis Mobywork
+- les factures et exports Factur-X Invocean
 
 ## NautiPost
 

@@ -384,7 +384,7 @@ run_update() {
     exit 2
   fi
 
-  local before after output status
+  local before after output status permissions_output permissions_status service_output service_status control_output control_status restart_output restart_status
   before="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
   preserve_server_config_before_pull
   set +e
@@ -399,16 +399,73 @@ run_update() {
     exit "$status"
   fi
 
-  fix_permissions
-  systemctl daemon-reload || true
-  systemctl restart "$MOBYWORK_SERVICE"
-  systemctl reload "$WEB_SERVICE" || systemctl restart "$WEB_SERVICE"
+  set +e
+  permissions_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" permissions 2>&1)"
+  permissions_status=$?
+  set -e
+  if [[ "$permissions_status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les permissions ont echoue.","before":"%s","output":"%s","permissionsOutput":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")" \
+      "$(json_escape "$permissions_output")"
+    exit "$permissions_status"
+  fi
+
+  set +e
+  service_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" service 2>&1)"
+  service_status=$?
+  set -e
+  if [[ "$service_status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le service Mobywork n a pas pu etre reinstalle.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")" \
+      "$(json_escape "$permissions_output")" \
+      "$(json_escape "$service_output")"
+    exit "$service_status"
+  fi
+
+  set +e
+  control_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" control 2>&1)"
+  control_status=$?
+  set -e
+  if [[ "$control_status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le controleur n a pas pu etre reinstalle.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")" \
+      "$(json_escape "$permissions_output")" \
+      "$(json_escape "$service_output")" \
+      "$(json_escape "$control_output")"
+    exit "$control_status"
+  fi
+
+  set +e
+  restart_output="$(
+    systemctl daemon-reload || true
+    systemctl restart "$MOBYWORK_SERVICE" || exit $?
+    systemctl reload "$WEB_SERVICE" || systemctl restart "$WEB_SERVICE" || exit $?
+  ) 2>&1"
+  restart_status=$?
+  set -e
+  if [[ "$restart_status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour terminee, mais le redemarrage des services a echoue.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")" \
+      "$(json_escape "$permissions_output")" \
+      "$(json_escape "$service_output")" \
+      "$(json_escape "$control_output")" \
+      "$(json_escape "$restart_output")"
+    exit "$restart_status"
+  fi
 
   after="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-  printf '{"ok":true,"message":"Mise a jour terminee.","before":"%s","after":"%s","output":"%s","services":' \
+  printf '{"ok":true,"message":"Mise a jour terminee.","before":"%s","after":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s","services":' \
     "$(json_escape "$before")" \
     "$(json_escape "$after")" \
-    "$(json_escape "$output")"
+    "$(json_escape "$output")" \
+    "$(json_escape "$permissions_output")" \
+    "$(json_escape "$service_output")" \
+    "$(json_escape "$control_output")" \
+    "$(json_escape "$restart_output")"
   status_all | sed 's/^{"ok":true,"services"://; s/}$//'
   printf '}'
 }
