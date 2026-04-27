@@ -6163,8 +6163,29 @@ function renderCalendarView(page, view, rows = page.database.rows) {
     const iso = toISODate(currentDate);
     const cell = document.createElement("div");
     cell.className = "calendar-cell";
+    cell.dataset.calendarDate = iso;
     if (currentDate.getMonth() !== monthStart.getMonth()) cell.classList.add("outside");
     if (iso === todayIso) cell.classList.add("today");
+    if (!page.deletedAt) {
+      cell.addEventListener("dragover", (event) => {
+        if (!event.dataTransfer.types.includes("application/x-flowcean-calendar-row")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        cell.classList.add("calendar-cell-drop-target");
+      });
+      cell.addEventListener("dragleave", (event) => {
+        if (!cell.contains(event.relatedTarget)) {
+          cell.classList.remove("calendar-cell-drop-target");
+        }
+      });
+      cell.addEventListener("drop", (event) => {
+        const rowId = event.dataTransfer.getData("application/x-flowcean-calendar-row");
+        if (!rowId) return;
+        event.preventDefault();
+        cell.classList.remove("calendar-cell-drop-target");
+        moveCalendarRowToDate(page.id, rowId, dateProperty.id, iso);
+      });
+    }
 
     const head = document.createElement("div");
     head.className = "calendar-cell-head";
@@ -6185,8 +6206,23 @@ function renderCalendarView(page, view, rows = page.database.rows) {
       const projectInfo = getProjectRowInfo(page, row);
       const item = document.createElement("div");
       item.className = "calendar-card";
+      item.draggable = !page.deletedAt;
+      item.dataset.rowId = row.id;
       if (projectInfo.overdue) item.classList.add("project-overdue-card");
       if (projectInfo.blocked) item.classList.add("project-blocked-card");
+      item.addEventListener("dragstart", (event) => {
+        if (page.deletedAt) return;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/x-flowcean-calendar-row", row.id);
+        event.dataTransfer.setData("text/plain", row.id);
+        item.classList.add("calendar-card-dragging");
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("calendar-card-dragging");
+        document.querySelectorAll(".calendar-cell-drop-target").forEach((target) => {
+          target.classList.remove("calendar-cell-drop-target");
+        });
+      });
       item.addEventListener("click", () => openBoardCardModal(page.id, row.id));
       const title = document.createElement("strong");
       title.textContent = getPrimaryCellValue(page.database, row) || "Sans titre";
@@ -8329,6 +8365,19 @@ function setCalendarMonthToToday(pageId) {
     const view = getActiveDatabaseView(page);
     if (view) view.settings.month = startOfMonthISO(new Date());
   });
+  renderMain();
+}
+
+function moveCalendarRowToDate(pageId, rowId, datePropertyId, isoDate) {
+  const page = getPage(pageId);
+  if (!page?.database || page.deletedAt || !parseISODate(isoDate)) return;
+  const row = page.database.rows.find((candidate) => candidate.id === rowId);
+  const property = page.database.properties.find((candidate) => candidate.id === datePropertyId && candidate.type === "date");
+  if (!row || !property) return;
+  if (row.cells[property.id] === isoDate) return;
+
+  updateCellValue(pageId, rowId, property.id, isoDate, false);
+  toast(`Carte deplacee au ${isoDate}.`);
   renderMain();
 }
 

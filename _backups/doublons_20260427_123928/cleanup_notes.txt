@@ -1,0 +1,7 @@
+Nettoyage doublons - 2026-04-27 12:39:28
+Workspace: C:\wamp64\www
+Suppression jonction: C:\wamp64\www\Flowcean (2) -> C:\Users\Xxvic\Documents\GitHub\OceanOS\Flowcean
+Suppression jonction: C:\wamp64\www\OceanOS (2) -> C:\Users\Xxvic\Documents\GitHub\OceanOS\OceanOS
+Archivage doublon: C:\wamp64\www\Mobywork\nautipost -> C:\wamp64\www\_backups\doublons_20260427_123928\Mobywork_nautipost
+Archivage doublon: C:\wamp64\www\Mobywork\frontend\dist\nautipost -> C:\wamp64\www\_backups\doublons_20260427_123928\Mobywork_frontend_dist_nautipost
+Archivage doublon: C:\wamp64\www\Mobywork\frontend\public\nautipost -> C:\wamp64\www\_backups\doublons_20260427_123928\Mobywork_frontend_public_nautipost

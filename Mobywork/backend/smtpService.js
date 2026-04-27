@@ -28,7 +28,7 @@ function normalizeSenderAccount(account = {}, index = 0, settings = {}) {
     const id = String(account.id || senderIdFromEmail(email, index)).trim();
     const host = account.smtp_host || account.host || settings.smtp_host || '';
     const port = account.smtp_port || account.port || settings.smtp_port || 465;
-    const user = account.smtp_user || account.user || email || settings.smtp_user || '';
+    const user = account.smtp_user || account.user || settings.smtp_user || email || '';
     const pass = account.smtp_pass || account.pass || settings.smtp_pass || '';
     const label = account.label || account.name || email;
     const fromName = account.from_name || account.fromName || settings.nom || label;
