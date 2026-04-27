@@ -42,7 +42,12 @@ const allowedOrigins = [
   'http://127.0.0.1:5174',
   'http://127.0.0.1:5175',
   'http://127.0.0.1:3002',
+  'http://interne.renovboat.com',
+  'https://interne.renovboat.com',
+  'http://www.interne.renovboat.com',
+  'https://www.interne.renovboat.com',
   process.env.FRONTEND_URL,
+  ...(process.env.CORS_ORIGINS || '').split(',').map(origin => origin.trim()),
 ].filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
@@ -515,6 +520,16 @@ app.get('/api/dashboard/suggestions', async (req, res) => {
 // SERVEUR STATIQUE (NautiPost)
 // ═══════════════════════════════════════════════════════════
 app.use(express.static(path.join(__dirname, '..'), { index: 'index.html' }));
+
+app.use((err, req, res, next) => {
+    console.error('[express]', err);
+    if (res.headersSent) {
+        return next(err);
+    }
+    res.status(err.status || err.statusCode || 500).json({
+        error: err.message || 'Erreur interne serveur',
+    });
+});
 
 // ═══════════════════════════════════════════════════════════
 // CRON JOBS
