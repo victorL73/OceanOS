@@ -388,6 +388,17 @@ ensure_permissions() {
     chown -R "$PHP_USER:$PHP_GROUP" "$path"
     chmod -R u+rwX,g+rwX,o-rwx "$path"
   done
+
+  local oceanos_config_dir="$APP_ROOT/OceanOS/config"
+  local local_config="$oceanos_config_dir/server.local.php"
+  local default_config="$oceanos_config_dir/server.php"
+  if [[ ! -f "$local_config" && -f "$default_config" ]]; then
+    cp -a "$default_config" "$local_config"
+  fi
+  if [[ -f "$local_config" ]]; then
+    chown "$PHP_USER:$PHP_GROUP" "$local_config"
+    chmod 0660 "$local_config"
+  fi
 }
 
 install_all() {

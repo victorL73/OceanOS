@@ -43,7 +43,7 @@ function oceanos_admin_write_php_config(string $path, array $data): void
     $content .= 'return ' . var_export($data, true) . ";\n";
 
     if (file_put_contents($path, $content, LOCK_EX) === false) {
-        throw new RuntimeException('Impossible d ecrire la configuration.');
+        throw new RuntimeException('Impossible d ecrire la configuration : ' . $path);
     }
 }
 
@@ -103,6 +103,11 @@ function oceanos_admin_require_csrf(): void
 
 function oceanos_admin_server_config_path(): string
 {
+    return oceanos_admin_root_path('OceanOS', 'config', 'server.local.php');
+}
+
+function oceanos_admin_default_server_config_path(): string
+{
     return oceanos_admin_root_path('OceanOS', 'config', 'server.php');
 }
 
@@ -120,7 +125,8 @@ function oceanos_admin_default_database_config(): array
 function oceanos_admin_database_config(): array
 {
     $path = oceanos_admin_server_config_path();
-    $config = is_file($path) ? require $path : [];
+    $fallbackPath = oceanos_admin_default_server_config_path();
+    $config = is_file($path) ? require $path : (is_file($fallbackPath) ? require $fallbackPath : []);
     $config = is_array($config) ? $config : [];
 
     return array_merge(oceanos_admin_default_database_config(), $config);

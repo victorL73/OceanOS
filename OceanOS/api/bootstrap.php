@@ -16,7 +16,10 @@ function oceanos_config(): array
 {
     static $config = null;
     if ($config === null) {
-        $config = require dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'server.php';
+        $configDirectory = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config';
+        $localConfig = $configDirectory . DIRECTORY_SEPARATOR . 'server.local.php';
+        $defaultConfig = $configDirectory . DIRECTORY_SEPARATOR . 'server.php';
+        $config = require (is_file($localConfig) ? $localConfig : $defaultConfig);
     }
 
     return $config;
