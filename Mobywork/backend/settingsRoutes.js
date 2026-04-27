@@ -8,28 +8,26 @@ const router = express.Router();
 router.use(authMiddleware);
 
 const ALL_FIELDS = [
-    'imap_host','imap_port','imap_user','imap_pass',
-    'smtp_host','smtp_port','smtp_user','smtp_pass','smtp_accounts','smtp_default_sender',
-    'nom','poste','signature_email','signature_is_html','signature_photo','signature_illustration',
-    'ai_tone','ai_langue',
-    'crm_template_promo','crm_template_vip','crm_template_relance',
-    'ps_api_url','ps_api_key',
-    'autopilot_archive_noreply','autopilot_archive_promo','autopilot_delay_relance',
-    'notif_panier_abandon','notif_stock_critique','notif_email_sans_reponse',
-    'finance_expense_coef','finance_client_delay','finance_supplier_delay',
-    'marketing_target_roas','marketing_auto_pilot','marketing_daily_budget',
-    'marketing_google_ads_id','marketing_meta_ads_id','marketing_tiktok_ads_id',
-    // Template Devis
-    'quote_company_name','quote_company_address','quote_company_city',
-    'quote_company_phone','quote_company_email','quote_company_siret',
-    'quote_company_logo','quote_payment_terms','quote_validity_days','quote_footer_note',
+    'imap_host', 'imap_port', 'imap_user', 'imap_pass',
+    'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_accounts', 'smtp_default_sender',
+    'nom', 'poste', 'signature_email', 'signature_is_html', 'signature_photo', 'signature_illustration',
+    'ai_tone', 'ai_langue',
+    'crm_template_promo', 'crm_template_vip', 'crm_template_relance',
+    'ps_api_url', 'ps_api_key',
+    'autopilot_archive_noreply', 'autopilot_archive_promo', 'autopilot_delay_relance',
+    'notif_panier_abandon', 'notif_stock_critique', 'notif_email_sans_reponse',
+    'finance_expense_coef', 'finance_client_delay', 'finance_supplier_delay',
+    'marketing_target_roas', 'marketing_auto_pilot', 'marketing_daily_budget',
+    'marketing_google_ads_id', 'marketing_meta_ads_id', 'marketing_tiktok_ads_id',
+    'quote_company_name', 'quote_company_address', 'quote_company_city',
+    'quote_company_phone', 'quote_company_email', 'quote_company_siret',
+    'quote_company_logo', 'quote_payment_terms', 'quote_validity_days', 'quote_footer_note',
     'quote_html_template',
 ];
 
-// GET - Récupérer tous les paramètres
 router.get('/', (req, res) => {
     db.get(`SELECT ${ALL_FIELDS.join(',')} FROM user_settings WHERE user_id = ?`, [req.user.id], (err, row) => {
-        if (err) return res.status(500).json({ error: 'Erreur lors de la récupération des paramètres' });
+        if (err) return res.status(500).json({ error: err.message || 'Erreur lors de la recuperation des parametres' });
         res.json(row || {});
     });
 });
@@ -43,35 +41,41 @@ router.get('/mail-senders', async (req, res) => {
     }
 });
 
-// POST - Mettre à jour les paramètres (seulement les champs fournis)
 router.post('/', (req, res) => {
-    const fields = Object.keys(req.body).filter(k => ALL_FIELDS.includes(k));
-    if (fields.length === 0) return res.json({ success: true, message: 'Rien à mettre à jour' });
+    const fields = Object.keys(req.body).filter((key) => ALL_FIELDS.includes(key));
+    if (fields.length === 0) {
+        return res.json({ success: true, message: 'Rien a mettre a jour' });
+    }
 
-    const setClauses = fields.map(f => `${f} = ?`).join(', ');
-    const values = fields.map(f => req.body[f]);
+    const setClauses = fields.map((field) => `${field} = ?`).join(', ');
+    const values = fields.map((field) => req.body[field]);
     values.push(req.user.id);
 
-    db.run(`UPDATE user_settings SET ${setClauses} WHERE user_id = ?`, values, function(err) {
-        if (err) return res.status(500).json({ error: 'Impossible de sauvegarder les paramètres' });
-        res.json({ success: true, message: 'Paramètres mis à jour' });
+    db.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [req.user.id], function(insertErr) {
+        if (insertErr) {
+            return res.status(500).json({ error: insertErr.message || 'Impossible de preparer les parametres utilisateur' });
+        }
+
+        db.run(`UPDATE user_settings SET ${setClauses} WHERE user_id = ?`, values, function(updateErr) {
+            if (updateErr) {
+                return res.status(500).json({ error: updateErr.message || 'Impossible de sauvegarder les parametres' });
+            }
+            res.json({ success: true, message: 'Parametres mis a jour' });
+        });
     });
 });
 
-// GET /api/settings/status - Vérification des connexions système
 router.get('/status', async (req, res) => {
     try {
         const sharedPrestashop = await getSharedPrestashopSettings().catch(() => ({}));
-        db.get(`SELECT imap_host, imap_user, ps_api_url, ps_api_key FROM user_settings WHERE user_id = ?`, [req.user.id], async (err, row) => {
+        db.get('SELECT imap_host, imap_user, ps_api_url, ps_api_key FROM user_settings WHERE user_id = ?', [req.user.id], async (err, row) => {
             const status = {
                 backend: true,
                 imap: false,
                 prestashop: !!(sharedPrestashop.shopUrl && sharedPrestashop.apiKey),
             };
             if (!err && row) {
-                // IMAP: connecté si host + user renseignés
                 status.imap = !!(row.imap_host && row.imap_user);
-                // PrestaShop: connecté si url + clé renseignées
                 status.prestashop = status.prestashop || !!(row.ps_api_url && row.ps_api_key && row.ps_api_key.length > 5);
             }
             res.json(status);

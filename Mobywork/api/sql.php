@@ -175,9 +175,61 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             quote_html_template LONGTEXT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
-    mobywork_sql_ensure_column($pdo, 'mobywork_user_settings', 'smtp_accounts', 'LONGTEXT NULL');
-    mobywork_sql_ensure_column($pdo, 'mobywork_user_settings', 'smtp_default_sender', 'TEXT NULL');
-    mobywork_sql_ensure_column($pdo, 'mobywork_user_settings', 'signature_is_html', 'INT NOT NULL DEFAULT 0');
+    $settingsColumns = [
+        'imap_host' => 'TEXT NULL',
+        'imap_port' => 'INT NULL',
+        'imap_user' => 'TEXT NULL',
+        'imap_pass' => 'TEXT NULL',
+        'smtp_host' => 'TEXT NULL',
+        'smtp_port' => 'INT NULL',
+        'smtp_user' => 'TEXT NULL',
+        'smtp_pass' => 'TEXT NULL',
+        'smtp_accounts' => 'LONGTEXT NULL',
+        'smtp_default_sender' => 'TEXT NULL',
+        'groq_api_key' => 'TEXT NULL',
+        'nom' => 'TEXT NULL',
+        'poste' => 'TEXT NULL',
+        'signature_email' => 'LONGTEXT NULL',
+        'signature_is_html' => 'INT NOT NULL DEFAULT 0',
+        'signature_photo' => 'LONGTEXT NULL',
+        'ai_tone' => 'TEXT NULL',
+        'ai_langue' => 'TEXT NULL',
+        'crm_template_promo' => 'LONGTEXT NULL',
+        'crm_template_vip' => 'LONGTEXT NULL',
+        'crm_template_relance' => 'LONGTEXT NULL',
+        'ps_api_url' => 'TEXT NULL',
+        'ps_api_key' => 'TEXT NULL',
+        'autopilot_archive_noreply' => 'INT NOT NULL DEFAULT 1',
+        'autopilot_archive_promo' => 'INT NOT NULL DEFAULT 1',
+        'autopilot_delay_relance' => 'INT NOT NULL DEFAULT 3',
+        'notif_panier_abandon' => 'INT NOT NULL DEFAULT 1',
+        'notif_stock_critique' => 'INT NOT NULL DEFAULT 1',
+        'notif_email_sans_reponse' => 'INT NOT NULL DEFAULT 1',
+        'finance_expense_coef' => 'DOUBLE NOT NULL DEFAULT 1.15',
+        'finance_client_delay' => 'INT NOT NULL DEFAULT 30',
+        'finance_supplier_delay' => 'INT NOT NULL DEFAULT 30',
+        'signature_illustration' => 'LONGTEXT NULL',
+        'marketing_target_roas' => 'DOUBLE NOT NULL DEFAULT 3.0',
+        'marketing_auto_pilot' => 'INT NOT NULL DEFAULT 0',
+        'marketing_daily_budget' => 'DOUBLE NOT NULL DEFAULT 50.0',
+        'marketing_google_ads_id' => 'TEXT NULL',
+        'marketing_meta_ads_id' => 'TEXT NULL',
+        'marketing_tiktok_ads_id' => 'TEXT NULL',
+        'quote_company_name' => 'TEXT NULL',
+        'quote_company_address' => 'TEXT NULL',
+        'quote_company_city' => 'TEXT NULL',
+        'quote_company_phone' => 'TEXT NULL',
+        'quote_company_email' => 'TEXT NULL',
+        'quote_company_siret' => 'TEXT NULL',
+        'quote_company_logo' => 'LONGTEXT NULL',
+        'quote_payment_terms' => 'TEXT NULL',
+        'quote_validity_days' => 'INT NOT NULL DEFAULT 30',
+        'quote_footer_note' => 'TEXT NULL',
+        'quote_html_template' => 'LONGTEXT NULL',
+    ];
+    foreach ($settingsColumns as $column => $definition) {
+        mobywork_sql_ensure_column($pdo, 'mobywork_user_settings', $column, $definition);
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_emails (
