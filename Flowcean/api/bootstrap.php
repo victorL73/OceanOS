@@ -530,7 +530,11 @@ function flowcean_oceanos_secret_key(): string
 {
     $secret = trim((string) (getenv('OCEANOS_SECRET') ?: getenv('FLOWCEAN_AI_SECRET') ?: ''));
     if ($secret === '') {
-        $configPath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'server.php';
+        $configDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config';
+        $localConfigPath = $configDir . DIRECTORY_SEPARATOR . 'server.local.php';
+        $configPath = is_file($localConfigPath)
+            ? $localConfigPath
+            : $configDir . DIRECTORY_SEPARATOR . 'server.php';
         $config = is_file($configPath) ? require $configPath : flowcean_config();
         $config = is_array($config) ? $config : flowcean_config();
         $secret = implode('|', [

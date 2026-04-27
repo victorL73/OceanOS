@@ -25,7 +25,11 @@ function mobywork_read_json(): array
 
 function mobywork_config(): array
 {
-    $oceanosServerConfigPath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'server.php';
+    $oceanosConfigDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config';
+    $oceanosLocalConfigPath = $oceanosConfigDir . DIRECTORY_SEPARATOR . 'server.local.php';
+    $oceanosServerConfigPath = is_file($oceanosLocalConfigPath)
+        ? $oceanosLocalConfigPath
+        : $oceanosConfigDir . DIRECTORY_SEPARATOR . 'server.php';
     $oceanosServerConfig = is_file($oceanosServerConfigPath) ? require $oceanosServerConfigPath : [];
     $oceanosServerConfig = is_array($oceanosServerConfig) ? $oceanosServerConfig : [];
 
