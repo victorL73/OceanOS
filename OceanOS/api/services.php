@@ -37,7 +37,7 @@ function oceanos_services_catalog(): array
 function oceanos_service_control_available(): bool
 {
     $path = oceanos_service_control_path();
-    return PHP_OS_FAMILY === 'Linux' && is_file($path) && is_executable($path);
+    return PHP_OS_FAMILY === 'Linux' && is_file($path);
 }
 
 function oceanos_systemctl_path(): string
@@ -51,13 +51,29 @@ function oceanos_systemctl_path(): string
     return 'systemctl';
 }
 
+function oceanos_can_run_process(): bool
+{
+    return function_exists('proc_open') || function_exists('shell_exec');
+}
+
 function oceanos_run_process(array $parts): array
 {
-    if (!function_exists('proc_open')) {
+    if (!oceanos_can_run_process()) {
         throw new RuntimeException('La fonction PHP proc_open est requise pour lire les services.');
     }
 
     $command = implode(' ', array_map('escapeshellarg', $parts));
+
+    if (!function_exists('proc_open')) {
+        $output = shell_exec($command . ' 2>&1');
+
+        return [
+            'status' => 0,
+            'stdout' => trim((string) $output),
+            'stderr' => '',
+        ];
+    }
+
     $pipes = [];
     $process = proc_open(
         $command,
@@ -180,36 +196,11 @@ function oceanos_run_service_control(string $action, string $service = 'all'): a
     if (!oceanos_service_control_available()) {
         throw new RuntimeException('Controle systeme non installe. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control sur le serveur Ubuntu.');
     }
-    if (!function_exists('proc_open')) {
-        throw new RuntimeException('La fonction PHP proc_open est requise pour piloter les services.');
-    }
 
-    $command = 'sudo -n '
-        . escapeshellarg(oceanos_service_control_path())
-        . ' '
-        . escapeshellarg($action)
-        . ' '
-        . escapeshellarg($service);
-
-    $pipes = [];
-    $process = proc_open(
-        $command,
-        [
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ],
-        $pipes
-    );
-
-    if (!is_resource($process)) {
-        throw new RuntimeException('Impossible de lancer le controleur de services.');
-    }
-
-    $stdout = stream_get_contents($pipes[1]) ?: '';
-    fclose($pipes[1]);
-    $stderr = stream_get_contents($pipes[2]) ?: '';
-    fclose($pipes[2]);
-    $status = proc_close($process);
+    $result = oceanos_run_process(['sudo', '-n', oceanos_service_control_path(), $action, $service]);
+    $stdout = (string) ($result['stdout'] ?? '');
+    $stderr = (string) ($result['stderr'] ?? '');
+    $status = (int) ($result['status'] ?? 1);
 
     $decoded = json_decode($stdout, true);
     if (!is_array($decoded)) {
@@ -227,7 +218,7 @@ function oceanos_service_status_payload(): array
 {
     $controlAvailable = oceanos_service_control_available();
     if (!$controlAvailable) {
-        if (PHP_OS_FAMILY === 'Linux' && function_exists('proc_open')) {
+        if (PHP_OS_FAMILY === 'Linux' && oceanos_can_run_process()) {
             $message = 'Etats lus via systemctl. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control pour activer les boutons.';
 
             return [

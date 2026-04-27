@@ -88,6 +88,29 @@ function getInitialModule() {
   return MODULE_IDS.has(moduleParam) ? moduleParam : 'dashboard';
 }
 
+function updateBrowserModuleUrl(moduleName, context = null) {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('module', moduleName);
+
+    ['quote', 'id', 'source', 'client_id', 'client_name', 'client_email', 'nav_ts'].forEach((key) => {
+      url.searchParams.delete(key);
+    });
+
+    if (context) {
+      if (context.id) url.searchParams.set('id', context.id);
+      if (moduleName === 'quotes' && context.id === 'new') url.searchParams.set('quote', 'new');
+      if (context.source) url.searchParams.set('source', context.source);
+      if (context.client_id !== undefined && context.client_id !== null) url.searchParams.set('client_id', String(context.client_id));
+      if (context.client_name) url.searchParams.set('client_name', context.client_name);
+      if (context.client_email) url.searchParams.set('client_email', context.client_email);
+      url.searchParams.set('nav_ts', String(Date.now()));
+    }
+
+    window.history.pushState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {}
+}
+
 // ─── COMPOSANT MODULE MAIL (inchangé fonctionnellement) ────────────────────
 function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNavContext }) {
   const [emails, setEmails] = useState([]);
@@ -312,9 +335,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [token]);
 
-  const handleGlobalNavigate = (moduleName, context) => {
+  const handleGlobalNavigate = (moduleName, context = null) => {
     setNavContext(context);
     setActiveModule(moduleName);
+    updateBrowserModuleUrl(moduleName, context);
+  };
+
+  const handleModuleChange = (moduleName) => {
+    setNavContext(null);
+    setActiveModule(moduleName);
+    updateBrowserModuleUrl(moduleName);
   };
 
   // Cmd+K keyboard shortcut (Ctrl/Cmd + Shift + K pour éviter le conflit navigateur)
@@ -446,7 +476,7 @@ export default function App() {
   // Navigation depuis le Feed IA
   const handleModuleNavFromDashboard = (module) => {
     const map = { email: 'mail', crm: 'crm', nautipost: 'marketing', dashboard: 'dashboard' };
-    setActiveModule(map[module] || 'dashboard');
+    handleModuleChange(map[module] || 'dashboard');
   };
 
   const renderModule = () => {
@@ -509,7 +539,7 @@ export default function App() {
     <div className="app-shell">
       <GlobalSidebar
         activeModule={activeModule}
-        onModuleChange={setActiveModule}
+        onModuleChange={handleModuleChange}
         onAutopilot={handleAutopilot}
         isAutopiloting={isAutopiloting}
         user={user}
@@ -538,7 +568,7 @@ export default function App() {
       <CommandPalette
         isOpen={isCmdOpen}
         onClose={() => setIsCmdOpen(false)}
-        onNavigate={(module) => { setActiveModule(module); setIsCmdOpen(false); }}
+        onNavigate={(module) => { handleModuleChange(module); setIsCmdOpen(false); }}
         onCompose={() => { setIsComposing(true); setIsCmdOpen(false); }}
         onSync={() => { handleSync(); setIsCmdOpen(false); }}
       />

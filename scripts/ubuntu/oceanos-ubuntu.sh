@@ -359,8 +359,8 @@ fi
 run_action "$ACTION" "$TARGET"
 EOF
 
+  chown root:"$PHP_GROUP" "$CONTROL_BIN"
   chmod 0750 "$CONTROL_BIN"
-  chown root:root "$CONTROL_BIN"
 
   cat > "$SUDOERS_FILE" <<EOF
 $PHP_USER ALL=(root) NOPASSWD: $CONTROL_BIN

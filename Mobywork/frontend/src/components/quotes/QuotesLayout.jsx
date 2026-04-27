@@ -30,6 +30,41 @@ function readStoredDraftQuoteContext() {
   return null;
 }
 
+function readUrlDraftQuoteContext() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const isQuoteModule = params.get('module') === 'quotes';
+    const isNewQuote = params.get('quote') === 'new' || params.get('id') === 'new';
+    if (!isQuoteModule || !isNewQuote) return null;
+
+    const clientId = params.get('client_id') || '';
+    const clientName = params.get('client_name') || '';
+    const clientEmail = params.get('client_email') || '';
+    if (!clientId && !clientName && !clientEmail) return null;
+
+    return {
+      id: 'new',
+      source: params.get('source') || 'url',
+      created_at: Date.now(),
+      client_id: clientId,
+      client_name: clientName,
+      client_email: clientEmail,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearDraftQuoteUrlContext() {
+  try {
+    const url = new URL(window.location.href);
+    ['quote', 'id', 'source', 'client_id', 'client_name', 'client_email', 'nav_ts'].forEach((key) => {
+      url.searchParams.delete(key);
+    });
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {}
+}
+
 export default function QuotesLayout({ navContext, setNavContext }) {
   const [quotes, setQuotes] = useState([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState(null);
@@ -64,10 +99,10 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         return;
     }
 
-    const storedDraftContext = readStoredDraftQuoteContext();
-    if (storedDraftContext) {
+    const persistedDraftContext = readStoredDraftQuoteContext() || readUrlDraftQuoteContext();
+    if (persistedDraftContext) {
         setSelectedQuoteId('new');
-        setDraftQuoteContext(storedDraftContext);
+        setDraftQuoteContext(persistedDraftContext);
         clearStoredDraftQuoteContext();
     }
   }, [navContext, setNavContext]);
@@ -99,6 +134,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         setSelectedQuoteId(null);
         setDraftQuoteContext(null);
         clearStoredDraftQuoteContext();
+        clearDraftQuoteUrlContext();
     } catch(e) {
         console.error('Erreur save: ', e);
         alert('Erreur: ' + e.message);
@@ -112,6 +148,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         setSelectedQuoteId(null);
         setDraftQuoteContext(null);
         clearStoredDraftQuoteContext();
+        clearDraftQuoteUrlContext();
         fetchQuotes();
     } catch(e) {
         console.error('Del error:', e);
@@ -131,6 +168,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
              onClick={() => {
                setDraftQuoteContext(null);
                clearStoredDraftQuoteContext();
+               clearDraftQuoteUrlContext();
                setSelectedQuoteId('new');
              }}
              style={{ 
@@ -174,6 +212,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
                  onSelect={(id) => {
                    setDraftQuoteContext(null);
                    clearStoredDraftQuoteContext();
+                   clearDraftQuoteUrlContext();
                    setSelectedQuoteId(id);
                  }} 
                  loading={isLoading} 
@@ -190,6 +229,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
                        setSelectedQuoteId(null);
                        setDraftQuoteContext(null);
                        clearStoredDraftQuoteContext();
+                       clearDraftQuoteUrlContext();
                      }} 
                      onDelete={() => handleDelete(selectedQuote.id)}
                   />
