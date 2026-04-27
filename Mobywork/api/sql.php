@@ -496,9 +496,22 @@ function mobywork_sql_translate(string $sql): string
     return $sql;
 }
 
+function mobywork_sql_normalize_param(mixed $value): mixed
+{
+    if (!is_string($value)) {
+        return $value;
+    }
+
+    if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/', $value) === 1) {
+        return str_replace('T', ' ', substr($value, 0, 19));
+    }
+
+    return $value;
+}
+
 function mobywork_sql_params(array $params): array
 {
-    return array_values($params);
+    return array_map('mobywork_sql_normalize_param', array_values($params));
 }
 
 mobywork_sql_require_bridge_token();

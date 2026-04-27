@@ -5,6 +5,12 @@ const USE_PRESTASHOP_API = !!(process.env.PRESTASHOP_API_URL && process.env.PRES
 
 // --- IA LOGIC ---
 
+function toSqlDateTime(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 function calculateInsights(totalSpent, ordersCount, lastOrderDate) {
     let tag = "Nouveau";
     let summary = "Client récent.";
@@ -181,9 +187,9 @@ const crmService = {
 
     async logActivity(clientId, type, label, message, icon = 'send', userId = 1) {
         return new Promise((resolve, reject) => {
-            const isoDate = new Date().toISOString();
+            const activityDate = toSqlDateTime();
             const query = `INSERT INTO crm_activities (clientId, type, label, message, icon, date, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-            db.run(query, [clientId, type, label, message, icon, isoDate, userId], function(err) {
+            db.run(query, [clientId, type, label, message, icon, activityDate, userId], function(err) {
                 if (err) {
                     console.error("❌ Erreur logActivity DB:", err.message);
                     return reject(err);
