@@ -232,9 +232,14 @@ set -Eeuo pipefail
 
 ACTION="${1:-status}"
 TARGET="${2:-all}"
+APP_ROOT="${OCEANOS_APP_ROOT:-/var/www/oceanos}"
+PHP_USER="${OCEANOS_PHP_USER:-www-data}"
+PHP_GROUP="${OCEANOS_PHP_GROUP:-www-data}"
+WEB_SERVICE="${OCEANOS_WEB_SERVICE:-apache2}"
+MOBYWORK_SERVICE="${OCEANOS_MOBYWORK_SERVICE:-mobywork-backend}"
 
 json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  printf '%s' "$1" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g; s/"/\\"/g; s/\r/\\r/g; s/\n/\\n/g'
 }
 
 db_service() {
@@ -251,9 +256,9 @@ db_service() {
 
 unit_for() {
   case "$1" in
-    web) echo "${OCEANOS_WEB_SERVICE:-apache2}" ;;
+    web) echo "$WEB_SERVICE" ;;
     database) db_service ;;
-    mobywork) echo "${OCEANOS_MOBYWORK_SERVICE:-mobywork-backend}" ;;
+    mobywork) echo "$MOBYWORK_SERVICE" ;;
     *) return 1 ;;
   esac
 }
@@ -324,8 +329,92 @@ run_action() {
   printf '}'
 }
 
+fix_permissions() {
+  local paths=(
+    "$APP_ROOT/admin/storage"
+    "$APP_ROOT/OceanOS/config"
+    "$APP_ROOT/NautiCloud/storage"
+    "$APP_ROOT/Nautisign/storage"
+    "$APP_ROOT/Invocean/storage"
+    "$APP_ROOT/Mobywork/storage"
+    "$APP_ROOT/Mobywork/backend/uploads"
+  )
+
+  local path
+  for path in "${paths[@]}"; do
+    mkdir -p "$path"
+    chown -R "$PHP_USER:$PHP_GROUP" "$path"
+    chmod -R u+rwX,g+rwX,o-rwx "$path"
+  done
+
+  local oceanos_config_dir="$APP_ROOT/OceanOS/config"
+  local local_config="$oceanos_config_dir/server.local.php"
+  local default_config="$oceanos_config_dir/server.php"
+  if [[ ! -f "$local_config" && -f "$default_config" ]]; then
+    cp -a "$default_config" "$local_config"
+  fi
+  if [[ -f "$local_config" ]]; then
+    chown "$PHP_USER:$PHP_GROUP" "$local_config"
+    chmod 0660 "$local_config"
+  fi
+  if [[ -f "$default_config" ]]; then
+    chown "$PHP_USER:$PHP_GROUP" "$default_config"
+    chmod 0660 "$default_config"
+  fi
+}
+
+preserve_server_config_before_pull() {
+  local local_config="$APP_ROOT/OceanOS/config/server.local.php"
+  local default_config="$APP_ROOT/OceanOS/config/server.php"
+
+  if [[ ! -f "$local_config" && -f "$default_config" ]]; then
+    cp -a "$default_config" "$local_config"
+  fi
+
+  if git -C "$APP_ROOT" ls-files --error-unmatch OceanOS/config/server.php >/dev/null 2>&1; then
+    if ! git -C "$APP_ROOT" diff --quiet -- OceanOS/config/server.php; then
+      git -C "$APP_ROOT" checkout -- OceanOS/config/server.php
+    fi
+  fi
+}
+
+run_update() {
+  if [[ ! -d "$APP_ROOT/.git" ]]; then
+    printf '{"ok":false,"message":"Depot Git introuvable dans %s."}' "$(json_escape "$APP_ROOT")"
+    exit 2
+  fi
+
+  local before after output status
+  before="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  preserve_server_config_before_pull
+  set +e
+  output="$(git -C "$APP_ROOT" pull --ff-only 2>&1)"
+  status=$?
+  set -e
+
+  if [[ "$status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour Git refusee. Corrigez les changements locaux puis relancez.","before":"%s","output":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")"
+    exit "$status"
+  fi
+
+  fix_permissions
+  systemctl daemon-reload || true
+  systemctl restart "$MOBYWORK_SERVICE"
+  systemctl reload "$WEB_SERVICE" || systemctl restart "$WEB_SERVICE"
+
+  after="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  printf '{"ok":true,"message":"Mise a jour terminee.","before":"%s","after":"%s","output":"%s","services":' \
+    "$(json_escape "$before")" \
+    "$(json_escape "$after")" \
+    "$(json_escape "$output")"
+  status_all | sed 's/^{"ok":true,"services"://; s/}$//'
+  printf '}'
+}
+
 case "$ACTION" in
-  status|start|stop|restart) ;;
+  status|start|stop|restart|update) ;;
   *)
     printf '{"ok":false,"message":"Action non autorisee."}'
     exit 2
@@ -348,6 +437,11 @@ if [[ "$ACTION" == "status" ]]; then
     status_one "$TARGET"
     printf '}'
   fi
+  exit 0
+fi
+
+if [[ "$ACTION" == "update" ]]; then
+  run_update
   exit 0
 fi
 

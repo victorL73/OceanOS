@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-04-27-systemctl-fallback';
+const OCEANOS_SERVICES_API_VERSION = '2026-04-27-update-button';
 
 function oceanos_service_control_path(): string
 {
@@ -308,13 +308,13 @@ try {
         $action = strtolower(trim((string) ($input['action'] ?? 'status')));
         $service = strtolower(trim((string) ($input['service'] ?? 'all')));
 
-        if (!in_array($action, ['status', 'start', 'stop', 'restart'], true)) {
+        if (!in_array($action, ['status', 'start', 'stop', 'restart', 'update'], true)) {
             throw new InvalidArgumentException('Action service non supportee.');
         }
         if (!in_array($service, ['all', 'web', 'database', 'mobywork'], true)) {
             throw new InvalidArgumentException('Service non supporte.');
         }
-        if ($action !== 'status' && $service === 'all') {
+        if (!in_array($action, ['status', 'update'], true) && $service === 'all') {
             throw new InvalidArgumentException('Choisissez un service precis pour cette action.');
         }
 

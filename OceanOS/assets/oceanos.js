@@ -4,7 +4,7 @@ const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
 const COMPANY_URL = "/OceanOS/api/company.php";
-const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-systemctl-fallback";
+const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-update-services";
 
 const apps = [
   {
@@ -159,6 +159,7 @@ const elements = {
   usersList: $("users-list"),
   servicesPanel: $("services-panel"),
   reloadServices: $("reload-services"),
+  updateServices: $("update-services"),
   servicesStatus: $("services-status"),
   servicesList: $("services-list"),
 };
@@ -649,6 +650,7 @@ function serviceStatusType(service) {
 function serviceActionLabel(action) {
   if (action === "start") return "Allumer";
   if (action === "stop") return "Eteindre";
+  if (action === "update") return "Mettre a jour";
   return "Relancer";
 }
 
@@ -661,12 +663,44 @@ async function loadServices() {
     const payload = await requestJson(SERVICES_URL);
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
+    elements.updateServices.disabled = !servicesControlAvailable;
     renderServices();
     showServicesStatus(payload.message || "Etat des services charge.", servicesControlAvailable ? "success" : "");
   } catch (error) {
     servicesState = [];
+    elements.updateServices.disabled = true;
     elements.servicesList.innerHTML = "";
     showServicesStatus(error.message || "Impossible de charger les services.", "error");
+  }
+}
+
+async function runServerUpdate() {
+  const ok = window.confirm("Mettre a jour OceanOS depuis Git puis recharger Apache et Mobywork ?");
+  if (!ok) return;
+
+  elements.updateServices.disabled = true;
+  elements.reloadServices.disabled = true;
+  showServicesStatus("Mise a jour Git en cours...");
+  try {
+    const payload = await requestJson(SERVICES_URL, {
+      method: "POST",
+      body: JSON.stringify({ service: "all", action: "update" }),
+    });
+    servicesState = payload.services || [];
+    servicesControlAvailable = Boolean(payload.controlAvailable);
+    renderServices();
+    const result = payload.actionResult || {};
+    const suffix = result.before && result.after ? ` (${result.before} -> ${result.after})` : "";
+    showServicesStatus(`${result.message || "Mise a jour terminee."}${suffix} Rechargement de la page...`, "success");
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 1800);
+  } catch (error) {
+    showServicesStatus(error.message || "Mise a jour impossible.", "error");
+    await loadServices();
+  } finally {
+    elements.reloadServices.disabled = false;
+    elements.updateServices.disabled = !servicesControlAvailable;
   }
 }
 
@@ -1110,6 +1144,10 @@ elements.reloadUsers.addEventListener("click", () => {
 
 elements.reloadServices.addEventListener("click", () => {
   void loadServices();
+});
+
+elements.updateServices.addEventListener("click", () => {
+  void runServerUpdate();
 });
 
 elements.userChip.addEventListener("click", () => {

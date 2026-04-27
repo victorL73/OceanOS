@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
   <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.">
   <link rel="stylesheet" href="assets/guard.css">
-  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company">
+  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-update-services">
 </head>
 <body>
   <main class="shell" data-state="loading">
@@ -339,7 +339,10 @@
                     <p class="eyebrow">Services serveur</p>
                     <h2>Etat Ubuntu</h2>
                   </div>
-                  <button class="ghost-button" id="reload-services" type="button">Actualiser</button>
+                  <div class="services-toolbar">
+                    <button class="ghost-button" id="reload-services" type="button">Actualiser</button>
+                    <button class="primary-button" id="update-services" type="button">Mettre a jour</button>
+                  </div>
                 </div>
 
                 <p class="ai-status" id="services-status"></p>
@@ -364,6 +367,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260427-company"></script>
+  <script src="assets/oceanos.js?v=20260427-update-services"></script>
 </body>
 </html>
