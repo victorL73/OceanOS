@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+const OCEANOS_SERVICES_API_VERSION = '2026-04-27-systemctl-fallback';
+
 function oceanos_service_control_path(): string
 {
     return '/usr/local/sbin/oceanos-service-control';
@@ -231,6 +233,7 @@ function oceanos_service_status_payload(): array
             return [
                 'ok' => true,
                 'managedBy' => 'OceanOS',
+                'version' => OCEANOS_SERVICES_API_VERSION,
                 'controlAvailable' => false,
                 'controller' => oceanos_service_control_path(),
                 'services' => oceanos_read_service_status_direct($message),
@@ -245,6 +248,7 @@ function oceanos_service_status_payload(): array
         return [
             'ok' => true,
             'managedBy' => 'OceanOS',
+            'version' => OCEANOS_SERVICES_API_VERSION,
             'controlAvailable' => false,
             'controller' => oceanos_service_control_path(),
             'services' => oceanos_unknown_services($message),
@@ -261,6 +265,7 @@ function oceanos_service_status_payload(): array
     return [
         'ok' => true,
         'managedBy' => 'OceanOS',
+        'version' => OCEANOS_SERVICES_API_VERSION,
         'controlAvailable' => true,
         'controller' => oceanos_service_control_path(),
         'services' => $services,

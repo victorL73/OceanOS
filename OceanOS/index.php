@@ -294,6 +294,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260427-services"></script>
+  <script src="assets/oceanos.js?v=20260427-systemctl-fallback"></script>
 </body>
 </html>

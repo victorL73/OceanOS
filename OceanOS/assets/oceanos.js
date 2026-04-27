@@ -3,7 +3,7 @@ const MOBY_TOKEN_URL = "/OceanOS/api/mobywork-token.php";
 const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
-const SERVICES_URL = "/OceanOS/api/services.php";
+const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-systemctl-fallback";
 
 const apps = [
   {

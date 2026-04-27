@@ -6,6 +6,7 @@ import ClientDetails from './ClientDetails';
 import EditorModal from './EditorModal';
 
 const API_URL = `${import.meta.env.VITE_API_URL || '/api'}/crm`;
+const QUOTE_DRAFT_CONTEXT_KEY = 'mobywork.quoteDraftContext';
 
 export default function CRMLayout({ navContext, setNavContext, onGlobalNavigate }) {
   const [clients, setClients] = useState([]);
@@ -62,6 +63,26 @@ export default function CRMLayout({ navContext, setNavContext, onGlobalNavigate 
     setIsEditorOpen(true);
   };
 
+  const handleCreateQuote = () => {
+    const client = selectedClientData?.client;
+    if (!client || !onGlobalNavigate) return;
+
+    const quoteContext = {
+      id: 'new',
+      source: 'crm',
+      created_at: Date.now(),
+      client_id: client.id,
+      client_name: client.nom || '',
+      client_email: client.email || '',
+    };
+
+    try {
+      sessionStorage.setItem(QUOTE_DRAFT_CONTEXT_KEY, JSON.stringify(quoteContext));
+    } catch {}
+
+    onGlobalNavigate('quotes', quoteContext);
+  };
+
   const filteredClients = clients.filter(c => {
     if (searchTerm) {
       const s = searchTerm.toLowerCase();
@@ -102,12 +123,7 @@ export default function CRMLayout({ navContext, setNavContext, onGlobalNavigate 
               isLoading={isClientLoading}
               onAction={openEditor}
               onBack={() => handleSelectClient(null)}
-              onQuote={() => onGlobalNavigate && onGlobalNavigate('quotes', {
-                id: 'new',
-                client_id: selectedClientData.client.id,
-                client_name: selectedClientData.client.nom,
-                client_email: selectedClientData.client.email,
-              })}
+              onQuote={handleCreateQuote}
             />
           </div>
         </div>

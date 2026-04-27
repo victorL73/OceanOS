@@ -5,6 +5,30 @@ import QuoteList from './QuoteList';
 import QuoteBuilder from './QuoteBuilder';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
+const QUOTE_DRAFT_CONTEXT_KEY = 'mobywork.quoteDraftContext';
+const QUOTE_DRAFT_CONTEXT_TTL_MS = 5 * 60 * 1000;
+
+function clearStoredDraftQuoteContext() {
+  try {
+    sessionStorage.removeItem(QUOTE_DRAFT_CONTEXT_KEY);
+  } catch {}
+}
+
+function readStoredDraftQuoteContext() {
+  try {
+    const raw = sessionStorage.getItem(QUOTE_DRAFT_CONTEXT_KEY);
+    if (!raw) return null;
+
+    const context = JSON.parse(raw);
+    const createdAt = Number(context?.created_at || 0);
+    const isFresh = createdAt && Date.now() - createdAt < QUOTE_DRAFT_CONTEXT_TTL_MS;
+
+    if (context?.id === 'new' && isFresh) return context;
+  } catch {}
+
+  clearStoredDraftQuoteContext();
+  return null;
+}
 
 export default function QuotesLayout({ navContext, setNavContext }) {
   const [quotes, setQuotes] = useState([]);
@@ -33,10 +57,20 @@ export default function QuotesLayout({ navContext, setNavContext }) {
     
     if (navContext?.id) {
         setSelectedQuoteId(navContext.id); // ex: 'new' passé depuis CRM
-        setDraftQuoteContext(navContext.id === 'new' ? navContext : null);
+        const incomingDraftContext = navContext.id === 'new' ? navContext : null;
+        setDraftQuoteContext(incomingDraftContext);
+        if (incomingDraftContext) clearStoredDraftQuoteContext();
         setNavContext(null);
+        return;
     }
-  }, [navContext]);
+
+    const storedDraftContext = readStoredDraftQuoteContext();
+    if (storedDraftContext) {
+        setSelectedQuoteId('new');
+        setDraftQuoteContext(storedDraftContext);
+        clearStoredDraftQuoteContext();
+    }
+  }, [navContext, setNavContext]);
 
   const filteredQuotes = quotes.filter(q => 
     q.client_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -64,6 +98,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         fetchQuotes();
         setSelectedQuoteId(null);
         setDraftQuoteContext(null);
+        clearStoredDraftQuoteContext();
     } catch(e) {
         console.error('Erreur save: ', e);
         alert('Erreur: ' + e.message);
@@ -76,6 +111,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
         await axios.delete(`${API_URL}/quotes/${id}`);
         setSelectedQuoteId(null);
         setDraftQuoteContext(null);
+        clearStoredDraftQuoteContext();
         fetchQuotes();
     } catch(e) {
         console.error('Del error:', e);
@@ -94,6 +130,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
           <button 
              onClick={() => {
                setDraftQuoteContext(null);
+               clearStoredDraftQuoteContext();
                setSelectedQuoteId('new');
              }}
              style={{ 
@@ -134,7 +171,11 @@ export default function QuotesLayout({ navContext, setNavContext }) {
                <QuoteList 
                  quotes={filteredQuotes} 
                  selectedId={selectedQuoteId} 
-                 onSelect={setSelectedQuoteId} 
+                 onSelect={(id) => {
+                   setDraftQuoteContext(null);
+                   clearStoredDraftQuoteContext();
+                   setSelectedQuoteId(id);
+                 }} 
                  loading={isLoading} 
                />
             </div>
@@ -148,6 +189,7 @@ export default function QuotesLayout({ navContext, setNavContext }) {
                      onCancel={() => {
                        setSelectedQuoteId(null);
                        setDraftQuoteContext(null);
+                       clearStoredDraftQuoteContext();
                      }} 
                      onDelete={() => handleDelete(selectedQuote.id)}
                   />
