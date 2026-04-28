@@ -688,7 +688,11 @@ function renderOrderHistoryList(orders) {
                   <td>${escapeHtml(line.productReference || "-")}</td>
                   <td>${line.quantityOrdered}</td>
                   <td>${line.quantityReceived}</td>
-                  <td>${line.prestashopStockDelta || 0}</td>
+                  <td>
+                    <span>${line.prestashopStockDelta || 0} stock</span>
+                    <span class="table-meta">${line.prestashopMovementDelta || 0} mouvement</span>
+                    ${line.prestashopMovementError ? `<span class="table-meta danger-text">${escapeHtml(line.prestashopMovementError)}</span>` : ""}
+                  </td>
                   <td>${money.format(Number(line.unitPriceTaxExcl || 0))}</td>
                   <td>${money.format(Number(line.lineTotalTaxExcl || 0))}</td>
                 </tr>

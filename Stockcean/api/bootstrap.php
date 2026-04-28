@@ -106,6 +106,9 @@ function stockcean_ensure_schema(PDO $pdo): void
             quantity_received INT UNSIGNED NOT NULL DEFAULT 0,
             prestashop_stock_delta INT UNSIGNED NOT NULL DEFAULT 0,
             prestashop_received_at DATETIME NULL,
+            prestashop_movement_delta INT UNSIGNED NOT NULL DEFAULT 0,
+            prestashop_movement_at DATETIME NULL,
+            prestashop_movement_error TEXT NULL,
             unit_price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -120,6 +123,15 @@ function stockcean_ensure_schema(PDO $pdo): void
     }
     if (!stockcean_column_exists($pdo, 'stockcean_purchase_order_lines', 'prestashop_received_at')) {
         $pdo->exec('ALTER TABLE stockcean_purchase_order_lines ADD prestashop_received_at DATETIME NULL AFTER prestashop_stock_delta');
+    }
+    if (!stockcean_column_exists($pdo, 'stockcean_purchase_order_lines', 'prestashop_movement_delta')) {
+        $pdo->exec('ALTER TABLE stockcean_purchase_order_lines ADD prestashop_movement_delta INT UNSIGNED NOT NULL DEFAULT 0 AFTER prestashop_received_at');
+    }
+    if (!stockcean_column_exists($pdo, 'stockcean_purchase_order_lines', 'prestashop_movement_at')) {
+        $pdo->exec('ALTER TABLE stockcean_purchase_order_lines ADD prestashop_movement_at DATETIME NULL AFTER prestashop_movement_delta');
+    }
+    if (!stockcean_column_exists($pdo, 'stockcean_purchase_order_lines', 'prestashop_movement_error')) {
+        $pdo->exec('ALTER TABLE stockcean_purchase_order_lines ADD prestashop_movement_error TEXT NULL AFTER prestashop_movement_at');
     }
 
     $pdo->exec(
@@ -336,7 +348,191 @@ function stockcean_increment_prestashop_stock(string $shopUrl, string $apiKey, i
         'previousQuantity' => $previousQuantity,
         'newQuantity' => $newQuantity,
         'stockAvailableId' => $stockAvailableId,
+        'stockAvailable' => $stockAvailable,
     ];
+}
+
+function stockcean_prestashop_stock_context(string $shopUrl, string $apiKey, int $prestashopProductId): array
+{
+    $stockAvailable = stockcean_select_stock_available_node(
+        stockcean_stock_available_nodes_for_product($shopUrl, $apiKey, $prestashopProductId),
+        $prestashopProductId
+    );
+    $stockAvailableId = (int) oceanos_xml_text($stockAvailable, 'id');
+    if ($stockAvailableId <= 0) {
+        throw new RuntimeException('Identifiant stock PrestaShop introuvable pour le produit #' . $prestashopProductId . '.');
+    }
+
+    $quantity = (int) oceanos_xml_text($stockAvailable, 'quantity');
+
+    return [
+        'previousQuantity' => $quantity,
+        'newQuantity' => $quantity,
+        'stockAvailableId' => $stockAvailableId,
+        'stockAvailable' => $stockAvailable,
+    ];
+}
+
+function stockcean_first_prestashop_resource_id(string $shopUrl, string $apiKey, string $resource, string $container, string $nodeName, array $query = []): int
+{
+    $nodes = stockcean_fetch_prestashop_nodes($shopUrl, $apiKey, $resource, $container, $nodeName, $query);
+    if ($nodes === []) {
+        return 0;
+    }
+
+    return (int) oceanos_xml_text($nodes[0], 'id');
+}
+
+function stockcean_resolve_prestashop_employee_id(string $shopUrl, string $apiKey, array $user): int
+{
+    $email = trim((string) ($user['email'] ?? ''));
+    if ($email !== '') {
+        try {
+            $employeeId = stockcean_first_prestashop_resource_id($shopUrl, $apiKey, 'employees', 'employees', 'employee', [
+                'filter[email]' => '[' . $email . ']',
+                'display' => '[id,email,firstname,lastname]',
+                'limit' => '0,1',
+            ]);
+            if ($employeeId > 0) {
+                return $employeeId;
+            }
+        } catch (Throwable) {
+            // Le mouvement utilisera le premier employe disponible si la recherche par email est refusee.
+        }
+    }
+
+    try {
+        $employeeId = stockcean_first_prestashop_resource_id($shopUrl, $apiKey, 'employees', 'employees', 'employee', [
+            'display' => '[id,email,firstname,lastname]',
+            'sort' => '[id_ASC]',
+            'limit' => '0,1',
+        ]);
+        if ($employeeId > 0) {
+            return $employeeId;
+        }
+    } catch (Throwable) {
+        // Fallback historique de PrestaShop: le premier employe est presque toujours id 1.
+    }
+
+    return 1;
+}
+
+function stockcean_resolve_stock_movement_reason_id(string $shopUrl, string $apiKey): int
+{
+    try {
+        $reasonId = stockcean_first_prestashop_resource_id($shopUrl, $apiKey, 'stock_movement_reasons', 'stock_movement_reasons', 'stock_movement_reason', [
+            'filter[sign]' => '[1]',
+            'filter[deleted]' => '[0]',
+            'display' => '[id,sign,deleted,name]',
+            'sort' => '[id_ASC]',
+            'limit' => '0,1',
+        ]);
+        if ($reasonId > 0) {
+            return $reasonId;
+        }
+    } catch (Throwable) {
+        // Si le filtre n'est pas accepte, on retente sans filtre.
+    }
+
+    try {
+        $reasonId = stockcean_first_prestashop_resource_id($shopUrl, $apiKey, 'stock_movement_reasons', 'stock_movement_reasons', 'stock_movement_reason', [
+            'display' => '[id,sign,deleted,name]',
+            'sort' => '[id_ASC]',
+            'limit' => '0,1',
+        ]);
+        if ($reasonId > 0) {
+            return $reasonId;
+        }
+    } catch (Throwable) {
+        // Fallback historique.
+    }
+
+    return 1;
+}
+
+function stockcean_append_xml_text(DOMDocument $dom, DOMElement $parent, string $name, string|int|float|null $value): void
+{
+    $node = $dom->createElement($name);
+    $node->appendChild($dom->createCDATASection((string) ($value ?? '')));
+    $parent->appendChild($node);
+}
+
+function stockcean_append_xml_language_text(DOMDocument $dom, DOMElement $parent, string $name, string $value): void
+{
+    $node = $dom->createElement($name);
+    $language = $dom->createElement('language');
+    $language->setAttribute('id', '1');
+    $language->appendChild($dom->createCDATASection($value));
+    $node->appendChild($language);
+    $parent->appendChild($node);
+}
+
+function stockcean_stock_movement_payload(array $line, int $delta, array $stockUpdate, int $employeeId, int $reasonId): string
+{
+    $stockAvailable = $stockUpdate['stockAvailable'] ?? null;
+    $idProductAttribute = $stockAvailable instanceof SimpleXMLElement
+        ? (int) oceanos_xml_text($stockAvailable, 'id_product_attribute')
+        : 0;
+
+    $dom = new DOMDocument('1.0', 'UTF-8');
+    $dom->formatOutput = false;
+    $root = $dom->createElement('prestashop');
+    $root->setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    $dom->appendChild($root);
+    $movement = $dom->createElement('stock_mvt');
+    $root->appendChild($movement);
+
+    $label = trim((string) ($line['label'] ?: ($line['product_name'] ?? 'Reception Stockcean')));
+    stockcean_append_xml_text($dom, $movement, 'id', '');
+    stockcean_append_xml_text($dom, $movement, 'id_product', (int) ($line['prestashop_product_id'] ?? 0));
+    stockcean_append_xml_text($dom, $movement, 'id_product_attribute', $idProductAttribute);
+    stockcean_append_xml_text($dom, $movement, 'id_warehouse', '');
+    stockcean_append_xml_text($dom, $movement, 'id_currency', '');
+    stockcean_append_xml_text($dom, $movement, 'management_type', 'WA');
+    stockcean_append_xml_text($dom, $movement, 'id_employee', $employeeId);
+    stockcean_append_xml_text($dom, $movement, 'id_stock', (int) ($stockUpdate['stockAvailableId'] ?? 0));
+    stockcean_append_xml_text($dom, $movement, 'id_stock_mvt_reason', $reasonId);
+    stockcean_append_xml_text($dom, $movement, 'id_order', '');
+    stockcean_append_xml_text($dom, $movement, 'id_supply_order', '');
+    stockcean_append_xml_language_text($dom, $movement, 'product_name', $label);
+    stockcean_append_xml_text($dom, $movement, 'ean13', '');
+    stockcean_append_xml_text($dom, $movement, 'upc', '');
+    stockcean_append_xml_text($dom, $movement, 'reference', (string) ($line['product_reference'] ?? ''));
+    stockcean_append_xml_text($dom, $movement, 'mpn', '');
+    stockcean_append_xml_text($dom, $movement, 'physical_quantity', $delta);
+    stockcean_append_xml_text($dom, $movement, 'sign', 1);
+    stockcean_append_xml_text($dom, $movement, 'last_wa', '0.000000');
+    stockcean_append_xml_text($dom, $movement, 'current_wa', '0.000000');
+    stockcean_append_xml_text($dom, $movement, 'price_te', number_format((float) ($line['unit_price_tax_excl'] ?? 0), 6, '.', ''));
+    stockcean_append_xml_text($dom, $movement, 'date_add', date('Y-m-d H:i:s'));
+
+    $xml = $dom->saveXML();
+    if ($xml === false) {
+        throw new RuntimeException('XML mouvement PrestaShop impossible a generer.');
+    }
+
+    return $xml;
+}
+
+function stockcean_create_prestashop_stock_movement(string $shopUrl, string $apiKey, array $line, int $delta, array $stockUpdate, int $employeeId, int $reasonId): int
+{
+    $body = oceanos_prestashop_post_xml(
+        $shopUrl,
+        $apiKey,
+        'stock_movements',
+        stockcean_stock_movement_payload($line, $delta, $stockUpdate, $employeeId, $reasonId)
+    );
+
+    try {
+        $xml = oceanos_load_xml($body);
+        if (isset($xml->stock_mvt->id)) {
+            return (int) $xml->stock_mvt->id;
+        }
+    } catch (Throwable) {
+        return 0;
+    }
+
+    return 0;
 }
 
 function stockcean_fetch_suppliers(string $shopUrl, string $apiKey, int $limit = 500): array
@@ -987,6 +1183,9 @@ function stockcean_public_order_line(array $line): array
         'quantityReceived' => (int) ($line['quantity_received'] ?? 0),
         'prestashopStockDelta' => (int) ($line['prestashop_stock_delta'] ?? 0),
         'prestashopReceivedAt' => array_key_exists('prestashop_received_at', $line) && $line['prestashop_received_at'] !== null ? (string) $line['prestashop_received_at'] : null,
+        'prestashopMovementDelta' => (int) ($line['prestashop_movement_delta'] ?? 0),
+        'prestashopMovementAt' => array_key_exists('prestashop_movement_at', $line) && $line['prestashop_movement_at'] !== null ? (string) $line['prestashop_movement_at'] : null,
+        'prestashopMovementError' => (string) ($line['prestashop_movement_error'] ?? ''),
         'unitPriceTaxExcl' => (float) ($line['unit_price_tax_excl'] ?? 0),
         'lineTotalTaxExcl' => (float) ($line['quantity_ordered'] ?? 0) * (float) ($line['unit_price_tax_excl'] ?? 0),
     ];
@@ -1087,25 +1286,28 @@ function stockcean_receipt_lines(PDO $pdo, int $orderId): array
     return $statement->fetchAll();
 }
 
-function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $orderId): array
+function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $orderId, array $user = []): array
 {
     $settings = oceanos_prestashop_private_settings($pdo);
     [$shopUrl, $apiKey] = oceanos_require_prestashop_settings($settings);
     $lines = stockcean_receipt_lines($pdo, $orderId);
+    $employeeId = stockcean_resolve_prestashop_employee_id($shopUrl, $apiKey, $user);
+    $reasonId = stockcean_resolve_stock_movement_reason_id($shopUrl, $apiKey);
 
     $summary = [
         'linesPushed' => 0,
         'unitsPushed' => 0,
+        'movementsCreated' => 0,
+        'unitsMoved' => 0,
+        'movementErrors' => [],
         'products' => [],
     ];
 
     foreach ($lines as $line) {
         $ordered = (int) ($line['quantity_ordered'] ?? 0);
         $alreadyPushed = (int) ($line['prestashop_stock_delta'] ?? 0);
-        $delta = max(0, $ordered - $alreadyPushed);
-        if ($delta <= 0) {
-            continue;
-        }
+        $alreadyMoved = (int) ($line['prestashop_movement_delta'] ?? 0);
+        $stockDelta = max(0, $ordered - $alreadyPushed);
 
         $productId = (int) ($line['product_id'] ?? 0);
         $prestashopProductId = (int) ($line['prestashop_product_id'] ?? 0);
@@ -1113,39 +1315,85 @@ function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $ord
             throw new RuntimeException('La ligne "' . (string) ($line['label'] ?? 'Produit') . '" n est pas liee a un produit PrestaShop.');
         }
 
-        $stockUpdate = stockcean_increment_prestashop_stock($shopUrl, $apiKey, $prestashopProductId, $delta);
+        $stockUpdate = $stockDelta > 0
+            ? stockcean_increment_prestashop_stock($shopUrl, $apiKey, $prestashopProductId, $stockDelta)
+            : stockcean_prestashop_stock_context($shopUrl, $apiKey, $prestashopProductId);
 
-        $lineUpdate = $pdo->prepare(
-            'UPDATE stockcean_purchase_order_lines
-             SET quantity_received = quantity_ordered,
-                 prestashop_stock_delta = prestashop_stock_delta + :delta,
-                 prestashop_received_at = NOW()
-             WHERE id = :id'
-        );
-        $lineUpdate->execute([
-            'id' => (int) $line['id'],
-            'delta' => $delta,
-        ]);
+        if ($stockDelta > 0) {
+            $lineUpdate = $pdo->prepare(
+                'UPDATE stockcean_purchase_order_lines
+                 SET quantity_received = quantity_ordered,
+                     prestashop_stock_delta = prestashop_stock_delta + :delta,
+                     prestashop_received_at = NOW()
+                 WHERE id = :id'
+            );
+            $lineUpdate->execute([
+                'id' => (int) $line['id'],
+                'delta' => $stockDelta,
+            ]);
 
-        $productUpdate = $pdo->prepare(
-            'UPDATE stockcean_products
-             SET quantity = quantity + :delta,
-                 synced_at = NOW(),
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = :id'
-        );
-        $productUpdate->execute([
-            'id' => $productId,
-            'delta' => $delta,
-        ]);
+            $productUpdate = $pdo->prepare(
+                'UPDATE stockcean_products
+                 SET quantity = quantity + :delta,
+                     synced_at = NOW(),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id'
+            );
+            $productUpdate->execute([
+                'id' => $productId,
+                'delta' => $stockDelta,
+            ]);
 
-        $summary['linesPushed']++;
-        $summary['unitsPushed'] += $delta;
+            $summary['linesPushed']++;
+            $summary['unitsPushed'] += $stockDelta;
+        }
+
+        $pushedAfter = $alreadyPushed + $stockDelta;
+        $movementDelta = max(0, $pushedAfter - $alreadyMoved);
+        $movementId = 0;
+        $movementError = '';
+        if ($movementDelta > 0) {
+            try {
+                $movementId = stockcean_create_prestashop_stock_movement($shopUrl, $apiKey, $line, $movementDelta, $stockUpdate, $employeeId, $reasonId);
+                $movementUpdate = $pdo->prepare(
+                    'UPDATE stockcean_purchase_order_lines
+                     SET prestashop_movement_delta = prestashop_movement_delta + :delta,
+                         prestashop_movement_at = NOW(),
+                         prestashop_movement_error = NULL
+                     WHERE id = :id'
+                );
+                $movementUpdate->execute([
+                    'id' => (int) $line['id'],
+                    'delta' => $movementDelta,
+                ]);
+                $summary['movementsCreated']++;
+                $summary['unitsMoved'] += $movementDelta;
+            } catch (Throwable $exception) {
+                $movementError = $exception->getMessage();
+                $movementErrorUpdate = $pdo->prepare(
+                    'UPDATE stockcean_purchase_order_lines
+                     SET prestashop_movement_error = :error
+                     WHERE id = :id'
+                );
+                $movementErrorUpdate->execute([
+                    'id' => (int) $line['id'],
+                    'error' => mb_substr($movementError, 0, 1000),
+                ]);
+                $summary['movementErrors'][] = $movementError;
+            }
+        }
+
+        if ($stockDelta <= 0 && $movementDelta <= 0) {
+            continue;
+        }
         $summary['products'][] = [
             'productId' => $productId,
             'prestashopProductId' => $prestashopProductId,
             'label' => (string) ($line['label'] ?: ($line['product_name'] ?? 'Produit')),
-            'quantityDelta' => $delta,
+            'quantityDelta' => $stockDelta,
+            'movementDelta' => $movementDelta,
+            'stockMovementId' => $movementId,
+            'stockMovementError' => $movementError,
             'previousQuantity' => (int) $stockUpdate['previousQuantity'],
             'newQuantity' => (int) $stockUpdate['newQuantity'],
             'stockAvailableId' => (int) $stockUpdate['stockAvailableId'],
@@ -1155,7 +1403,7 @@ function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $ord
     return $summary;
 }
 
-function stockcean_update_purchase_order_status(PDO $pdo, array $input): array
+function stockcean_update_purchase_order_status(PDO $pdo, array $input, array $user = []): array
 {
     $id = (int) ($input['id'] ?? 0);
     $status = trim((string) ($input['status'] ?? ''));
@@ -1165,7 +1413,7 @@ function stockcean_update_purchase_order_status(PDO $pdo, array $input): array
 
     $receiptSummary = null;
     if ($status === 'received') {
-        $receiptSummary = stockcean_apply_purchase_order_receipt_to_prestashop($pdo, $id);
+        $receiptSummary = stockcean_apply_purchase_order_receipt_to_prestashop($pdo, $id, $user);
     }
 
     $statement = $pdo->prepare('UPDATE stockcean_purchase_orders SET status = :status WHERE id = :id');
