@@ -1842,9 +1842,7 @@ function populateMonthFilter() {
 }
 
 function applyInitialMonth() {
-  if (today.getFullYear() === YEAR) {
-    elements.monthFilter.value = String(today.getMonth() + 1);
-  }
+  elements.monthFilter.value = "";
 }
 
 async function requestJson(url, options = {}) {
