@@ -273,6 +273,8 @@ Ces informations alimentent notamment :
 - les devis Mobywork
 - les factures et exports Factur-X Invocean
 
+Les conditions de paiement, la validite des devis et la note de pied de page restent dans les parametres Mobywork.
+
 ## NautiPost
 
 NautiPost se trouve au même niveau que les autres applications :
