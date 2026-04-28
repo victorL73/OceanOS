@@ -1370,6 +1370,20 @@ function invocean_invoice_country_iso(array $raw): string
     return 'FR';
 }
 
+function invocean_display_invoice_number(array $row): string
+{
+    $number = trim((string) ($row['invoice_number'] ?? ''));
+    if ($number === '' || $number === '0') {
+        $number = (string) ($row['prestashop_invoice_id'] ?? $row['id'] ?? '');
+    }
+
+    if (preg_match('/^\d+$/', $number)) {
+        return '#' . str_pad($number, 7, '0', STR_PAD_LEFT);
+    }
+
+    return str_starts_with($number, '#') ? $number : $number;
+}
+
 function invocean_facturx_decimal(float|int|string $value, int $decimals = 4): string
 {
     $formatted = number_format((float) $value, $decimals, '.', '');
@@ -1515,10 +1529,7 @@ function invocean_generate_facturx_xml(array $row, array $settings): string
         $currency = 'EUR';
     }
 
-    $invoiceNumber = trim((string) ($row['invoice_number'] ?? ''));
-    if ($invoiceNumber === '') {
-        $invoiceNumber = 'PS-' . (int) ($row['prestashop_invoice_id'] ?? $row['id'] ?? 0);
-    }
+    $invoiceNumber = invocean_display_invoice_number($row);
     $invoiceDate = (string) ($row['invoice_date'] ?? '');
     $sellerName = trim((string) ($settings['sellerName'] ?? ''));
     if ($sellerName === '') {
@@ -1956,7 +1967,7 @@ function invocean_invoice_pdf_content_stream(array $row, array $settings, bool $
     ]));
 
     $currency = (string) ($row['currency_iso'] ?? 'EUR') ?: 'EUR';
-    $invoiceNumber = (string) ($row['invoice_number'] ?? '') ?: 'PS-' . (int) ($row['prestashop_invoice_id'] ?? 0);
+    $invoiceNumber = invocean_display_invoice_number($row);
     $items = invocean_invoice_line_items($row);
 
     $content = "q\n0.04 0.09 0.08 rg 0 792 595 50 re f\nQ\n";
@@ -2188,7 +2199,7 @@ function invocean_generate_plain_invoice_pdf_fpdf(array $row, array $settings): 
     ]));
 
     $currency = (string) ($row['currency_iso'] ?? 'EUR') ?: 'EUR';
-    $invoiceNumber = (string) ($row['invoice_number'] ?? '') ?: 'PS-' . (int) ($row['prestashop_invoice_id'] ?? 0);
+    $invoiceNumber = invocean_display_invoice_number($row);
     $items = invocean_invoice_line_items($row);
 
     $pdf = new FPDF('P', 'mm', 'A4');
