@@ -1361,6 +1361,10 @@ body.sidebar-resizing select {
   opacity: 1;
 }
 
+.nav-row.trash-row .tree-item-actions {
+  opacity: 1;
+}
+
 .storage-chip {
   padding: 10px 12px;
   border-radius: 14px;

@@ -2135,7 +2135,7 @@ function renderQuickCollection(container, pages, emptyText, isTrash = false) {
 
   pages.forEach((page) => {
     const row = document.createElement("div");
-    row.className = `nav-row ${state.ui.activePageId === page.id ? "active" : ""}`;
+    row.className = `nav-row ${isTrash ? "trash-row" : ""} ${state.ui.activePageId === page.id ? "active" : ""}`;
     row.addEventListener("click", () => setActivePage(page.id));
 
     const copy = document.createElement("div");
@@ -2173,7 +2173,21 @@ function renderQuickCollection(container, pages, emptyText, isTrash = false) {
         openPageMenu(page.id, actionButton);
       }
     });
-    actions.appendChild(actionButton);
+    if (isTrash) {
+      actionButton.title = "Restaurer cette page";
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "tiny-button danger";
+      deleteButton.type = "button";
+      deleteButton.textContent = "x";
+      deleteButton.title = "Supprimer definitivement";
+      deleteButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        permanentlyDeletePage(page.id);
+      });
+      actions.append(actionButton, deleteButton);
+    } else {
+      actions.appendChild(actionButton);
+    }
     row.append(actions);
     container.appendChild(row);
   });
@@ -2364,6 +2378,11 @@ function renderToolbar(page) {
       label: "Restaurer cette page",
       className: "toolbar-button primary",
       onClick: () => restorePage(page.id),
+    });
+    actions.push({
+      label: "Supprimer definitivement",
+      className: "toolbar-button danger-soft",
+      onClick: () => permanentlyDeletePage(page.id),
     });
   } else if (isWordPage(page)) {
     actions.push({
@@ -6494,10 +6513,11 @@ function renderInspector(page) {
     ...(page.kind === "database" && !isSpreadsheetPage(page) ? [["Activer le pilotage projet", () => ensureProjectManagementFields(page.id)], ["Voir mes taches", openMyTasksModal]] : []),
     ["Exporter le workspace", exportWorkspace],
     [page.deletedAt ? "Restaurer la page" : "Envoyer a la corbeille", () => (page.deletedAt ? restorePage(page.id) : movePageToTrash(page.id))],
+    ...(page.deletedAt ? [["Supprimer definitivement", () => permanentlyDeletePage(page.id)]] : []),
   ].forEach(([label, action]) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "inline-button";
+    button.className = label === "Supprimer definitivement" ? "inline-button danger" : "inline-button";
     button.textContent = label;
     button.addEventListener("click", action);
     actionsList.appendChild(button);
@@ -6833,6 +6853,45 @@ function restorePage(pageId) {
   render();
   void sendPresenceHeartbeat("heartbeat");
   toast("La page a ete restauree.");
+}
+
+function permanentlyDeletePage(pageId) {
+  const page = getPage(pageId);
+  if (!page || !page.deletedAt) return;
+  const subtreeIds = collectSubtree(pageId);
+  const childCount = Math.max(0, subtreeIds.length - 1);
+  const detail = childCount
+    ? `\n\n${childCount} sous-page(s) seront aussi supprimee(s).`
+    : "";
+  const confirmed = window.confirm(
+    `Supprimer definitivement "${page.title || "Sans titre"}" ?${detail}\n\nCette action est irreversible.`
+  );
+  if (!confirmed) return;
+
+  const deletedIds = new Set(subtreeIds);
+  state.pages = state.pages.filter((candidate) => !deletedIds.has(candidate.id));
+  state.userPreferences = normalizeUserPreferences(state.userPreferences);
+  state.userPreferences.favoritePageIds = state.userPreferences.favoritePageIds.filter((id) => !deletedIds.has(id));
+  state.userPreferences.initialized = true;
+  scheduleUserPreferencesSave("Favoris personnels mis a jour");
+  clearUndoHistory();
+
+  if (!state.pages.length) {
+    const replacement = createPage("document", null, {
+      title: "Nouvelle page",
+      icon: "✨",
+      blocks: [createBlock("paragraph", "")],
+    });
+    state.pages.push(replacement);
+    state.ui.activePageId = replacement.id;
+  } else if (deletedIds.has(state.ui.activePageId)) {
+    state.ui.activePageId = getVisiblePages()[0]?.id || state.pages[0]?.id || null;
+  }
+
+  scheduleSave("Page supprimee definitivement");
+  render();
+  void sendPresenceHeartbeat("heartbeat");
+  toast("Page supprimee definitivement.");
 }
 
 function collectSubtree(pageId) {
@@ -8646,6 +8705,12 @@ function openPageMenu(pageId, anchor) {
       action: () => (page.deletedAt ? restorePage(pageId) : movePageToTrash(pageId)),
       danger: !page.deletedAt,
     },
+    ...(page.deletedAt ? [{
+      label: "Supprimer definitivement",
+      hint: "Retirer cette page et ses sous-pages de Flowcean.",
+      action: () => permanentlyDeletePage(pageId),
+      danger: true,
+    }] : []),
   ]);
 }
 
@@ -13787,6 +13852,14 @@ function openUserMenu() {
                 else movePageToTrash(page.id);
               },
             }));
+            if (page?.deletedAt) {
+              actions.appendChild(createUserMenuAction({
+                label: "Supprimer definitivement",
+                hint: "Retirer cette page et ses sous-pages de Flowcean.",
+                danger: true,
+                action: () => permanentlyDeletePage(page.id),
+              }));
+            }
             return actions;
           },
         },
