@@ -1,5 +1,8 @@
 const nodemailer = require('nodemailer');
 const db = require('./database');
+const {
+    getSenderAccountsFromSettings: getUnifiedSenderAccountsFromSettings,
+} = require('./mailAccounts');
 require('dotenv').config();
 
 function parseSmtpAccounts(value) {
@@ -48,28 +51,7 @@ function normalizeSenderAccount(account = {}, index = 0, settings = {}) {
 }
 
 function getSenderAccountsFromSettings(settings = {}) {
-    const savedAccounts = parseSmtpAccounts(settings.smtp_accounts)
-        .map((account, index) => normalizeSenderAccount(account, index, settings))
-        .filter(Boolean);
-
-    const legacyEmail = String(settings.smtp_user || '').trim();
-    const hasLegacyInSaved = legacyEmail && savedAccounts.some(account => account.email.toLowerCase() === legacyEmail.toLowerCase());
-
-    if (legacyEmail && !hasLegacyInSaved) {
-        savedAccounts.unshift(normalizeSenderAccount({
-            id: 'legacy',
-            label: 'Compte principal',
-            email: legacyEmail,
-            smtp_user: settings.smtp_user,
-            smtp_pass: settings.smtp_pass,
-            smtp_host: settings.smtp_host,
-            smtp_port: settings.smtp_port,
-            from_name: settings.nom,
-            is_default: !settings.smtp_default_sender,
-        }, 0, settings));
-    }
-
-    return savedAccounts.filter(Boolean);
+    return getUnifiedSenderAccountsFromSettings(settings);
 }
 
 function publicSenderAccount(account, defaultId) {
@@ -79,7 +61,7 @@ function publicSenderAccount(account, defaultId) {
         email: account.email,
         fromName: account.fromName,
         isDefault: account.id === defaultId,
-        configured: !!(account.smtp_host && account.smtp_user && account.smtp_pass),
+        configured: !!(account.host && account.user && account.pass),
     };
 }
 
@@ -100,7 +82,7 @@ function selectSenderAccount(settings, senderId = null) {
 }
 
 function formatFrom(account) {
-    const email = account.email || account.smtp_user;
+    const email = account.email || account.user;
     const name = String(account.fromName || account.label || '').trim();
     return name ? `"${name.replace(/"/g, "'")}" <${email}>` : email;
 }
@@ -145,21 +127,21 @@ async function getTransporter(userId, senderId = null) {
         throw new Error('Aucun compte SMTP configure pour cet utilisateur');
     }
 
-    if (!account.smtp_host || !account.smtp_user || !account.smtp_pass) {
+    if (!account.host || !account.user || !account.pass) {
         throw new Error(`Compte SMTP incomplet pour ${account.email}`);
     }
 
     return {
         transporter: nodemailer.createTransport({
-            host: account.smtp_host,
+            host: account.host,
             port: parseInt(account.smtp_port || 465, 10),
-            secure: account.secure !== false,
+            secure: account.smtp_secure !== false,
             auth: {
-                user: account.smtp_user,
-                pass: account.smtp_pass,
+                user: account.user,
+                pass: account.pass,
             },
         }),
-        user: account.smtp_user,
+        user: account.user,
         from: formatFrom(account),
         sender: publicSenderAccount(account, account.id),
         settings,

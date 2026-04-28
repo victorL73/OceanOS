@@ -2,16 +2,31 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const db = require('./database');
 const { analyzeEmail } = require('./aiService');
+const { getReceiverAccountsFromSettings, storedImapUid } = require('./mailAccounts');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-// Dossier de stockage des pièces jointes sur disque
 const ATTACHMENTS_DIR = path.join(__dirname, 'attachments');
 if (!fs.existsSync(ATTACHMENTS_DIR)) fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
 
 const IMAP_SOCKET_TIMEOUT_MS = Number(process.env.IMAP_SOCKET_TIMEOUT_MS || 30000);
 let syncInProgress = false;
+
+function dbAll(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+    });
+}
+
+function dbRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function(err) {
+            if (err) return reject(err);
+            resolve({ lastID: this.lastID, changes: this.changes });
+        });
+    });
+}
 
 async function fetchNewEmails(userId = null) {
     if (syncInProgress) {
@@ -27,168 +42,197 @@ async function fetchNewEmails(userId = null) {
     }
 }
 
-async function fetchNewEmailsInternal(userId = null) {
-    console.log(`📥 [IMAP] Lancement de la synchronisation de la boîte mail (Utilisateur: ${userId || 'TOUS'})...`);
+async function getUserMailSettings(userId = null) {
+    let query = `
+        SELECT
+            user_id,
+            imap_host,
+            imap_port,
+            imap_user,
+            imap_pass,
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            smtp_pass,
+            smtp_accounts,
+            smtp_default_sender
+        FROM user_settings
+        WHERE imap_host IS NOT NULL OR smtp_accounts IS NOT NULL
+    `;
+    const params = [];
 
-    // Obtenir la liste des utilisateurs à synchroniser
-    const usersToSync = await new Promise((resolve) => {
-        let query = "SELECT user_id, imap_host, imap_port, imap_user, imap_pass FROM user_settings WHERE imap_host IS NOT NULL";
-        let params = [];
-        if (userId) {
-            query += " AND user_id = ?";
-            params.push(userId);
-        }
-        db.all(query, params, (err, rows) => {
-            resolve(err ? [] : rows);
-        });
-    });
-
-    if (usersToSync.length === 0) {
-        console.log("⏳ [IMAP] Aucun compte mail paramétré pour la synchronisation.");
-        return;
+    if (userId) {
+        query += ' AND user_id = ?';
+        params.push(userId);
     }
 
-    for (const userConfig of usersToSync) {
-        if (!userConfig.imap_host || !userConfig.imap_user || !userConfig.imap_pass) continue;
+    return dbAll(query, params).catch(() => []);
+}
 
-        console.log(`📥 [IMAP] Connexion au compte de l'utilisateur ${userConfig.user_id}...`);
-        
-        let imapConnectionError = null;
-        const client = new ImapFlow({
-            host: userConfig.imap_host,
-            port: parseInt(userConfig.imap_port || 993),
-            secure: true,
-            auth: {
-                user: userConfig.imap_user,
-                pass: userConfig.imap_pass
-            },
-            socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
-            logger: false
-        });
+function safeAttachmentName(filename) {
+    return filename
+        ? filename.replace(/[^a-zA-Z0-9._\- ]/g, '_')
+        : `attachment_${Date.now()}`;
+}
 
-        client.on('error', (err) => {
-            imapConnectionError = err;
-            console.error(`[IMAP] Erreur socket USER ${userConfig.user_id}:`, err.message);
-        });
+async function saveAttachments(parsed, account, rawUid) {
+    const attachmentsMeta = [];
+    if (!parsed.attachments || parsed.attachments.length === 0) return attachmentsMeta;
+
+    const mailDir = path.join(ATTACHMENTS_DIR, `${account.id}_${rawUid}`);
+    if (!fs.existsSync(mailDir)) fs.mkdirSync(mailDir, { recursive: true });
+
+    for (const att of parsed.attachments) {
+        const safeName = safeAttachmentName(att.filename);
+        const filePath = path.join(mailDir, safeName);
+
+        try {
+            fs.writeFileSync(filePath, att.content);
+            attachmentsMeta.push({
+                filename: safeName,
+                contentType: att.contentType || 'application/octet-stream',
+                size: att.size || att.content.length,
+                path: filePath,
+            });
+            console.log(`[IMAP] Piece jointe sauvegardee: ${safeName} (${att.size || att.content.length} octets)`);
+        } catch (e) {
+            console.error(`[IMAP] Erreur sauvegarde piece jointe ${safeName}:`, e.message);
+        }
+    }
+
+    return attachmentsMeta;
+}
+
+async function syncMailbox(userConfig, account) {
+    console.log(`[IMAP] Connexion au compte ${account.email} (user ${userConfig.user_id})...`);
+
+    let imapConnectionError = null;
+    const client = new ImapFlow({
+        host: account.host,
+        port: parseInt(account.imap_port || 993, 10),
+        secure: account.imap_secure !== false,
+        auth: {
+            user: account.user,
+            pass: account.pass,
+        },
+        socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
+        logger: false,
+    });
+
+    client.on('error', (err) => {
+        imapConnectionError = err;
+        console.error(`[IMAP] Erreur socket ${account.email} USER ${userConfig.user_id}:`, err.message);
+    });
 
     try {
         await client.connect();
-        let lock = await client.getMailboxLock('INBOX');
+        const lock = await client.getMailboxLock('INBOX');
 
         try {
-            // Récupérer les UIDs déjà en base pour CET utilisateur
-            const existingUids = await new Promise((resolve, reject) => {
-                db.all("SELECT uid FROM emails WHERE user_id = ?", [userConfig.user_id], (err, rows) => {
-                    if (err) reject(err);
-                    else resolve(new Set(rows.map(r => r.uid)));
-                });
-            });
+            const rows = await dbAll('SELECT uid FROM emails WHERE user_id = ?', [userConfig.user_id]);
+            const existingUids = new Set(rows.map(row => String(row.uid)));
 
             const uidsToProcess = [];
-            for await (let msg of client.fetch('1:*', { uid: true })) {
-                if (!existingUids.has(msg.uid)) uidsToProcess.push(msg.uid);
+            for await (const msg of client.fetch('1:*', { uid: true })) {
+                const internalUid = storedImapUid(account, msg.uid);
+                if (internalUid && !existingUids.has(internalUid)) {
+                    uidsToProcess.push({ rawUid: msg.uid, internalUid });
+                }
             }
 
             if (uidsToProcess.length === 0) {
-                console.log("⏳ [IMAP] Aucun nouveau message à traiter.");
+                console.log(`[IMAP] Aucun nouveau message pour ${account.email}.`);
             }
 
-            for (let uid of uidsToProcess) {
-                let msgSource = await client.fetchOne(uid, { source: true });
-                let parsed = await simpleParser(msgSource.source);
+            for (const uidInfo of uidsToProcess) {
+                const msgSource = await client.fetchOne(uidInfo.rawUid, { source: true });
+                const parsed = await simpleParser(msgSource.source);
 
-                const fromAddr  = parsed.from?.value[0]?.address || "Expéditeur inconnu";
-                const subject   = parsed.subject || "Sans objet";
-                const content   = parsed.text   || "Pas de contenu textuel";
-                const htmlContent = parsed.html  || null;
-                const date      = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
+                const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';
+                const subject = parsed.subject || 'Sans objet';
+                const content = parsed.text || 'Pas de contenu textuel';
+                const htmlContent = parsed.html || null;
+                const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
+                const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
 
-                // ─── PIÈCES JOINTES ────────────────────────────────────────
-                const attachmentsMeta = [];
-
-                if (parsed.attachments && parsed.attachments.length > 0) {
-                    // Créer un sous-dossier par UID de mail
-                    const mailDir = path.join(ATTACHMENTS_DIR, String(uid));
-                    if (!fs.existsSync(mailDir)) fs.mkdirSync(mailDir, { recursive: true });
-
-                    for (const att of parsed.attachments) {
-                        // Nettoyer le nom de fichier pour éviter les path traversals
-                        const safeName = att.filename
-                            ? att.filename.replace(/[^a-zA-Z0-9._\- ]/g, '_')
-                            : `attachment_${Date.now()}`;
-                        
-                        const filePath = path.join(mailDir, safeName);
-                        
-                        try {
-                            fs.writeFileSync(filePath, att.content);
-                            attachmentsMeta.push({
-                                filename:    safeName,
-                                contentType: att.contentType || 'application/octet-stream',
-                                size:        att.size || att.content.length,
-                                path:        filePath   // chemin absolu sur le serveur
-                            });
-                            console.log(`📎 [IMAP] Pièce jointe sauvegardée : ${safeName} (${att.size || att.content.length} octets)`);
-                        } catch (e) {
-                            console.error(`❌ [IMAP] Erreur sauvegarde pièce jointe ${safeName}:`, e.message);
-                        }
-                    }
-                }
-                // ───────────────────────────────────────────────────────────
-
-                console.log(`🤖 [IA] Analyse du message entrant: [UID ${uid}] ${subject}`);
-                // Passer user_id pour chercher sa propore clef API
+                console.log(`[IA] Analyse du message entrant: [${account.email} UID ${uidInfo.rawUid}] ${subject}`);
                 const aiResult = await analyzeEmail(subject, content.substring(0, 4000), fromAddr, userConfig.user_id);
 
-                // Insertion BD
-                await new Promise((resolve, reject) => {
-                    db.run(
-                        `INSERT INTO emails (
-                            uid, from_address, subject, content, html_content,
-                            categorie, priorite, resume,
-                            reponse_formelle, reponse_amicale, reponse_rapide,
-                            amount, due_date, attachments, date_reception, action_recommandee, is_business, user_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [
-                            uid, fromAddr, subject, content, htmlContent,
-                            aiResult.categorie, aiResult.priorite, aiResult.resume,
-                            aiResult.reponse_formelle, aiResult.reponse_amicale, aiResult.reponse_rapide,
-                            aiResult.amount, aiResult.due_date,
-                            JSON.stringify(attachmentsMeta),
-                            date,
-                            aiResult.action_recommandee || 'Répondre',
-                            aiResult.is_business ? 1 : 0,
-                            userConfig.user_id
-                        ],
-                        function(err) {
-                            if (err) {
-                                console.error("Erreur insertion DB:", err);
-                                reject(err);
-                            } else {
-                                console.log(`✅ Mail [UID ${uid}] enregistré (${aiResult.categorie} - ${aiResult.priorite}) | ${attachmentsMeta.length} PJ`);
-                                resolve();
-                            }
-                        }
-                    );
-                });
+                await dbRun(
+                    `INSERT INTO emails (
+                        uid, from_address, subject, content, html_content,
+                        categorie, priorite, resume,
+                        reponse_formelle, reponse_amicale, reponse_rapide,
+                        amount, due_date, attachments, date_reception, action_recommandee, is_business,
+                        user_id, mailbox_id, mailbox_address, raw_imap_uid
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        uidInfo.internalUid,
+                        fromAddr,
+                        subject,
+                        content,
+                        htmlContent,
+                        aiResult.categorie,
+                        aiResult.priorite,
+                        aiResult.resume,
+                        aiResult.reponse_formelle,
+                        aiResult.reponse_amicale,
+                        aiResult.reponse_rapide,
+                        aiResult.amount,
+                        aiResult.due_date,
+                        JSON.stringify(attachmentsMeta),
+                        date,
+                        aiResult.action_recommandee || 'Repondre',
+                        aiResult.is_business ? 1 : 0,
+                        userConfig.user_id,
+                        account.id,
+                        account.email,
+                        String(uidInfo.rawUid),
+                    ]
+                );
+
+                console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre (${aiResult.categorie} - ${aiResult.priorite}) | ${attachmentsMeta.length} PJ`);
             }
         } finally {
             lock.release();
         }
+
         try {
             await client.logout();
         } catch (logoutError) {
-            console.warn(`[IMAP] Fermeture session USER ${userConfig.user_id}:`, logoutError.message);
+            console.warn(`[IMAP] Fermeture session ${account.email}:`, logoutError.message);
         }
     } catch (error) {
         try {
             client.close();
-        } catch (closeError) {}
-        if (!error?.message && imapConnectionError?.message) {
-            error = imapConnectionError;
-        }
-        console.error(`❌ ERREUR CONNEXION IMAP POUR USER ${userConfig.user_id}:`, error.message);
+        } catch {}
+        const finalError = error?.message ? error : imapConnectionError;
+        console.error(`[IMAP] Erreur connexion ${account.email} USER ${userConfig.user_id}:`, finalError?.message || 'Erreur inconnue');
     }
-    } // fin du for loop users
+}
+
+async function fetchNewEmailsInternal(userId = null) {
+    console.log(`[IMAP] Lancement de la synchronisation mail (Utilisateur: ${userId || 'TOUS'})...`);
+
+    const usersToSync = await getUserMailSettings(userId);
+    if (usersToSync.length === 0) {
+        console.log('[IMAP] Aucun compte mail parametre pour la synchronisation.');
+        return;
+    }
+
+    for (const userConfig of usersToSync) {
+        const accountsToSync = getReceiverAccountsFromSettings(userConfig)
+            .filter(account => account.host && account.user && account.pass);
+
+        if (accountsToSync.length === 0) {
+            console.log(`[IMAP] Aucun compte reception complet pour user ${userConfig.user_id}.`);
+            continue;
+        }
+
+        for (const account of accountsToSync) {
+            await syncMailbox(userConfig, account);
+        }
+    }
 }
 
 module.exports = { fetchNewEmails };

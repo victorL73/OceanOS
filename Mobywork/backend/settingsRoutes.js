@@ -3,6 +3,7 @@ const db = require('./database');
 const { authMiddleware, adminMiddleware } = require('./authMiddleware');
 const { getSharedCompanySettings, getSharedPrestashopSettings } = require('./flowceanAccounts');
 const { getAvailableSenders } = require('./smtpService');
+const { getReceiverAccountsFromSettings } = require('./mailAccounts');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -96,14 +97,14 @@ router.post('/', (req, res) => {
 router.get('/status', async (req, res) => {
     try {
         const sharedPrestashop = await getSharedPrestashopSettings().catch(() => ({}));
-        db.get('SELECT imap_host, imap_user, ps_api_url, ps_api_key FROM user_settings WHERE user_id = ?', [req.user.id], async (err, row) => {
+        db.get('SELECT imap_host, imap_port, imap_user, imap_pass, smtp_host, smtp_user, smtp_pass, smtp_accounts, ps_api_url, ps_api_key FROM user_settings WHERE user_id = ?', [req.user.id], async (err, row) => {
             const status = {
                 backend: true,
                 imap: false,
                 prestashop: !!(sharedPrestashop.shopUrl && sharedPrestashop.apiKey),
             };
             if (!err && row) {
-                status.imap = !!(row.imap_host && row.imap_user);
+                status.imap = getReceiverAccountsFromSettings(row).some(account => account.host && account.user && account.pass);
                 status.prestashop = status.prestashop || !!(row.ps_api_url && row.ps_api_key && row.ps_api_key.length > 5);
             }
             res.json(status);

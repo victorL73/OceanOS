@@ -24,6 +24,7 @@ OceanOS > menu utilisateur > PrestaShop
 - catalogue fournisseur groupe par fournisseur
 - affectation ou creation de fournisseurs internes
 - commandes fournisseurs internes multi-produits avec quantites et prix HT par ligne
+- reception fournisseur avec increment du stock PrestaShop
 - historique detaille des commandes fournisseurs
 - journal des synchronisations
 
@@ -37,6 +38,7 @@ stock_availables
 suppliers
 ```
 
+Pour envoyer les receptions fournisseur vers PrestaShop, activer aussi l'ecriture sur `stock_availables`.
 Le module continue a synchroniser les produits et stocks si `suppliers` n'est pas disponible.
 
 ## Tables
@@ -55,4 +57,4 @@ Les alertes visibles dans toute la suite passent par la table centrale `oceanos_
 
 ## Limite
 
-Stockcean lit les stocks depuis PrestaShop et gere les achats en interne. Il ne pousse pas encore les receptions ou les commandes fournisseurs vers PrestaShop.
+Stockcean lit les stocks depuis PrestaShop et pousse les quantites receptionnees vers `stock_availables`. Les commandes fournisseurs restent gerees en interne.

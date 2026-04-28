@@ -135,7 +135,10 @@ db.serialize(() => {
         { name: "attachments",     type: "TEXT" },  // JSON: [{filename, contentType, size, path}]
         { name: "action_recommandee", type: "TEXT" },
         { name: "is_business",     type: "INTEGER" },
-        { name: "user_id",         type: "INTEGER DEFAULT 1" }
+        { name: "user_id",         type: "INTEGER DEFAULT 1" },
+        { name: "mailbox_id",      type: "TEXT" },
+        { name: "mailbox_address", type: "TEXT" },
+        { name: "raw_imap_uid",    type: "TEXT" }
     ];
 
     columnsToMigrate.forEach(col => {

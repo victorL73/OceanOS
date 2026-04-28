@@ -676,6 +676,7 @@ function renderOrderHistoryList(orders) {
                 <th>Reference</th>
                 <th>Quantite</th>
                 <th>Recu</th>
+                <th>PrestaShop</th>
                 <th>Prix HT</th>
                 <th>Total</th>
               </tr>
@@ -687,6 +688,7 @@ function renderOrderHistoryList(orders) {
                   <td>${escapeHtml(line.productReference || "-")}</td>
                   <td>${line.quantityOrdered}</td>
                   <td>${line.quantityReceived}</td>
+                  <td>${line.prestashopStockDelta || 0}</td>
                   <td>${money.format(Number(line.unitPriceTaxExcl || 0))}</td>
                   <td>${money.format(Number(line.lineTotalTaxExcl || 0))}</td>
                 </tr>

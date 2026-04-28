@@ -1337,6 +1337,64 @@ function oceanos_prestashop_get(string $shopUrl, string $apiKey, string $resourc
     return (string) $body;
 }
 
+function oceanos_prestashop_put_xml(string $shopUrl, string $apiKey, string $resource, string $xmlBody, array $query = []): string
+{
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('L extension PHP cURL est requise pour appeler PrestaShop.');
+    }
+
+    $url = rtrim($shopUrl, '/') . '/api/' . ltrim($resource, '/');
+    if ($query !== []) {
+        $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    $curl = curl_init($url);
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => 'PUT',
+        CURLOPT_POSTFIELDS => $xmlBody,
+        CURLOPT_USERPWD => $apiKey . ':',
+        CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 45,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/xml',
+            'Content-Type: application/xml',
+            'Output-Format: XML',
+        ],
+    ];
+
+    $caBundle = oceanos_ca_bundle_path();
+    if ($caBundle !== '') {
+        $options[CURLOPT_CAINFO] = $caBundle;
+    }
+
+    curl_setopt_array($curl, $options);
+
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($curl);
+    curl_close($curl);
+
+    if ($body === false) {
+        if (str_contains($error, 'unable to get local issuer certificate')) {
+            throw new RuntimeException('Certificat SSL non verifie par PHP/cURL. Configurez OCEANOS_CA_BUNDLE avec un fichier cacert.pem lisible.');
+        }
+
+        throw new RuntimeException($error !== '' ? $error : 'PrestaShop n a retourne aucune donnee.');
+    }
+    if ($status >= 400) {
+        $details = oceanos_extract_prestashop_error((string) $body);
+        $message = 'PrestaShop a refuse ' . $resource . ' HTTP ' . $status . '.';
+        if ($details !== '') {
+            $message .= ' Detail: ' . $details;
+        }
+        throw new OceanosPrestashopException($message, $status, $resource);
+    }
+
+    return (string) $body;
+}
+
 function oceanos_load_xml(string $body): SimpleXMLElement
 {
     $previous = libxml_use_internal_errors(true);

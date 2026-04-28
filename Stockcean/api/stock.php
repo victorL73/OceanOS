@@ -63,9 +63,17 @@ try {
         if ($action === 'update_purchase_order_status') {
             $admin = stockcean_require_admin($pdo);
             $order = stockcean_update_purchase_order_status($pdo, $input);
+            $receipt = is_array($order['prestashopReceipt'] ?? null) ? $order['prestashopReceipt'] : null;
+            $message = 'Statut de commande mis a jour.';
+            if ($receipt !== null) {
+                $units = (int) ($receipt['unitsPushed'] ?? 0);
+                $message = $units > 0
+                    ? sprintf('Commande receptionnee. %d unite(s) ajoutee(s) dans PrestaShop.', $units)
+                    : 'Commande receptionnee. Aucun stock restant a pousser vers PrestaShop.';
+            }
             stockcean_json_response([
                 'ok' => true,
-                'message' => 'Statut de commande mis a jour.',
+                'message' => $message,
                 'purchaseOrder' => $order,
                 'dashboard' => stockcean_dashboard($pdo, [], $admin),
             ]);

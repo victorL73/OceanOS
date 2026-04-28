@@ -146,10 +146,27 @@ export default function SettingsModule({ user, onLogout }) {
     } catch (err) { console.error('Erreur chargement paramètres', err); }
   };
 
+  const syncUnifiedMailSettings = (draft) => {
+    const host = draft.imap_host || draft.smtp_host || '';
+    const user = draft.imap_user || draft.smtp_user || '';
+    const pass = draft.imap_pass || draft.smtp_pass || '';
+    return {
+      ...draft,
+      imap_host: host,
+      smtp_host: host,
+      imap_user: user,
+      smtp_user: user,
+      imap_pass: pass,
+      smtp_pass: pass,
+    };
+  };
+
   const handleSave = async () => {
     setIsLoading(true); setMessage(null);
     try {
-      await axios.post(`${API}/settings`, settings);
+      const payload = syncUnifiedMailSettings(settings);
+      await axios.post(`${API}/settings`, payload);
+      setSettings(payload);
       setMessage({ type: 'success', text: 'Paramètres sauvegardés avec succès.' });
     } catch (err) {
       const status = err.response?.status;
@@ -171,6 +188,15 @@ export default function SettingsModule({ user, onLogout }) {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setSettings(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleUnifiedMailChange = (field, value) => {
+    setSettings(prev => {
+      if (field === 'host') return { ...prev, imap_host: value, smtp_host: value };
+      if (field === 'user') return { ...prev, imap_user: value, smtp_user: value };
+      if (field === 'pass') return { ...prev, imap_pass: value, smtp_pass: value };
+      return { ...prev, [field]: value };
+    });
   };
 
   const handleToggle = (name, val) => setSettings(prev => ({ ...prev, [name]: val ? 1 : 0 }));
@@ -195,13 +221,20 @@ export default function SettingsModule({ user, onLogout }) {
   const setSmtpAccounts = (accounts, nextDefault = settings.smtp_default_sender) => {
     const clean = accounts.map((account, index) => ({
       ...account,
-      id: account.id || normalizeSenderId(account.email || account.smtp_user, index),
+      id: account.id || normalizeSenderId(account.email || account.user || account.smtp_user || account.imap_user, index),
+      label: account.label || '',
+      email: account.email || '',
+      user: account.user || account.smtp_user || account.imap_user || '',
+      pass: account.pass || account.smtp_pass || account.imap_pass || '',
+      send_enabled: account.send_enabled === 0 || account.send_enabled === false ? 0 : 1,
+      receive_enabled: account.receive_enabled === 0 || account.receive_enabled === false ? 0 : 1,
     }));
-    const defaultStillExists = clean.some(account => account.id === nextDefault);
+    const defaultStillExists = clean.some(account => account.id === nextDefault && account.send_enabled !== 0);
+    const firstSenderId = clean.find(account => account.send_enabled !== 0)?.id || '';
     setSettings(prev => ({
       ...prev,
       smtp_accounts: JSON.stringify(clean),
-      smtp_default_sender: defaultStillExists ? nextDefault : (clean[0]?.id || ''),
+      smtp_default_sender: defaultStillExists ? nextDefault : firstSenderId,
     }));
   };
 
@@ -213,10 +246,10 @@ export default function SettingsModule({ user, onLogout }) {
         id: `sender-${Date.now()}`,
         label: '',
         email: '',
-        smtp_user: '',
-        smtp_pass: '',
-        smtp_host: '',
-        smtp_port: '',
+        user: '',
+        pass: '',
+        send_enabled: 1,
+        receive_enabled: 1,
       },
     ]);
   };
@@ -318,23 +351,28 @@ export default function SettingsModule({ user, onLogout }) {
   const tabs = [...TABS, ...(user?.role === 'admin' ? ADMIN_TABS : [])];
   const needsSave = !['team'].includes(activeTab);
   const smtpAccounts = parseSmtpAccounts();
-  const defaultSender = settings.smtp_default_sender || smtpAccounts[0]?.id || '';
+  const senderAccounts = smtpAccounts.filter(account => account.send_enabled !== 0 && account.send_enabled !== false);
+  const defaultSender = settings.smtp_default_sender || senderAccounts[0]?.id || '';
+  const sharedMailHost = settings.imap_host || settings.smtp_host || '';
+  const sharedMailUser = settings.imap_user || settings.smtp_user || '';
+  const sharedMailPass = settings.imap_pass || settings.smtp_pass || '';
 
   const renderSmtpAccountsSection = () => (
-    <Section title="Adresses d'envoi">
+    <Section title="Adresses email">
       <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: 1.6, marginTop: 0 }}>
-        Ajoutez vos adresses Renovboat puis choisissez l'expediteur au moment d'envoyer un mail.
-        Si le serveur, le port ou le mot de passe sont vides, Mobywork reutilise la configuration SMTP principale ci-dessus.
+        Ajoutez les boites Renovboat a synchroniser. Chaque adresse utilise le serveur hote global :
+        le meme identifiant et le meme mot de passe servent pour la reception IMAP et l'envoi SMTP,
+        seuls les ports globaux changent.
       </p>
 
-      {smtpAccounts.length > 0 && (
-        <Field label="Adresse par defaut">
+      {senderAccounts.length > 0 && (
+        <Field label="Adresse d'envoi par defaut">
           <select
             value={defaultSender}
             onChange={(e) => setSettings(prev => ({ ...prev, smtp_default_sender: e.target.value }))}
             style={inputStyle}
           >
-            {smtpAccounts.map((account, index) => (
+            {senderAccounts.map((account, index) => (
               <option key={account.id || index} value={account.id}>
                 {(account.label || account.email || `Adresse ${index + 1}`)} {account.email ? `- ${account.email}` : ''}
               </option>
@@ -363,30 +401,43 @@ export default function SettingsModule({ user, onLogout }) {
               <Field label="Libelle">
                 <input value={account.label || ''} onChange={(e) => updateSmtpAccount(index, 'label', e.target.value)} placeholder="Contact Renovboat" style={inputStyle} />
               </Field>
-              <Field label="Adresse email d'envoi">
+              <Field label="Adresse email">
                 <input type="email" value={account.email || ''} onChange={(e) => updateSmtpAccount(index, 'email', e.target.value)} placeholder="contact@renovboat.com" style={inputStyle} />
               </Field>
-              <Field label="Identifiant SMTP" hint="Laissez vide pour utiliser l'identifiant principal.">
-                <input value={account.smtp_user || ''} onChange={(e) => updateSmtpAccount(index, 'smtp_user', e.target.value)} placeholder="contact@renovboat.com" style={inputStyle} />
+              <Field label="Identifiant mail" hint="Laissez vide pour utiliser l'identifiant principal.">
+                <input value={account.user || account.smtp_user || account.imap_user || ''} onChange={(e) => updateSmtpAccount(index, 'user', e.target.value)} placeholder="contact@renovboat.com" style={inputStyle} />
               </Field>
-              <Field label="Mot de passe SMTP" hint="Laissez vide pour utiliser le mot de passe principal.">
-                <input type="password" value={account.smtp_pass || ''} onChange={(e) => updateSmtpAccount(index, 'smtp_pass', e.target.value)} placeholder="Mot de passe de cette boite" style={inputStyle} />
-              </Field>
-              <Field label="Serveur SMTP" hint="Optionnel si identique au principal.">
-                <input value={account.smtp_host || ''} onChange={(e) => updateSmtpAccount(index, 'smtp_host', e.target.value)} placeholder="smtp.mail.ovh.net" style={inputStyle} />
-              </Field>
-              <Field label="Port">
-                <input type="number" value={account.smtp_port || ''} onChange={(e) => updateSmtpAccount(index, 'smtp_port', e.target.value)} placeholder="465" style={inputStyle} />
+              <Field label="Mot de passe mail" hint="Laissez vide pour utiliser le mot de passe principal.">
+                <input type="password" value={account.pass || account.smtp_pass || account.imap_pass || ''} onChange={(e) => updateSmtpAccount(index, 'pass', e.target.value)} placeholder="Mot de passe de cette boite" style={inputStyle} />
               </Field>
             </Grid2>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600 }}>
-              <input
-                type="checkbox"
-                checked={defaultSender === account.id}
-                onChange={() => setSettings(prev => ({ ...prev, smtp_default_sender: account.id }))}
-              />
-              Utiliser par defaut
-            </label>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={account.receive_enabled !== 0 && account.receive_enabled !== false}
+                  onChange={(e) => updateSmtpAccount(index, 'receive_enabled', e.target.checked ? 1 : 0)}
+                />
+                Recevoir les emails
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={account.send_enabled !== 0 && account.send_enabled !== false}
+                  onChange={(e) => updateSmtpAccount(index, 'send_enabled', e.target.checked ? 1 : 0)}
+                />
+                Autoriser l'envoi
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 600, opacity: account.send_enabled === 0 || account.send_enabled === false ? 0.45 : 1 }}>
+                <input
+                  type="checkbox"
+                  disabled={account.send_enabled === 0 || account.send_enabled === false}
+                  checked={defaultSender === account.id}
+                  onChange={() => setSettings(prev => ({ ...prev, smtp_default_sender: account.id }))}
+                />
+                Envoi par defaut
+              </label>
+            </div>
           </div>
         ))}
       </div>
@@ -548,6 +599,25 @@ export default function SettingsModule({ user, onLogout }) {
 
           {/* ── EMAIL ── */}
           {activeTab === 'email' && (
+            <div>
+              <Section title="Configuration mail globale">
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', lineHeight: 1.6, marginTop: 0 }}>
+                  Le serveur hote, l'identifiant et le mot de passe sont communs a la reception et a l'envoi.
+                  Seuls les ports changent entre IMAP et SMTP.
+                </p>
+                <Grid2>
+                  <Field label="Serveur hote"><input value={sharedMailHost} onChange={(e) => handleUnifiedMailChange('host', e.target.value)} placeholder="ssl0.ovh.net" style={inputStyle} /></Field>
+                  <Field label="Identifiant principal"><input value={sharedMailUser} onChange={(e) => handleUnifiedMailChange('user', e.target.value)} placeholder="nom.prenom@renovboat.com" style={inputStyle} /></Field>
+                  <Field label="Mot de passe principal"><input type="password" value={sharedMailPass} onChange={(e) => handleUnifiedMailChange('pass', e.target.value)} placeholder="Mot de passe de la boite principale" style={inputStyle} /></Field>
+                  <Field label="Port reception IMAP"><input name="imap_port" type="number" value={settings.imap_port || ''} onChange={handleChange} placeholder="993" style={inputStyle} /></Field>
+                  <Field label="Port envoi SMTP"><input name="smtp_port" type="number" value={settings.smtp_port || ''} onChange={handleChange} placeholder="465" style={inputStyle} /></Field>
+                </Grid2>
+              </Section>
+              {renderSmtpAccountsSection()}
+            </div>
+          )}
+
+          {false && activeTab === 'email' && (
             <div>
               <Section title="📥 Réception IMAP">
                 <Grid2>
