@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/naviplan.svg?v=20260428">
   <meta name="description" content="Naviplan - agenda administratif, fiscal, social et juridique de l'entreprise.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan-config">
+  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan-detail">
   <script defer src="/OceanOS/assets/guard.js?v=20260428-naviplan"></script>
-  <script defer src="assets/app.js?v=20260428-naviplan-config"></script>
+  <script defer src="assets/app.js?v=20260428-naviplan-detail"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -273,6 +273,50 @@
           <div class="sources-grid" id="sources-grid"></div>
         </section>
       </section>
+    </section>
+
+    <section class="detail-modal hidden" id="detail-modal" aria-hidden="true">
+      <button class="detail-backdrop" id="detail-backdrop" type="button" aria-label="Fermer le detail"></button>
+      <article class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+        <div class="detail-header">
+          <div>
+            <p class="eyebrow" id="detail-kicker">Echeance</p>
+            <h2 id="detail-title">Detail</h2>
+            <p id="detail-date"></p>
+          </div>
+          <button class="ghost-button icon-button" id="detail-close" type="button" aria-label="Fermer">x</button>
+        </div>
+
+        <div class="detail-body">
+          <p class="detail-summary" id="detail-summary"></p>
+          <div class="detail-meta" id="detail-meta"></div>
+
+          <section class="detail-section">
+            <h3>Ce qu'il faut faire</h3>
+            <ol id="detail-steps"></ol>
+          </section>
+
+          <section class="detail-section">
+            <h3>Pieces a preparer</h3>
+            <ul id="detail-docs"></ul>
+          </section>
+
+          <section class="detail-section">
+            <h3>Depot ou paiement</h3>
+            <p id="detail-route"></p>
+          </section>
+
+          <section class="detail-section">
+            <h3>Point de vigilance</h3>
+            <p id="detail-warning"></p>
+          </section>
+        </div>
+
+        <div class="detail-footer">
+          <a class="primary-button" id="detail-source" href="#" target="_blank" rel="noreferrer">Ouvrir la source</a>
+          <button class="ghost-button" id="detail-close-bottom" type="button">Fermer</button>
+        </div>
+      </article>
     </section>
   </main>
 </body>

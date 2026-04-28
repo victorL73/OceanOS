@@ -270,6 +270,20 @@ const elements = {
   calendarGrid: $("calendar-grid"),
   obligationGrid: $("obligation-grid"),
   sourcesGrid: $("sources-grid"),
+  detailModal: $("detail-modal"),
+  detailBackdrop: $("detail-backdrop"),
+  detailClose: $("detail-close"),
+  detailCloseBottom: $("detail-close-bottom"),
+  detailKicker: $("detail-kicker"),
+  detailTitle: $("detail-title"),
+  detailDate: $("detail-date"),
+  detailSummary: $("detail-summary"),
+  detailMeta: $("detail-meta"),
+  detailSteps: $("detail-steps"),
+  detailDocs: $("detail-docs"),
+  detailRoute: $("detail-route"),
+  detailWarning: $("detail-warning"),
+  detailSource: $("detail-source"),
 };
 
 const today = startOfDay(new Date());
@@ -1208,15 +1222,310 @@ function priorityLabel(priority) {
   }[priority] || "Normale";
 }
 
+function eventDateLabel(item) {
+  return item.date === item.endDate ? formatDate(item.date) : `${formatDate(item.date)} - ${formatDate(item.endDate)}`;
+}
+
+function findEventById(eventId) {
+  return state.events.find((item) => item.id === eventId);
+}
+
+function actionPlanForEvent(item) {
+  const id = item.id || "";
+  const category = item.category || "";
+
+  if (id.startsWith("tva-normal-")) {
+    return {
+      steps: [
+        "Controler le chiffre d'affaires et la TVA collectee de la periode concernee.",
+        "Rapprocher la TVA deductible avec les factures fournisseurs et les avoirs.",
+        "Preparer puis valider la declaration CA3 dans l'espace professionnel DGFiP.",
+        "Telepayer le solde ou enregistrer le credit de TVA avec le justificatif.",
+      ],
+      docs: ["Journal des ventes", "Journal des achats", "Factures et avoirs", "Derniere declaration TVA"],
+      route: "Declaration et paiement dans l'espace professionnel impots.gouv.fr, rubrique TVA.",
+      warning: "Les dates exactes peuvent dependre du SIREN et de l'echeancier affiche par l'espace professionnel.",
+    };
+  }
+
+  if (id.startsWith("tva-simplified-") || id === "ca12-vehicles") {
+    return {
+      steps: [
+        "Verifier l'acompte ou la declaration annuelle attendue pour le regime simplifie.",
+        "Controler les bases de TVA, les immobilisations et les regularisations de l'exercice.",
+        "Valider le montant a payer ou le credit de TVA avant teletransmission.",
+        "Archiver l'accuse de reception et l'ecriture de paiement.",
+      ],
+      docs: ["Balance TVA", "Factures de ventes et d'achats", "Immobilisations", "Echeancier fiscal"],
+      route: "Declaration ou acompte dans l'espace professionnel DGFiP.",
+      warning: "Pour les taxes vehicules, verifier la flotte et l'usage professionnel avant de valider la CA12.",
+    };
+  }
+
+  if (id.startsWith("tva-franchise-")) {
+    return {
+      steps: [
+        "Recalculer le chiffre d'affaires cumule depuis le debut de l'annee.",
+        "Comparer le montant aux seuils applicables a l'activite.",
+        "Identifier la date de depassement eventuelle et anticiper la facturation avec TVA.",
+      ],
+      docs: ["Livre des recettes", "Factures emises", "Tableau de suivi des seuils"],
+      route: "Aucun depot mensuel si la franchise reste applicable; mise a jour a traiter avec l'expert-comptable si seuil depasse.",
+      warning: "Un depassement de seuil peut faire basculer l'entreprise dans un regime TVA avec effet en cours d'annee.",
+    };
+  }
+
+  if (id.startsWith("tva-intra-des-")) {
+    return {
+      steps: [
+        "Lister les operations intracommunautaires de la periode.",
+        "Verifier les numeros de TVA intracommunautaire des clients et fournisseurs.",
+        "Preparer la DES ou l'etat recapitulatif selon la nature des operations.",
+        "Transmettre puis conserver l'accuse de depot.",
+      ],
+      docs: ["Factures UE", "Numeros de TVA verifies", "Releve des prestations ou livraisons intracommunautaires"],
+      route: "Depot via le service douanier ou fiscal indique par la source officielle.",
+      warning: "Separer les livraisons de biens, les acquisitions et les prestations de services avant declaration.",
+    };
+  }
+
+  if (id.startsWith("dsn-") || id.startsWith("pasrau-") || id.startsWith("taxe-salaires-")) {
+    const isPasrau = id.startsWith("pasrau-");
+    const isTaxeSalaires = id.startsWith("taxe-salaires-");
+    return {
+      steps: [
+        "Collecter les variables de paie, absences, entrees, sorties et corrections de la periode.",
+        isPasrau ? "Generer le flux PASRAU pour les revenus declares hors DSN." : "Generer la DSN depuis le logiciel de paie et controler les blocs sensibles.",
+        isTaxeSalaires ? "Verifier l'assujettissement et calculer l'acompte de taxe sur les salaires." : "Verifier le paiement des cotisations et du prelevement a la source.",
+        "Transmettre le fichier, traiter les retours et archiver le compte-rendu.",
+      ],
+      docs: ["Journal de paie", "Contrats et avenants", "Absences et temps de travail", "Taux PAS et cotisations"],
+      route: isPasrau ? "Depot PASRAU sur net-entreprises ou le portail declare." : "Depot DSN et paiement sur net-entreprises ou le portail de paie connecte.",
+      warning: "Controler les anomalies de retour avant l'echeance de paiement, surtout apres une embauche ou une sortie.",
+    };
+  }
+
+  if (id.startsWith("is-acompte-")) {
+    return {
+      steps: [
+        "Reprendre le dernier resultat fiscal connu et les acomptes deja payes.",
+        "Calculer l'acompte d'impot sur les societes attendu.",
+        "Valider le telepaiement et conserver la reference de transaction.",
+      ],
+      docs: ["Derniere liasse fiscale", "Releve des acomptes IS", "Situation comptable recente"],
+      route: "Telepaiement dans l'espace professionnel DGFiP, rubrique impot sur les societes.",
+      warning: "Verifier les dispenses ou modulations possibles avant de payer un acompte inhabituel.",
+    };
+  }
+
+  if (id.startsWith("cfe-") || id.startsWith("cvae-")) {
+    const isCvae = id.startsWith("cvae-");
+    return {
+      steps: [
+        isCvae ? "Verifier la valeur ajoutee et l'eligibilite CVAE." : "Consulter l'avis CFE/IFER ou l'option de prelevement disponible.",
+        "Rapprocher les etablissements, bases et montants avec les informations de l'entreprise.",
+        "Valider le paiement ou l'option de prelevement avant la date limite.",
+      ],
+      docs: isCvae ? ["Declaration de valeur ajoutee", "Balance analytique", "Acomptes deja verses"] : ["Avis CFE/IFER", "Liste des etablissements", "Coordonnees bancaires"],
+      route: "Espace professionnel DGFiP, rubrique payer puis CFE/IFER ou CVAE selon le cas.",
+      warning: "Un changement d'etablissement, de surface ou d'activite peut modifier la base locale.",
+    };
+  }
+
+  if (id.startsWith("rcm-")) {
+    return {
+      steps: [
+        "Identifier les dividendes, interets ou revenus mobiliers verses pendant la periode.",
+        "Calculer les prelevements et retenues applicables par beneficiaire.",
+        "Preparer la declaration 2777 ou 2753 selon le flux concerne.",
+        "Teledeclarer, telepayer et archiver le justificatif.",
+      ],
+      docs: ["Decisions de distribution", "Liste des beneficiaires", "Montants bruts et prelevements", "Releves bancaires"],
+      route: "Declaration et paiement dans l'espace professionnel DGFiP.",
+      warning: "Verifier les beneficiaires non residents et les conventions fiscales avant validation.",
+    };
+  }
+
+  if (id === "fiscal-results-may") {
+    return {
+      steps: [
+        "Finaliser la revision comptable et les ecritures d'inventaire de l'exercice.",
+        "Preparer la liasse fiscale et les annexes attendues selon le regime.",
+        "Controler les declarations CVAE ou SCI si l'entreprise est concernee.",
+        "Teletransmettre puis conserver les accuses de reception.",
+      ],
+      docs: ["Balance generale", "Grand livre", "Annexes fiscales", "Justificatifs de cloture"],
+      route: "Teleprocedure fiscale via l'espace professionnel ou le portail EDI de l'expert-comptable.",
+      warning: "La date peut varier selon la date de cloture et les modalites EDI; verifier l'echeance affichee.",
+    };
+  }
+
+  if (id.startsWith("accounts-") || id === "annual-inventory") {
+    return {
+      steps: [
+        "Finaliser les comptes annuels et les documents sociaux requis.",
+        "Organiser l'approbation des comptes ou la decision de l'associe unique.",
+        "Signer les proces-verbaux puis deposer les comptes si la forme juridique l'impose.",
+        "Classer les documents dans le dossier juridique annuel.",
+      ],
+      docs: ["Bilan et compte de resultat", "Annexe", "Rapport de gestion si requis", "Proces-verbal d'approbation"],
+      route: "Depot au greffe ou via le guichet en ligne selon la modalite choisie.",
+      warning: "Le delai de depot court apres l'approbation; la confidentialite des comptes peut etre possible selon la taille.",
+    };
+  }
+
+  if (id.startsWith("dpae-") || id.startsWith("staff-register-")) {
+    return {
+      steps: [
+        "Recueillir les informations du salarie avant son arrivee.",
+        "Transmettre la DPAE dans le delai autorise avant l'embauche.",
+        "Mettre a jour le registre unique du personnel et le dossier RH.",
+      ],
+      docs: ["Etat civil du salarie", "Contrat de travail", "Date et horaire d'embauche", "Informations de poste"],
+      route: "Declaration via le portail URSSAF ou l'outil de paie connecte.",
+      warning: "La DPAE doit etre transmise avant l'embauche; garder l'accuse de reception.",
+    };
+  }
+
+  if (id.startsWith("duerp-")) {
+    return {
+      steps: [
+        "Revoir les postes, risques et mesures de prevention de l'entreprise.",
+        "Mettre a jour le DUERP apres tout changement significatif.",
+        "Partager les actions de prevention avec les personnes concernees.",
+      ],
+      docs: ["DUERP existant", "Accidents et presque-accidents", "Plan d'actions prevention", "Retours terrain"],
+      route: "Mise a jour interne du document unique et conservation dans l'entreprise.",
+      warning: "La revue doit rester connectee aux risques reels, pas seulement au modele documentaire.",
+    };
+  }
+
+  if (id.startsWith("doeth-") || id.startsWith("apprentissage-") || id === "index-egalite") {
+    return {
+      steps: [
+        "Verifier l'effectif et les seuils applicables a l'obligation.",
+        "Rassembler les donnees sociales de l'annee ou du mois de reference.",
+        "Controler les montants ou indicateurs puis declarer via DSN ou publication requise.",
+      ],
+      docs: ["Effectif moyen", "DSN de reference", "Donnees RH annuelles", "Justificatifs d'exoneration ou de depense"],
+      route: "Declaration via la DSN ou publication selon l'obligation concernee.",
+      warning: "Les seuils d'effectif changent le niveau d'obligation; verifier le profil configure.",
+    };
+  }
+
+  if (id.startsWith("rgpd-")) {
+    return {
+      steps: [
+        "Passer en revue les traitements actifs de donnees personnelles.",
+        "Verifier les bases legales, les durees de conservation et les sous-traitants.",
+        "Mettre a jour le registre et les informations communiquees aux personnes.",
+      ],
+      docs: ["Registre des traitements", "Contrats sous-traitants", "Mentions d'information", "Demandes d'exercice de droits"],
+      route: "Mise a jour interne du registre RGPD et des supports d'information.",
+      warning: "Inclure aussi les donnees salaries, prospects, fournisseurs et outils SaaS.",
+    };
+  }
+
+  if (id.startsWith("electronic-invoicing-")) {
+    return {
+      steps: [
+        "Identifier les flux factures clients, fournisseurs et e-reporting.",
+        "Choisir ou verifier la plateforme de dematerialisation utilisee.",
+        "Tester la reception des factures electroniques et preparer l'emission selon la taille.",
+      ],
+      docs: ["Liste des outils de facturation", "SIREN/SIRET", "Processus achats et ventes", "Contacts comptables"],
+      route: "Parametrage dans la plateforme de facturation ou l'outil comptable retenu.",
+      warning: "La reception et l'emission n'arrivent pas toujours a la meme date; suivre le calendrier officiel.",
+    };
+  }
+
+  if (id.startsWith("insurance-tax-") || id.startsWith("accises-")) {
+    return {
+      steps: [
+        "Identifier les operations ou contrats concernes par la taxe specifique.",
+        "Calculer la base taxable de la periode et verifier les exemptions.",
+        "Declarer et payer via le portail fiscal ou douanier indique.",
+      ],
+      docs: ["Contrats ou factures concernes", "Tableau de calcul", "Justificatifs d'exoneration"],
+      route: "Portail fiscal ou douanier selon la taxe specifique.",
+      warning: "Ces taxes dependent fortement de l'activite; desactiver l'option si elle ne concerne pas l'entreprise.",
+    };
+  }
+
+  return {
+    steps: [
+      "Verifier que l'echeance concerne bien le profil configure de l'entreprise.",
+      "Rassembler les donnees comptables, fiscales, sociales ou juridiques de la periode.",
+      "Realiser la declaration, le paiement ou la mise a jour attendue sur le portail indique.",
+      "Archiver l'accuse de reception, le paiement et les pieces justificatives.",
+    ],
+    docs: ["Justificatifs de la periode", "Acces au portail officiel", "Derniere declaration comparable"],
+    route: item.sourceTitle ? `Se referer a la source officielle : ${item.sourceTitle}.` : "Se referer au portail officiel indique.",
+    warning: category ? `Verifier les regles propres au domaine ${CATEGORY_LABELS[category] || category}.` : "Verifier les seuils, options et dates affichees dans le portail officiel.",
+  };
+}
+
+function renderDetailList(element, items) {
+  element.innerHTML = items.map((text) => `<li>${escapeHtml(text)}</li>`).join("");
+}
+
+function openEventDetails(eventId) {
+  const item = findEventById(eventId);
+  if (!item) return;
+
+  const plan = actionPlanForEvent(item);
+  elements.detailKicker.textContent = `${CATEGORY_LABELS[item.category] || item.category} - ${priorityLabel(item.priority)}`;
+  elements.detailTitle.textContent = item.title;
+  elements.detailDate.textContent = eventDateLabel(item);
+  elements.detailSummary.textContent = item.summary;
+  elements.detailMeta.innerHTML = [
+    item.appliesTo,
+    item.sourceTitle,
+    item.floating ? "Obligation permanente" : "Echeance datee",
+  ].map((text) => `<span class="tag">${escapeHtml(text)}</span>`).join("");
+  renderDetailList(elements.detailSteps, plan.steps);
+  renderDetailList(elements.detailDocs, plan.docs);
+  elements.detailRoute.textContent = plan.route;
+  elements.detailWarning.textContent = plan.warning;
+  elements.detailSource.href = item.sourceUrl;
+  elements.detailSource.textContent = item.sourceTitle ? `Ouvrir ${item.sourceTitle}` : "Ouvrir la source";
+  elements.detailModal.classList.remove("hidden");
+  elements.detailModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("is-detail-open");
+  elements.detailClose.focus();
+}
+
+function closeEventDetails() {
+  elements.detailModal.classList.add("hidden");
+  elements.detailModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("is-detail-open");
+}
+
+function handleEventClick(event) {
+  if (event.target.closest("a")) return;
+  const trigger = event.target.closest("[data-event-id]");
+  if (!trigger) return;
+  openEventDetails(trigger.dataset.eventId);
+}
+
+function handleEventKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (event.target.closest("a")) return;
+  const trigger = event.target.closest("[data-event-id]");
+  if (!trigger) return;
+  event.preventDefault();
+  openEventDetails(trigger.dataset.eventId);
+}
+
 function renderEventCard(item) {
   const compact = compactDate(item);
   const classes = ["event-card"];
   if (isEventPast(item)) classes.push("is-past");
   if (isEventToday(item)) classes.push("is-today");
-  const dateLabel = item.date === item.endDate ? formatDate(item.date) : `${formatDate(item.date)} - ${formatDate(item.endDate)}`;
+  const dateLabel = eventDateLabel(item);
 
   return `
-    <article class="${classes.join(" ")}">
+    <article class="${classes.join(" ")}" data-event-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="Voir les actions pour ${escapeHtml(item.title)}">
       <div class="date-block">
         <strong>${escapeHtml(compact.day)}</strong>
         <span>${escapeHtml(compact.month)}</span>
@@ -1265,7 +1574,7 @@ function renderNextList() {
   }
 
   elements.nextList.innerHTML = events.map((item) => `
-    <article class="next-item">
+    <article class="next-item" data-event-id="${escapeHtml(item.id)}" role="button" tabindex="0" aria-label="Voir les actions pour ${escapeHtml(item.title)}">
       <strong>${escapeHtml(item.title)}</strong>
       <span>${escapeHtml(formatDate(item.date))} - ${escapeHtml(item.appliesTo)}</span>
     </article>
@@ -1313,8 +1622,8 @@ function renderCalendar() {
     cells.push(`
       <div class="${classes.join(" ")}">
         <span class="day-number">${date.getDate()}</span>
-        ${dayEvents.slice(0, 4).map((item) => `<div class="calendar-event ${escapeHtml(item.priority)}">${escapeHtml(item.title)}</div>`).join("")}
-        ${dayEvents.length > 4 ? `<div class="calendar-event">+${dayEvents.length - 4}</div>` : ""}
+        ${dayEvents.slice(0, 4).map((item) => `<button class="calendar-event ${escapeHtml(item.priority)}" data-event-id="${escapeHtml(item.id)}" type="button">${escapeHtml(item.title)}</button>`).join("")}
+        ${dayEvents.length > 4 ? `<div class="calendar-overflow">+${dayEvents.length - 4}</div>` : ""}
       </div>
     `);
   }
@@ -1734,6 +2043,21 @@ function installListeners() {
   ].forEach((control) => {
     control.addEventListener("input", render);
     control.addEventListener("change", render);
+  });
+
+  [elements.agendaList, elements.nextList, elements.calendarGrid].forEach((container) => {
+    container.addEventListener("click", handleEventClick);
+    container.addEventListener("keydown", handleEventKeydown);
+  });
+
+  [elements.detailBackdrop, elements.detailClose, elements.detailCloseBottom].forEach((control) => {
+    control.addEventListener("click", closeEventDetails);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.detailModal.classList.contains("hidden")) {
+      closeEventDetails();
+    }
   });
 
   [
