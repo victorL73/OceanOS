@@ -1,5 +1,6 @@
 const OCEANOS_URL = "/OceanOS/";
 const AUTH_URL = "/OceanOS/api/auth.php";
+const SETTINGS_URL = "api/settings.php";
 const YEAR = 2026;
 
 const MONTHS = [
@@ -94,6 +95,12 @@ const SOURCES = [
     description: "Registre des traitements, information des personnes et bases legales.",
   },
   {
+    id: "electronic-invoicing",
+    title: "Facturation electronique",
+    url: "https://entreprendre.service-public.gouv.fr/actualites/A15683",
+    description: "Reception, emission et e-reporting selon le calendrier de generalisation.",
+  },
+  {
     id: "company-registers",
     title: "Registres d'une societe",
     url: "https://entreprendre.service-public.gouv.fr/vosdroits/F37373",
@@ -111,6 +118,87 @@ const PROFILES = [
   ["data", "RGPD"],
   ["sector", "Taxes specifiques"],
 ];
+
+const LEGAL_FORM_LABELS = {
+  micro: "Micro-entreprise",
+  ei: "Entreprise individuelle",
+  eurl: "EURL",
+  sarl: "SARL",
+  sasu: "SASU",
+  sas: "SAS",
+  sci: "SCI",
+  association: "Association",
+};
+
+const TAX_REGIME_LABELS = {
+  ir: "Impot sur le revenu",
+  is: "Impot sur les societes",
+};
+
+const TVA_REGIME_LABELS = {
+  franchise: "Franchise en base",
+  normal_monthly: "Reel normal mensuel",
+  normal_quarterly: "Reel normal trimestriel",
+  simplified: "Reel simplifie",
+  exempt: "Non assujetti / exonere",
+};
+
+const STAFF_LABELS = {
+  none: "Sans salarie",
+  under11: "1 a 10 salaries",
+  under50: "11 a 49 salaries",
+  over50: "50 salaries et plus",
+};
+
+const PAYROLL_LABELS = {
+  monthly: "Cotisations mensuelles",
+  quarterly: "Cotisations trimestrielles si eligible",
+};
+
+const OPTION_DEFINITIONS = [
+  ["cfe", "CFE / IFER", "Acompte, solde, prelevements et declaration 1447-C."],
+  ["cvae", "CVAE", "Declaration de valeur ajoutee et acomptes si l'entreprise est concernee."],
+  ["intraEu", "Operations UE", "DES et etat recapitulatif TVA intracommunautaire."],
+  ["rcm", "Dividendes / RCM", "Declarations 2753/2777 pour revenus de capitaux mobiliers."],
+  ["taxOnSalaries", "Taxe sur les salaires", "Employeurs non soumis a TVA ou partiellement soumis."],
+  ["apprenticeshipTax", "Taxe d'apprentissage", "Part principale et solde annuel declare en DSN."],
+  ["doeth", "DOETH", "Declaration annuelle travailleurs handicapes, utile des 20 salaries."],
+  ["companyAccounts", "Comptes annuels", "Approbation, depot et registres de societe."],
+  ["rgpd", "RGPD", "Registre des traitements et revue des donnees personnelles."],
+  ["electronicInvoicing", "Facturation electronique", "Reception, emission et e-reporting selon calendrier."],
+  ["vehicles", "Vehicules", "Taxes liees aux vehicules utilises pour l'activite."],
+  ["heavyVehicles", "Vehicules lourds", "Taxe annuelle poids lourds si l'activite est concernee."],
+  ["insuranceTax", "Assurances", "Taxe sur les conventions d'assurances."],
+  ["energyAccises", "Accises energie", "Electricite, gaz naturels, charbons et produits energetiques."],
+];
+
+const DEFAULT_SETTINGS = {
+  legalForm: "sas",
+  taxRegime: "is",
+  tvaRegime: "normal_monthly",
+  staffRange: "under50",
+  payrollFrequency: "monthly",
+  closingDate: "2025-12-31",
+  activeProfiles: ["fiscal", "tva", "employer", "local", "legal", "hr", "data"],
+  options: {
+    cfe: true,
+    cvae: false,
+    intraEu: false,
+    rcm: true,
+    taxOnSalaries: false,
+    apprenticeshipTax: true,
+    doeth: false,
+    companyAccounts: true,
+    rgpd: true,
+    electronicInvoicing: true,
+    vehicles: false,
+    heavyVehicles: false,
+    insuranceTax: false,
+    energyAccises: false,
+  },
+  notificationUserIds: [],
+  notificationLeadDays: 30,
+};
 
 const CATEGORY_LABELS = {
   fiscal: "Fiscal",
@@ -145,6 +233,7 @@ const elements = {
   currentUser: $("current-user"),
   logoutButton: $("logout-button"),
   todayButton: $("today-button"),
+  notifyButton: $("notify-button"),
   printButton: $("print-button"),
   exportButton: $("export-button"),
   appMessage: $("app-message"),
@@ -163,8 +252,18 @@ const elements = {
   resultCount: $("result-count"),
   agendaList: $("agenda-list"),
   nextList: $("next-list"),
+  settingSummary: $("setting-summary"),
+  legalForm: $("legal-form"),
+  taxRegime: $("tax-regime"),
+  tvaRegime: $("tva-regime"),
   closingDate: $("closing-date"),
   staffFilter: $("staff-filter"),
+  payrollFrequency: $("payroll-frequency"),
+  optionGrid: $("option-grid"),
+  notificationLeadDays: $("notification-lead-days"),
+  notificationUsers: $("notification-users"),
+  saveSettingsButton: $("save-settings-button"),
+  resetSettingsButton: $("reset-settings-button"),
   previousMonth: $("previous-month"),
   nextMonth: $("next-month"),
   calendarTitle: $("calendar-title"),
@@ -177,6 +276,9 @@ const today = startOfDay(new Date());
 
 const state = {
   user: null,
+  users: [],
+  settings: { ...DEFAULT_SETTINGS, options: { ...DEFAULT_SETTINGS.options } },
+  canManage: false,
   activeProfiles: new Set(PROFILES.map(([id]) => id)),
   view: "agenda",
   calendarMonth: today.getFullYear() === YEAR ? today.getMonth() : 0,
@@ -255,6 +357,38 @@ function previousPeriodLabel(month) {
 
 function sourceById(id) {
   return SOURCES.find((source) => source.id === id) || SOURCES[0];
+}
+
+function cloneSettings(settings = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    options: {
+      ...DEFAULT_SETTINGS.options,
+      ...(settings.options || {}),
+    },
+    activeProfiles: Array.isArray(settings.activeProfiles) && settings.activeProfiles.length
+      ? settings.activeProfiles
+      : DEFAULT_SETTINGS.activeProfiles,
+    notificationUserIds: Array.isArray(settings.notificationUserIds) ? settings.notificationUserIds.map(Number) : [],
+    notificationLeadDays: Number(settings.notificationLeadDays || DEFAULT_SETTINGS.notificationLeadDays),
+  };
+}
+
+function currentSettings() {
+  return state.settings || cloneSettings();
+}
+
+function isCompanyLegalForm(settings = currentSettings()) {
+  return ["eurl", "sarl", "sasu", "sas", "sci"].includes(settings.legalForm);
+}
+
+function hasEmployees(settings = currentSettings()) {
+  return settings.staffRange !== "none";
+}
+
+function optionEnabled(key) {
+  return Boolean(currentSettings().options?.[key]);
 }
 
 function event(input) {
@@ -456,6 +590,18 @@ function buildAnnualEvents() {
     sourceId: "egalite",
     appliesTo: "Entreprises d'au moins 50 salaries",
     staff: "over50",
+  }));
+
+  rows.push(event({
+    id: "electronic-invoicing-2026",
+    date: "2026-09-01",
+    title: "Facturation electronique - reception obligatoire",
+    summary: "A partir du 1er septembre 2026, toutes les entreprises etablies en France doivent pouvoir recevoir les factures electroniques; emission obligatoire pour grandes entreprises et ETI.",
+    category: "fiscal",
+    profiles: ["fiscal", "tva", "data"],
+    priority: "critical",
+    sourceId: "electronic-invoicing",
+    appliesTo: "Entreprises assujetties a TVA etablies en France",
   }));
 
   rows.push(event({
@@ -878,15 +1024,91 @@ function isEventToday(item) {
 }
 
 function matchesStaff(item) {
-  const staff = elements.staffFilter.value;
+  const settings = currentSettings();
+  const staff = settings.staffRange;
   if (item.staff === "any") return true;
   if (staff === "none") return false;
-  if (item.staff === "employer") return staff === "under50" || staff === "over50";
+  if (item.staff === "employer") return staff === "under11" || staff === "under50" || staff === "over50";
+  if (item.staff === "under50") return staff === "under11" || staff === "under50";
   return item.staff === staff;
 }
 
 function matchesProfiles(item) {
   return item.profiles.some((profile) => state.activeProfiles.has(profile));
+}
+
+function appliesToSettings(item) {
+  const settings = currentSettings();
+  const id = item.id || "";
+  const employees = hasEmployees(settings);
+
+  if (!matchesStaff(item)) return false;
+
+  if (id.startsWith("dsn-small-")) {
+    return employees && settings.staffRange !== "over50" && settings.payrollFrequency === "monthly";
+  }
+  if (id.startsWith("dsn-large-")) {
+    return settings.staffRange === "over50";
+  }
+  if (id.startsWith("dsn-quarter-")) {
+    return settings.staffRange === "under11" && settings.payrollFrequency === "quarterly";
+  }
+  if (id.startsWith("tva-normal-")) {
+    return ["normal_monthly", "normal_quarterly"].includes(settings.tvaRegime);
+  }
+  if (id.startsWith("tva-simplified-") || id === "ca12-vehicles") {
+    return settings.tvaRegime === "simplified" || optionEnabled("vehicles") || optionEnabled("heavyVehicles");
+  }
+  if (id.startsWith("tva-franchise-")) {
+    return settings.tvaRegime === "franchise";
+  }
+  if (id.startsWith("tva-intra-des-")) {
+    return optionEnabled("intraEu") && settings.tvaRegime !== "exempt";
+  }
+  if (id.startsWith("is-acompte-")) {
+    return settings.taxRegime === "is";
+  }
+  if (id.startsWith("rcm-")) {
+    return optionEnabled("rcm") && isCompanyLegalForm(settings);
+  }
+  if (id.startsWith("taxe-salaires-")) {
+    return employees && optionEnabled("taxOnSalaries");
+  }
+  if (id.startsWith("insurance-tax-")) {
+    return optionEnabled("insuranceTax");
+  }
+  if (id.startsWith("accises-")) {
+    return optionEnabled("energyAccises");
+  }
+  if (id.includes("doeth")) {
+    return employees && (settings.staffRange === "over50" || optionEnabled("doeth"));
+  }
+  if (id.includes("apprentissage")) {
+    return employees && optionEnabled("apprenticeshipTax");
+  }
+  if (id.startsWith("cfe-")) {
+    return optionEnabled("cfe");
+  }
+  if (id.startsWith("cvae-") || id === "fiscal-results-may") {
+    return id === "fiscal-results-may" || optionEnabled("cvae");
+  }
+  if (id.startsWith("accounts-")) {
+    return optionEnabled("companyAccounts") && isCompanyLegalForm(settings);
+  }
+  if (id === "annual-inventory") {
+    return settings.legalForm !== "micro";
+  }
+  if (id === "duerp-annual" || id === "dpae-floating" || id === "staff-register-floating") {
+    return employees;
+  }
+  if (id === "rgpd-annual") {
+    return optionEnabled("rgpd");
+  }
+  if (id === "electronic-invoicing-2026") {
+    return optionEnabled("electronicInvoicing") && settings.tvaRegime !== "exempt";
+  }
+
+  return true;
 }
 
 function matchesRange(item) {
@@ -929,7 +1151,7 @@ function matchesPriority(item) {
 
 function filteredEvents(options = {}) {
   return state.events.filter((item) => {
-    if (!matchesStaff(item) || !matchesProfiles(item) || !matchesSearch(item) || !matchesPriority(item)) {
+    if (!appliesToSettings(item) || !matchesProfiles(item) || !matchesSearch(item) || !matchesPriority(item)) {
       return false;
     }
     if (!options.ignoreMonth && !matchesMonth(item)) return false;
@@ -1101,12 +1323,14 @@ function renderCalendar() {
 }
 
 function renderObligations() {
+  const settings = currentSettings();
   const cards = [
-    ["Fiscal", "TVA mensuelle ou simplifiee, IS, CVAE, CFE/IFER, RCM, taxes annexes et options de prelevement selon regime."],
-    ["Social", "DSN mensuelle ou trimestrielle, cotisations, PAS, taxe d'apprentissage, DOETH et signalements d'evenements."],
-    ["Juridique", "Approbation des comptes, depot des comptes, registres de societe, conservation des pieces et decisions."],
-    ["RH / prevention", "DPAE, registre unique du personnel, DUERP, suivi sante/securite et affichages obligatoires."],
-    ["Donnees", "Registre RGPD, information des personnes, bases legales, sous-traitants et durees de conservation."],
+    ["Profil retenu", `${LEGAL_FORM_LABELS[settings.legalForm] || settings.legalForm} - ${TAX_REGIME_LABELS[settings.taxRegime] || settings.taxRegime} - ${TVA_REGIME_LABELS[settings.tvaRegime] || settings.tvaRegime}.`],
+    ["Fiscal", "TVA selon regime choisi, resultat fiscal, IS si applicable, CFE/IFER, CVAE si option active, RCM et taxes annexes selon activite."],
+    ["Social", hasEmployees(settings) ? "DSN, cotisations, PAS, taxe d'apprentissage, DPAE, registre du personnel et obligations RH." : "Aucune DSN recurrente activee tant que le profil est sans salarie."],
+    ["Juridique", isCompanyLegalForm(settings) ? "Approbation des comptes, depot des comptes, inventaire et registres de societe." : "Les obligations de depot de comptes sont masquees pour ce profil; gardez les pieces comptables selon regime."],
+    ["RH / prevention", hasEmployees(settings) ? "DPAE avant embauche, registre unique du personnel, DUERP et suivi sante/securite." : "A activer des la premiere embauche."],
+    ["Donnees", optionEnabled("rgpd") ? "Registre RGPD, information des personnes, bases legales, sous-traitants et durees de conservation." : "RGPD masque dans l'agenda; a reactiver si donnees clients, prospects, salaries ou fournisseurs."],
     ["A verifier", "Les echeances dependent de la forme juridique, du regime fiscal, de l'effectif, de l'activite et de l'espace professionnel DGFiP."],
   ];
 
@@ -1128,6 +1352,121 @@ function renderSources() {
   `).join("");
 }
 
+function renderSettingSummary() {
+  const settings = currentSettings();
+  const recipients = state.users.filter((user) => settings.notificationUserIds.includes(Number(user.id)));
+  elements.settingSummary.innerHTML = `
+    <span>${escapeHtml(LEGAL_FORM_LABELS[settings.legalForm] || settings.legalForm)} - ${escapeHtml(TAX_REGIME_LABELS[settings.taxRegime] || settings.taxRegime)}</span>
+    <span>${escapeHtml(TVA_REGIME_LABELS[settings.tvaRegime] || settings.tvaRegime)} - ${escapeHtml(STAFF_LABELS[settings.staffRange] || settings.staffRange)}</span>
+    <span>${recipients.length} destinataire${recipients.length > 1 ? "s" : ""} - alerte J-${Number(settings.notificationLeadDays || 30)}</span>
+  `;
+}
+
+function renderOptionControls() {
+  elements.optionGrid.innerHTML = "";
+  OPTION_DEFINITIONS.forEach(([key, label, description]) => {
+    const row = document.createElement("label");
+    row.className = "option-card";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = key;
+    input.checked = Boolean(currentSettings().options?.[key]);
+    input.disabled = !state.canManage;
+    input.addEventListener("change", () => {
+      state.settings.options[key] = input.checked;
+      render();
+    });
+    const copy = document.createElement("span");
+    copy.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(description)}</span>`;
+    row.append(input, copy);
+    elements.optionGrid.appendChild(row);
+  });
+}
+
+function renderNotificationUsers() {
+  elements.notificationUsers.innerHTML = "";
+  if (!state.canManage) {
+    elements.notificationUsers.innerHTML = '<div class="empty-state">Configuration reservee aux administrateurs.</div>';
+    return;
+  }
+  if (state.users.length === 0) {
+    elements.notificationUsers.innerHTML = '<div class="empty-state">Aucun utilisateur actif trouve.</div>';
+    return;
+  }
+
+  const selected = new Set(currentSettings().notificationUserIds.map(Number));
+  state.users.forEach((user) => {
+    const row = document.createElement("label");
+    row.className = "user-check";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = String(user.id);
+    input.checked = selected.has(Number(user.id));
+    input.addEventListener("change", () => {
+      const id = Number(input.value);
+      const current = new Set(state.settings.notificationUserIds.map(Number));
+      if (input.checked) {
+        current.add(id);
+      } else {
+        current.delete(id);
+      }
+      state.settings.notificationUserIds = Array.from(current);
+      renderSettingSummary();
+    });
+    const copy = document.createElement("span");
+    copy.innerHTML = `<strong>${escapeHtml(user.displayName || user.email)}</strong><span>${escapeHtml(user.email || "")} - ${escapeHtml(user.role || "membre")}</span>`;
+    row.append(input, copy);
+    elements.notificationUsers.appendChild(row);
+  });
+}
+
+function applySettingsToControls() {
+  const settings = currentSettings();
+  elements.legalForm.value = settings.legalForm;
+  elements.taxRegime.value = settings.taxRegime;
+  elements.tvaRegime.value = settings.tvaRegime;
+  elements.closingDate.value = settings.closingDate;
+  elements.staffFilter.value = settings.staffRange;
+  elements.payrollFrequency.value = settings.payrollFrequency;
+  elements.notificationLeadDays.value = String(settings.notificationLeadDays || 30);
+  state.activeProfiles = new Set(settings.activeProfiles || DEFAULT_SETTINGS.activeProfiles);
+
+  [
+    elements.legalForm,
+    elements.taxRegime,
+    elements.tvaRegime,
+    elements.closingDate,
+    elements.staffFilter,
+    elements.payrollFrequency,
+    elements.notificationLeadDays,
+    elements.saveSettingsButton,
+    elements.resetSettingsButton,
+    elements.notifyButton,
+  ].forEach((control) => {
+    control.disabled = !state.canManage;
+  });
+
+  renderProfiles();
+  renderOptionControls();
+  renderNotificationUsers();
+}
+
+function collectSettingsFromControls() {
+  const selectedUsers = Array.from(elements.notificationUsers.querySelectorAll('input[type="checkbox"]:checked')).map((input) => Number(input.value));
+  return cloneSettings({
+    ...state.settings,
+    legalForm: elements.legalForm.value,
+    taxRegime: elements.taxRegime.value,
+    tvaRegime: elements.tvaRegime.value,
+    closingDate: elements.closingDate.value,
+    staffRange: elements.staffFilter.value,
+    payrollFrequency: elements.payrollFrequency.value,
+    activeProfiles: Array.from(state.activeProfiles),
+    notificationLeadDays: Number(elements.notificationLeadDays.value || 30),
+    notificationUserIds: selectedUsers,
+  });
+}
+
 function renderProfiles() {
   elements.profileToolbar.innerHTML = "";
   PROFILES.forEach(([id, label]) => {
@@ -1137,13 +1476,13 @@ function renderProfiles() {
     input.type = "checkbox";
     input.value = id;
     input.checked = state.activeProfiles.has(id);
+    input.disabled = !state.canManage;
     input.addEventListener("change", () => {
       if (input.checked) {
         state.activeProfiles.add(id);
       } else {
         state.activeProfiles.delete(id);
       }
-      savePreferences();
       render();
     });
     chip.append(input, document.createTextNode(label));
@@ -1182,6 +1521,7 @@ function render() {
   renderCalendar();
   renderObligations();
   renderSources();
+  renderSettingSummary();
   setView(state.view);
 }
 
@@ -1198,33 +1538,6 @@ function applyInitialMonth() {
   }
 }
 
-function savePreferences() {
-  try {
-    localStorage.setItem("naviplan_profiles", JSON.stringify(Array.from(state.activeProfiles)));
-    localStorage.setItem("naviplan_staff", elements.staffFilter.value);
-    localStorage.setItem("naviplan_closing", elements.closingDate.value);
-  } catch (error) {}
-}
-
-function loadPreferences() {
-  try {
-    const storedProfiles = JSON.parse(localStorage.getItem("naviplan_profiles") || "null");
-    if (Array.isArray(storedProfiles)) {
-      const available = new Set(PROFILES.map(([id]) => id));
-      const next = storedProfiles.filter((id) => available.has(id));
-      if (next.length > 0) state.activeProfiles = new Set(next);
-    }
-    const storedStaff = localStorage.getItem("naviplan_staff");
-    if (["none", "under50", "over50"].includes(storedStaff || "")) {
-      elements.staffFilter.value = storedStaff;
-    }
-    const storedClosing = localStorage.getItem("naviplan_closing");
-    if (/^\d{4}-\d{2}-\d{2}$/.test(storedClosing || "")) {
-      elements.closingDate.value = storedClosing;
-    }
-  } catch (error) {}
-}
-
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
     credentials: "include",
@@ -1239,6 +1552,51 @@ async function requestJson(url, options = {}) {
     throw new Error(payload.message || payload.error || "Requete impossible.");
   }
   return payload;
+}
+
+async function loadNaviplanSettings() {
+  const payload = await requestJson(SETTINGS_URL);
+  state.user = payload.currentUser || state.user;
+  state.settings = cloneSettings(payload.settings || {});
+  state.users = Array.isArray(payload.users) ? payload.users : [];
+  state.canManage = Boolean(payload.canManage);
+  applySettingsToControls();
+}
+
+async function saveNaviplanSettings() {
+  if (!state.canManage) return;
+  elements.saveSettingsButton.disabled = true;
+  showMessage("");
+  try {
+    const payload = await requestJson(SETTINGS_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "settings",
+        settings: collectSettingsFromControls(),
+      }),
+    });
+    state.settings = cloneSettings(payload.settings || {});
+    state.users = Array.isArray(payload.users) ? payload.users : state.users;
+    applySettingsToControls();
+    render();
+    showMessage(payload.message || "Configuration Naviplan enregistree.", "success");
+  } catch (error) {
+    showMessage(error.message || "Configuration impossible.", "error");
+  } finally {
+    elements.saveSettingsButton.disabled = !state.canManage;
+  }
+}
+
+async function resetSettings() {
+  if (!state.canManage) return;
+  state.settings = cloneSettings(DEFAULT_SETTINGS);
+  if (state.users.length > 0) {
+    state.settings.notificationUserIds = state.users
+      .filter((user) => ["super", "admin"].includes(user.role))
+      .map((user) => Number(user.id));
+  }
+  applySettingsToControls();
+  render();
 }
 
 function redirectToOceanOS() {
@@ -1321,6 +1679,48 @@ function exportIcs() {
   showMessage(`${events.length} echeance${events.length > 1 ? "s" : ""} exportee${events.length > 1 ? "s" : ""}.`, "success");
 }
 
+async function notifyUpcoming() {
+  if (!state.canManage) return;
+  const leadDays = Number(currentSettings().notificationLeadDays || 30);
+  const limitDate = addDays(today, leadDays);
+  const events = filteredEvents({ ignoreMonth: true, ignoreRange: true })
+    .filter((item) => !item.floating)
+    .filter((item) => eventEnd(item) >= today && eventStart(item) <= limitDate)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 20)
+    .map((item) => ({
+      id: item.id,
+      date: item.date,
+      title: item.title,
+      summary: item.summary,
+      priority: item.priority,
+      sourceUrl: item.sourceUrl,
+    }));
+
+  if (events.length === 0) {
+    showMessage("Aucune echeance a notifier dans la fenetre configuree.", "error");
+    return;
+  }
+
+  elements.notifyButton.disabled = true;
+  showMessage("");
+  try {
+    const payload = await requestJson(SETTINGS_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "notify",
+        events,
+        limit: 20,
+      }),
+    });
+    showMessage(payload.message || "Notifications Naviplan envoyees.", "success");
+  } catch (error) {
+    showMessage(error.message || "Notification impossible.", "error");
+  } finally {
+    elements.notifyButton.disabled = !state.canManage;
+  }
+}
+
 function installListeners() {
   elements.viewTabs.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view || "agenda"));
@@ -1331,15 +1731,26 @@ function installListeners() {
     elements.monthFilter,
     elements.rangeFilter,
     elements.priorityFilter,
+  ].forEach((control) => {
+    control.addEventListener("input", render);
+    control.addEventListener("change", render);
+  });
+
+  [
+    elements.legalForm,
+    elements.taxRegime,
+    elements.tvaRegime,
     elements.staffFilter,
     elements.closingDate,
+    elements.payrollFrequency,
+    elements.notificationLeadDays,
   ].forEach((control) => {
     control.addEventListener("input", () => {
-      savePreferences();
+      state.settings = collectSettingsFromControls();
       render();
     });
     control.addEventListener("change", () => {
-      savePreferences();
+      state.settings = collectSettingsFromControls();
       render();
     });
   });
@@ -1365,19 +1776,21 @@ function installListeners() {
 
   elements.printButton.addEventListener("click", () => window.print());
   elements.exportButton.addEventListener("click", exportIcs);
+  elements.notifyButton.addEventListener("click", () => { void notifyUpcoming(); });
+  elements.saveSettingsButton.addEventListener("click", () => { void saveNaviplanSettings(); });
+  elements.resetSettingsButton.addEventListener("click", resetSettings);
   elements.logoutButton.addEventListener("click", () => { void logout(); });
 }
 
 async function boot() {
   populateMonthFilter();
   applyInitialMonth();
-  loadPreferences();
-  renderProfiles();
   installListeners();
 
   try {
     const ok = await fetchAuth();
     if (!ok) return;
+    await loadNaviplanSettings();
     render();
     setShell("app");
   } catch (error) {

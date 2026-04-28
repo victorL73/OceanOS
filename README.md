@@ -190,6 +190,12 @@ formcean_forms
 formcean_responses
 ```
 
+Tables Naviplan :
+
+```text
+naviplan_settings
+```
+
 Des tables historiques comme `users` ou `user_ai_settings` peuvent exister après migration. Elles servent à la compatibilité ou à la migration depuis l'ancienne structure. Les comptes utilisés par OceanOS sont dans `oceanos_users`.
 
 NautiCloud stocke les fichiers sur disque dans :
@@ -338,6 +344,8 @@ Il utilise OceanOS pour :
 
 - verifier la session et les droits de module
 - afficher l'agenda administratif 2026 de l'entreprise
+- configurer la forme juridique, le regime fiscal, la TVA, l'effectif et les options applicables
+- choisir les utilisateurs OceanOS qui recoivent les notifications administratives
 - filtrer les echeances par fiscalite, TVA, employeur, CFE, juridique, RH et RGPD
 - exporter les echeances visibles au format ICS
 

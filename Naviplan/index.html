@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/naviplan.svg?v=20260428">
   <meta name="description" content="Naviplan - agenda administratif, fiscal, social et juridique de l'entreprise.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan">
+  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan-config">
   <script defer src="/OceanOS/assets/guard.js?v=20260428-naviplan"></script>
-  <script defer src="assets/app.js?v=20260428-naviplan"></script>
+  <script defer src="assets/app.js?v=20260428-naviplan-config"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -31,6 +31,7 @@
 
         <div class="topbar-actions">
           <button class="ghost-button" id="today-button" type="button">Aujourd'hui</button>
+          <button class="ghost-button" id="notify-button" type="button">Notifier</button>
           <button class="ghost-button" id="print-button" type="button">Imprimer</button>
           <button class="primary-button" id="export-button" type="button">Exporter ICS</button>
           <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
@@ -96,6 +97,7 @@
       <nav class="view-tabs" aria-label="Vues Naviplan">
         <button class="view-tab is-active" data-view="agenda" type="button">Agenda</button>
         <button class="view-tab" data-view="calendar" type="button">Mois</button>
+        <button class="view-tab" data-view="settings" type="button">Configuration</button>
         <button class="view-tab" data-view="obligations" type="button">Obligations</button>
         <button class="view-tab" data-view="sources" type="button">Sources</button>
       </nav>
@@ -127,22 +129,11 @@
             <div class="panel-header compact">
               <div>
                 <p class="eyebrow">Parametres</p>
-                <h2>Exercice de reference</h2>
+                <h2>Configuration active</h2>
               </div>
             </div>
             <div class="settings-grid">
-              <label class="field">
-                <span>Cloture comptable</span>
-                <input id="closing-date" type="date" value="2025-12-31">
-              </label>
-              <label class="field">
-                <span>Effectif</span>
-                <select id="staff-filter">
-                  <option value="none">Sans salarie</option>
-                  <option value="under50" selected>1 a 49 salaries</option>
-                  <option value="over50">50 salaries et plus</option>
-                </select>
-              </label>
+              <div class="setting-summary" id="setting-summary"></div>
             </div>
           </section>
         </aside>
@@ -161,6 +152,101 @@
             </div>
           </div>
           <div class="calendar-grid" id="calendar-grid"></div>
+        </section>
+      </section>
+
+      <section class="view-section hidden" data-view-section="settings">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Configuration</p>
+              <h2>Profil administratif</h2>
+            </div>
+            <div class="settings-actions">
+              <button class="ghost-button" id="reset-settings-button" type="button">Profil standard</button>
+              <button class="primary-button" id="save-settings-button" type="button">Enregistrer</button>
+            </div>
+          </div>
+
+          <div class="settings-form" id="settings-form">
+            <section class="settings-section">
+              <h3>Entreprise</h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Forme juridique</span>
+                  <select id="legal-form">
+                    <option value="micro">Micro-entreprise</option>
+                    <option value="ei">Entreprise individuelle</option>
+                    <option value="eurl">EURL</option>
+                    <option value="sarl">SARL</option>
+                    <option value="sasu">SASU</option>
+                    <option value="sas">SAS</option>
+                    <option value="sci">SCI</option>
+                    <option value="association">Association</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Imposition</span>
+                  <select id="tax-regime">
+                    <option value="is">Impot sur les societes</option>
+                    <option value="ir">Impot sur le revenu</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Regime TVA</span>
+                  <select id="tva-regime">
+                    <option value="franchise">Franchise en base</option>
+                    <option value="normal_monthly">Reel normal mensuel</option>
+                    <option value="normal_quarterly">Reel normal trimestriel</option>
+                    <option value="simplified">Reel simplifie</option>
+                    <option value="exempt">Non assujetti / exonere</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Cloture comptable</span>
+                  <input id="closing-date" type="date" value="2025-12-31">
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Employeur</h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Effectif</span>
+                  <select id="staff-filter">
+                    <option value="none">Sans salarie</option>
+                    <option value="under11">1 a 10 salaries</option>
+                    <option value="under50">11 a 49 salaries</option>
+                    <option value="over50">50 salaries et plus</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Cotisations</span>
+                  <select id="payroll-frequency">
+                    <option value="monthly">Mensuelles</option>
+                    <option value="quarterly">Trimestrielles si eligible</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Options et taxes</h3>
+              <div class="option-grid" id="option-grid"></div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Destinataires des notifications</h3>
+              <div class="form-grid narrow">
+                <label class="field">
+                  <span>Prevenir avant</span>
+                  <input id="notification-lead-days" type="number" min="1" max="120" value="30">
+                </label>
+              </div>
+              <div class="users-grid" id="notification-users"></div>
+            </section>
+          </div>
         </section>
       </section>
 
