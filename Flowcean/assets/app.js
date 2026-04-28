@@ -445,6 +445,7 @@ let undoCoalesce = {
   timer: null,
 };
 let isRestoringUndo = false;
+let filteredDatabaseViewRefreshTimer = null;
 
 function getClientInstanceId() {
   try {
@@ -4772,6 +4773,25 @@ function getDatabaseViewSorts(view) {
   return Array.isArray(view?.settings?.sorts) ? view.settings.sorts : [];
 }
 
+function databaseViewUsesProperty(view, propertyId) {
+  if (!view || !propertyId) return false;
+  if (getDatabaseViewSearchQuery(view)) return true;
+  return getDatabaseViewFilters(view).some((filter) => filter.propertyId === propertyId)
+    || getDatabaseViewSorts(view).some((sort) => sort.propertyId === propertyId);
+}
+
+function scheduleFilteredDatabaseViewRefresh(page, property, delay = 0) {
+  const activeView = getActiveDatabaseView(page);
+  if (!page || !property || activeView?.type !== "table") return;
+  if (isSpreadsheetPage(page) || !databaseViewUsesProperty(activeView, property.id)) return;
+  if (getActivePage()?.id !== page.id) return;
+  if (filteredDatabaseViewRefreshTimer) window.clearTimeout(filteredDatabaseViewRefreshTimer);
+  filteredDatabaseViewRefreshTimer = window.setTimeout(() => {
+    filteredDatabaseViewRefreshTimer = null;
+    if (getActivePage()?.id === page.id) renderMain();
+  }, delay);
+}
+
 function getVisibleDatabaseRows(database, view) {
   return getSortedDatabaseRows(database, view, getFilteredDatabaseRows(database, view));
 }
@@ -8105,7 +8125,14 @@ function updateCellValue(pageId, rowId, propertyId, value, rerender = true) {
     spreadsheetWorkerRequestId += 1;
   }
   scheduleSave(undefined, isSpreadsheetPage(page) ? 900 : 240);
-  if (rerender && (getActiveDatabaseView(page)?.type !== "table" || hasComputedDatabaseProperties(page.database))) renderMain();
+  const activeView = getActiveDatabaseView(page);
+  const isComputedTable = hasComputedDatabaseProperties(page.database);
+  if (rerender && (activeView?.type !== "table" || isComputedTable)) {
+    renderMain();
+  } else {
+    const textLikeTypes = ["text", "url", "email", "phone", "multi_select"];
+    scheduleFilteredDatabaseViewRefresh(page, property, textLikeTypes.includes(property.type) ? 320 : 0);
+  }
 }
 
 function hasComputedDatabaseProperties(database) {
