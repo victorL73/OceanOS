@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/naviplan.svg?v=20260428">
   <meta name="description" content="Naviplan - agenda administratif, fiscal, social et juridique de l'entreprise.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan-detail">
+  <link rel="stylesheet" href="assets/style.css?v=20260428-naviplan-reminders">
   <script defer src="/OceanOS/assets/guard.js?v=20260428-naviplan"></script>
-  <script defer src="assets/app.js?v=20260428-naviplan-all-months"></script>
+  <script defer src="assets/app.js?v=20260428-naviplan-reminders"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -238,11 +238,12 @@
 
             <section class="settings-section">
               <h3>Destinataires des notifications</h3>
-              <div class="form-grid narrow">
-                <label class="field">
-                  <span>Prevenir avant</span>
-                  <input id="notification-lead-days" type="number" min="1" max="120" value="30">
-                </label>
+              <div class="reminder-settings">
+                <div class="reminder-toolbar">
+                  <h4>Rappels avant echeance</h4>
+                  <button class="ghost-button" id="add-reminder-button" type="button">Ajouter</button>
+                </div>
+                <div class="reminder-list" id="notification-lead-days-list"></div>
               </div>
               <div class="users-grid" id="notification-users"></div>
             </section>

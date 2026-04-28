@@ -71,7 +71,7 @@ function naviplan_defaults(PDO $pdo): array
             'energyAccises' => false,
         ],
         'notificationUserIds' => oceanos_active_user_ids($pdo, ['super', 'admin']),
-        'notificationLeadDays' => 30,
+        'notificationLeadDays' => [30],
     ];
 }
 
@@ -84,6 +84,26 @@ function naviplan_decode_settings(?string $json): array
 function naviplan_bool(array $source, string $key, bool $fallback): bool
 {
     return array_key_exists($key, $source) ? (bool) $source[$key] : $fallback;
+}
+
+function naviplan_normalize_lead_days(mixed $value, array $fallback): array
+{
+    $values = is_array($value) ? $value : [$value];
+    $days = [];
+    foreach ($values as $rawValue) {
+        if (!is_scalar($rawValue)) {
+            continue;
+        }
+        $day = (int) $rawValue;
+        if ($day >= 1 && $day <= 120) {
+            $days[] = $day;
+        }
+    }
+
+    $days = array_values(array_unique($days));
+    rsort($days, SORT_NUMERIC);
+
+    return $days !== [] ? $days : $fallback;
 }
 
 function naviplan_normalize_settings(PDO $pdo, array $input): array
@@ -148,7 +168,10 @@ function naviplan_normalize_settings(PDO $pdo, array $input): array
         array_values(array_unique(array_map(static fn($value): int => (int) $value, $notificationUserIds)))
     ));
 
-    $notificationLeadDays = max(1, min(120, (int) ($input['notificationLeadDays'] ?? $defaults['notificationLeadDays'])));
+    $notificationLeadDays = naviplan_normalize_lead_days(
+        $input['notificationLeadDays'] ?? $defaults['notificationLeadDays'],
+        $defaults['notificationLeadDays']
+    );
 
     return [
         'legalForm' => $legalForm,
@@ -228,6 +251,8 @@ function naviplan_clean_event(array $input): array
             ? (string) $input['priority']
             : 'normal',
         'sourceUrl' => mb_substr(trim((string) ($input['sourceUrl'] ?? '/Naviplan/')), 0, 500),
+        'reminderDays' => max(0, min(120, (int) ($input['reminderDays'] ?? 0))),
+        'daysUntil' => max(0, min(366, (int) ($input['daysUntil'] ?? 0))),
     ];
 }
 
@@ -254,9 +279,11 @@ function naviplan_notify(PDO $pdo, array $actor, array $input): array
             continue;
         }
         $event = naviplan_clean_event($rawEvent);
+        $reminderLabel = $event['reminderDays'] > 0 ? 'Rappel J-' . $event['reminderDays'] : 'Rappel Naviplan';
+        $daysUntilLabel = $event['daysUntil'] === 0 ? 'aujourd hui' : 'dans ' . $event['daysUntil'] . ' jour(s)';
         $body = $event['summary'] !== ''
-            ? $event['summary'] . ' Echeance : ' . $event['date'] . '.'
-            : 'Echeance Naviplan : ' . $event['date'] . '.';
+            ? $reminderLabel . ' - ' . $event['summary'] . ' Echeance ' . $daysUntilLabel . ' : ' . $event['date'] . '.'
+            : $reminderLabel . ' - Echeance ' . $daysUntilLabel . ' : ' . $event['date'] . '.';
         foreach ($recipients as $userId) {
             oceanos_create_notification(
                 $pdo,
@@ -269,7 +296,7 @@ function naviplan_notify(PDO $pdo, array $actor, array $input): array
                 $body,
                 '/Naviplan/',
                 $event,
-                'naviplan:' . $event['id'] . ':' . $event['date']
+                'naviplan:' . $event['id'] . ':' . $event['date'] . ':j-' . $event['reminderDays']
             );
             $created++;
         }

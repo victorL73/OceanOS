@@ -197,7 +197,7 @@ const DEFAULT_SETTINGS = {
     energyAccises: false,
   },
   notificationUserIds: [],
-  notificationLeadDays: 30,
+  notificationLeadDays: [30],
 };
 
 const CATEGORY_LABELS = {
@@ -260,7 +260,8 @@ const elements = {
   staffFilter: $("staff-filter"),
   payrollFrequency: $("payroll-frequency"),
   optionGrid: $("option-grid"),
-  notificationLeadDays: $("notification-lead-days"),
+  addReminderButton: $("add-reminder-button"),
+  notificationLeadDaysList: $("notification-lead-days-list"),
   notificationUsers: $("notification-users"),
   saveSettingsButton: $("save-settings-button"),
   resetSettingsButton: $("reset-settings-button"),
@@ -385,7 +386,7 @@ function cloneSettings(settings = {}) {
       ? settings.activeProfiles
       : DEFAULT_SETTINGS.activeProfiles,
     notificationUserIds: Array.isArray(settings.notificationUserIds) ? settings.notificationUserIds.map(Number) : [],
-    notificationLeadDays: Number(settings.notificationLeadDays || DEFAULT_SETTINGS.notificationLeadDays),
+    notificationLeadDays: normalizeLeadDays(settings.notificationLeadDays ?? DEFAULT_SETTINGS.notificationLeadDays),
   };
 }
 
@@ -403,6 +404,24 @@ function hasEmployees(settings = currentSettings()) {
 
 function optionEnabled(key) {
   return Boolean(currentSettings().options?.[key]);
+}
+
+function normalizeLeadDays(value) {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const days = rawValues
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item))
+    .map((item) => Math.round(item))
+    .filter((item) => item >= 1 && item <= 120);
+  const unique = Array.from(new Set(days)).sort((a, b) => b - a);
+  return unique.length > 0 ? unique : [30];
+}
+
+function collectLeadDaysFromControls() {
+  return normalizeLeadDays(
+    Array.from(elements.notificationLeadDaysList.querySelectorAll(".reminder-input"))
+      .map((input) => input.value)
+  );
 }
 
 function event(input) {
@@ -1026,6 +1045,16 @@ function eventStart(item) {
 
 function eventEnd(item) {
   return dateFromKey(item.endDate || item.date);
+}
+
+function daysUntilEvent(item) {
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((eventStart(item) - today) / dayMs));
+}
+
+function reminderForEvent(item, leadDays) {
+  const daysUntil = daysUntilEvent(item);
+  return [...leadDays].sort((a, b) => a - b).find((days) => daysUntil <= days) || null;
 }
 
 function isEventPast(item) {
@@ -1664,10 +1693,11 @@ function renderSources() {
 function renderSettingSummary() {
   const settings = currentSettings();
   const recipients = state.users.filter((user) => settings.notificationUserIds.includes(Number(user.id)));
+  const leadDays = normalizeLeadDays(settings.notificationLeadDays).map((days) => `J-${days}`).join(", ");
   elements.settingSummary.innerHTML = `
     <span>${escapeHtml(LEGAL_FORM_LABELS[settings.legalForm] || settings.legalForm)} - ${escapeHtml(TAX_REGIME_LABELS[settings.taxRegime] || settings.taxRegime)}</span>
     <span>${escapeHtml(TVA_REGIME_LABELS[settings.tvaRegime] || settings.tvaRegime)} - ${escapeHtml(STAFF_LABELS[settings.staffRange] || settings.staffRange)}</span>
-    <span>${recipients.length} destinataire${recipients.length > 1 ? "s" : ""} - alerte J-${Number(settings.notificationLeadDays || 30)}</span>
+    <span>${recipients.length} destinataire${recipients.length > 1 ? "s" : ""} - alertes ${escapeHtml(leadDays)}</span>
   `;
 }
 
@@ -1729,6 +1759,54 @@ function renderNotificationUsers() {
   });
 }
 
+function renderNotificationLeadDays() {
+  const leadDays = normalizeLeadDays(currentSettings().notificationLeadDays);
+  elements.notificationLeadDaysList.innerHTML = "";
+
+  leadDays.forEach((days, index) => {
+    const row = document.createElement("div");
+    row.className = "reminder-row";
+
+    const field = document.createElement("label");
+    field.className = "field";
+    const label = document.createElement("span");
+    label.textContent = "Jours avant";
+    const input = document.createElement("input");
+    input.className = "reminder-input";
+    input.type = "number";
+    input.min = "1";
+    input.max = "120";
+    input.value = String(days);
+    input.disabled = !state.canManage;
+    input.addEventListener("input", () => {
+      state.settings.notificationLeadDays = collectLeadDaysFromControls();
+      renderSettingSummary();
+    });
+    input.addEventListener("change", () => {
+      state.settings.notificationLeadDays = collectLeadDaysFromControls();
+      renderNotificationLeadDays();
+      renderSettingSummary();
+    });
+    field.append(label, input);
+
+    const remove = document.createElement("button");
+    remove.className = "ghost-button icon-button";
+    remove.type = "button";
+    remove.textContent = "x";
+    remove.setAttribute("aria-label", `Supprimer le rappel J-${days}`);
+    remove.disabled = !state.canManage || leadDays.length <= 1;
+    remove.addEventListener("click", () => {
+      const next = leadDays.filter((_, leadIndex) => leadIndex !== index);
+      state.settings.notificationLeadDays = normalizeLeadDays(next);
+      renderNotificationLeadDays();
+      renderSettingSummary();
+    });
+
+    row.append(field, remove);
+    elements.notificationLeadDaysList.appendChild(row);
+  });
+}
+
 function applySettingsToControls() {
   const settings = currentSettings();
   elements.legalForm.value = settings.legalForm;
@@ -1737,7 +1815,6 @@ function applySettingsToControls() {
   elements.closingDate.value = settings.closingDate;
   elements.staffFilter.value = settings.staffRange;
   elements.payrollFrequency.value = settings.payrollFrequency;
-  elements.notificationLeadDays.value = String(settings.notificationLeadDays || 30);
   state.activeProfiles = new Set(settings.activeProfiles || DEFAULT_SETTINGS.activeProfiles);
 
   [
@@ -1747,7 +1824,7 @@ function applySettingsToControls() {
     elements.closingDate,
     elements.staffFilter,
     elements.payrollFrequency,
-    elements.notificationLeadDays,
+    elements.addReminderButton,
     elements.saveSettingsButton,
     elements.resetSettingsButton,
     elements.notifyButton,
@@ -1757,6 +1834,7 @@ function applySettingsToControls() {
 
   renderProfiles();
   renderOptionControls();
+  renderNotificationLeadDays();
   renderNotificationUsers();
 }
 
@@ -1771,7 +1849,7 @@ function collectSettingsFromControls() {
     staffRange: elements.staffFilter.value,
     payrollFrequency: elements.payrollFrequency.value,
     activeProfiles: Array.from(state.activeProfiles),
-    notificationLeadDays: Number(elements.notificationLeadDays.value || 30),
+    notificationLeadDays: collectLeadDaysFromControls(),
     notificationUserIds: selectedUsers,
   });
 }
@@ -1988,24 +2066,32 @@ function exportIcs() {
 
 async function notifyUpcoming() {
   if (!state.canManage) return;
-  const leadDays = Number(currentSettings().notificationLeadDays || 30);
-  const limitDate = addDays(today, leadDays);
+  const leadDays = normalizeLeadDays(currentSettings().notificationLeadDays);
+  const limitDate = addDays(today, Math.max(...leadDays));
   const events = filteredEvents({ ignoreMonth: true, ignoreRange: true })
     .filter((item) => !item.floating)
     .filter((item) => eventEnd(item) >= today && eventStart(item) <= limitDate)
     .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 20)
     .map((item) => ({
-      id: item.id,
-      date: item.date,
-      title: item.title,
-      summary: item.summary,
-      priority: item.priority,
-      sourceUrl: item.sourceUrl,
+      item,
+      reminderDays: reminderForEvent(item, leadDays),
+      daysUntil: daysUntilEvent(item),
+    }))
+    .filter((entry) => entry.reminderDays !== null)
+    .slice(0, 40)
+    .map((entry) => ({
+      id: entry.item.id,
+      date: entry.item.date,
+      title: entry.item.title,
+      summary: entry.item.summary,
+      priority: entry.item.priority,
+      sourceUrl: entry.item.sourceUrl,
+      reminderDays: entry.reminderDays,
+      daysUntil: entry.daysUntil,
     }));
 
   if (events.length === 0) {
-    showMessage("Aucune echeance a notifier dans la fenetre configuree.", "error");
+    showMessage("Aucune echeance a notifier avec les rappels configures.", "error");
     return;
   }
 
@@ -2017,7 +2103,7 @@ async function notifyUpcoming() {
       body: JSON.stringify({
         action: "notify",
         events,
-        limit: 20,
+        limit: 40,
       }),
     });
     showMessage(payload.message || "Notifications Naviplan envoyees.", "success");
@@ -2065,7 +2151,6 @@ function installListeners() {
     elements.staffFilter,
     elements.closingDate,
     elements.payrollFrequency,
-    elements.notificationLeadDays,
   ].forEach((control) => {
     control.addEventListener("input", () => {
       state.settings = collectSettingsFromControls();
@@ -2098,6 +2183,22 @@ function installListeners() {
 
   elements.printButton.addEventListener("click", () => window.print());
   elements.exportButton.addEventListener("click", exportIcs);
+  elements.addReminderButton.addEventListener("click", () => {
+    const current = collectLeadDaysFromControls();
+    let next = [30, 15, 7, 3, 1].find((days) => !current.includes(days));
+    if (!next) {
+      for (let day = 120; day >= 1; day -= 1) {
+        if (!current.includes(day)) {
+          next = day;
+          break;
+        }
+      }
+    }
+    if (!next) return;
+    state.settings.notificationLeadDays = normalizeLeadDays([...current, next]);
+    renderNotificationLeadDays();
+    renderSettingSummary();
+  });
   elements.notifyButton.addEventListener("click", () => { void notifyUpcoming(); });
   elements.saveSettingsButton.addEventListener("click", () => { void saveNaviplanSettings(); });
   elements.resetSettingsButton.addEventListener("click", resetSettings);
