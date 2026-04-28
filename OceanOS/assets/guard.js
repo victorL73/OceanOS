@@ -15,6 +15,7 @@
     ["/mobywork/", "mobywork"],
     ["/formcean/", "formcean"],
     ["/nautisign/", "nautisign"],
+    ["/naviplan/", "naviplan"],
   ];
   let portalAuthRetryTimer = null;
   const notificationState = {

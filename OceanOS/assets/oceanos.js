@@ -72,6 +72,14 @@ const apps = [
     color: "#36c9b6",
   },
   {
+    id: "naviplan",
+    title: "Naviplan",
+    subtitle: "Agenda administratif, fiscal, social et juridique.",
+    href: "/Naviplan/",
+    mark: "NV",
+    color: "#1a9d91",
+  },
+  {
     id: "admin",
     title: "Admin serveur",
     subtitle: "Configuration initiale, BDD et super-utilisateurs.",

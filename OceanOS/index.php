@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.">
+  <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign et Naviplan.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
@@ -34,6 +34,7 @@
           <span>NautiCloud</span>
           <span>Formcean</span>
           <span>Nautisign</span>
+          <span>Naviplan</span>
         </div>
       </div>
 
@@ -338,7 +339,7 @@
           <p class="eyebrow">Applications</p>
           <h2>Passerelle principale</h2>
         </div>
-        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Nautisign.</p>
+        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign et Naviplan.</p>
       </section>
 
       <section class="app-grid" id="app-grid"></section>
@@ -346,7 +347,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260426-nautisign"></script>
-  <script src="assets/oceanos.js?v=20260427-company-scope"></script>
+  <script defer src="assets/guard.js?v=20260428-naviplan"></script>
+  <script src="assets/oceanos.js?v=20260428-naviplan"></script>
 </body>
 </html>
