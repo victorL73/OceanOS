@@ -257,6 +257,8 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             mailbox_id VARCHAR(190) NULL,
             mailbox_address TEXT NULL,
             raw_imap_uid VARCHAR(80) NULL,
+            direction VARCHAR(40) NOT NULL DEFAULT 'inbound',
+            to_address TEXT NULL,
             UNIQUE KEY uniq_mobywork_emails_uid_user (uid, user_id),
             INDEX idx_mobywork_emails_user_date (user_id, date_reception)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
@@ -264,6 +266,8 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'mailbox_id', 'VARCHAR(190) NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'mailbox_address', 'TEXT NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'raw_imap_uid', 'VARCHAR(80) NULL');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'direction', "VARCHAR(40) NOT NULL DEFAULT 'inbound'");
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'to_address', 'TEXT NULL');
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_crm_activities (

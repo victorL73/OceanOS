@@ -37,10 +37,12 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
             {/* LIST */}
             <div className="mail-list-scroll">
                 {mails.map(mail => {
+                    const isSent = mail.direction === 'sent' || mail.status === 'sent';
+                    const displayAddress = isSent ? (mail.to_address || mail.from_address) : mail.from_address;
                     // Extraction des initiales
                     let initial = "M";
-                    if (mail.from_address) {
-                        const match = mail.from_address.match(/^"?([^"<>@]+)/);
+                    if (displayAddress) {
+                        const match = displayAddress.match(/^"?([^"<>@]+)/);
                         if (match && match[1]) {
                             initial = match[1].charAt(0).toUpperCase();
                         }
@@ -58,7 +60,7 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
                         >
                             <div className="mail-card-top">
                                 <div className="mail-avatar">{initial}</div>
-                                <div className="mail-card-from">{mail.from_address}</div>
+                                <div className="mail-card-from">{isSent ? 'A : ' : ''}{displayAddress}</div>
                                 <div className="mail-card-date">{formatDate(mail.date_reception)}</div>
                             </div>
 
@@ -70,6 +72,13 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
                             <div className="mail-card-preview">
                                 {mail.resume || "Contenu du message ignoré ou crypté."}
                             </div>
+
+                            {(isSent || mail.mailbox_address) && (
+                                <div className="mail-card-tags">
+                                    {isSent && <span className="badge badge-traite">Envoye</span>}
+                                    {mail.mailbox_address && <span className="badge badge-normal">{mail.mailbox_address}</span>}
+                                </div>
+                            )}
 
                             <div className="mail-card-tags">
                                 {mail.is_business === 1 && (

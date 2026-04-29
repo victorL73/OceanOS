@@ -149,6 +149,7 @@ async function syncMailbox(userConfig, account) {
                 const parsed = await simpleParser(msgSource.source);
 
                 const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';
+                const toAddr = (parsed.to?.value || []).map(item => item.address).filter(Boolean).join(', ');
                 const subject = parsed.subject || 'Sans objet';
                 const content = parsed.text || 'Pas de contenu textuel';
                 const htmlContent = parsed.html || null;
@@ -164,8 +165,8 @@ async function syncMailbox(userConfig, account) {
                         categorie, priorite, resume,
                         reponse_formelle, reponse_amicale, reponse_rapide,
                         amount, due_date, attachments, date_reception, action_recommandee, is_business,
-                        user_id, mailbox_id, mailbox_address, raw_imap_uid
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         uidInfo.internalUid,
                         fromAddr,
@@ -188,6 +189,8 @@ async function syncMailbox(userConfig, account) {
                         account.id,
                         account.email,
                         String(uidInfo.rawUid),
+                        'inbound',
+                        toAddr,
                     ]
                 );
 

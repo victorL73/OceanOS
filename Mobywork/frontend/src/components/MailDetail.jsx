@@ -49,6 +49,12 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
     loadSenders();
   }, []);
 
+  const isSent = !!mail && (mail.direction === 'sent' || mail.status === 'sent');
+
+  useEffect(() => {
+    if (isSent) setActiveTab('full');
+  }, [isSent, mail?.id]);
+
   if (!mail) {
     return (
       <div className="mail-detail-panel">
@@ -112,14 +118,16 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                )}
               <div className="mail-detail-subject">{mail.subject}</div>
               <div className="mail-detail-meta">
-                De : <strong style={{ color: 'var(--text-primary)' }}>{mail.from_address}</strong>
-                &nbsp;·&nbsp;
+                {isSent ? 'A' : 'De'} : <strong style={{ color: 'var(--text-primary)' }}>{isSent ? (mail.to_address || mail.from_address) : mail.from_address}</strong>
+                {isSent && mail.from_address && <>&nbsp;-&nbsp; Depuis : <strong style={{ color: 'var(--text-primary)' }}>{mail.from_address}</strong></>}
+                {!isSent && mail.mailbox_address && <>&nbsp;-&nbsp; Boite : <strong style={{ color: 'var(--text-primary)' }}>{mail.mailbox_address}</strong></>}
+                &nbsp;-&nbsp;
                 <Clock size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
                 {calcReadTime(mail.content)} min de lecture
               </div>
              </div>
           </div>
-          <div className="mail-detail-actions">
+          {!isSent && <div className="mail-detail-actions">
             <button
               className="action-btn success"
               onClick={() => onMarkDone(mail.id)}
@@ -134,17 +142,17 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
             >
               <Archive size={13} /> Archiver
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Tabs */}
         <div className="detail-tabs" style={{ marginTop: '0.75rem' }}>
-          <div
+          {!isSent && <div
             className={`detail-tab ${activeTab === 'ai' ? 'active' : ''}`}
             onClick={() => setActiveTab('ai')}
           >
             ✨ Assistant IA Proactif
-          </div>
+          </div>}
           <div
             className={`detail-tab ${activeTab === 'full' ? 'active' : ''}`}
             onClick={() => setActiveTab('full')}
@@ -163,7 +171,7 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
 
       {/* Body */}
       <div className="detail-body">
-        {activeTab === 'ai' ? (
+        {activeTab === 'ai' && !isSent ? (
           <div className="detail-scroll" style={{ paddingBottom: '120px' }}>
             <AiPanel
               mail={mail}
@@ -204,7 +212,7 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
       </div>
 
       {/* ZONE DE REPONSE FIXE EN BAS */}
-      {(activeTab === 'ai' && (mail.action_recommandee === 'Répondre' || mail.action_recommandee === 'Ignorer')) && (
+      {(!isSent && activeTab === 'ai' && (mail.action_recommandee === 'Répondre' || mail.action_recommandee === 'Ignorer')) && (
          <div style={{ 
              position: 'sticky', bottom: 0, left: 0, right: 0, 
              background: 'var(--bg-surface)', borderTop: '1px solid var(--border)', 

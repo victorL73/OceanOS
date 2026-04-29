@@ -1,10 +1,14 @@
 import React from 'react';
 import axios from 'axios';
-import { Archive, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool } from 'lucide-react';
+import { Archive, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
 
-export default function Sidebar({ stats, onFilterChange, activeFilter, onSync, onCompose }) {
+export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all', onMailboxChange, onFilterChange, activeFilter, onSync, onCompose }) {
     
     const [isAutoPilotGearing, setIsAutoPilotGearing] = React.useState(false);
+    const selectedBox = mailboxes.find(box => box.id === selectedMailbox);
+    const sentCount = selectedMailbox === 'all'
+        ? mailboxes.reduce((sum, box) => sum + Number(box.sentCount || 0), 0)
+        : Number(selectedBox?.sentCount || 0);
 
     const doAutoPilot = async () => {
         if(isAutoPilotGearing) return;
@@ -45,6 +49,34 @@ export default function Sidebar({ stats, onFilterChange, activeFilter, onSync, o
 
             <span className="sidebar-section-label">Navigation</span>
 
+            <div style={{ marginBottom: '0.75rem' }}>
+                <label style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 700, marginBottom: '0.35rem', textTransform: 'uppercase' }}>
+                    Boite affichee
+                </label>
+                <select
+                    value={selectedMailbox}
+                    onChange={(e) => onMailboxChange?.(e.target.value)}
+                    style={{
+                        width: '100%',
+                        minHeight: 38,
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-elevated)',
+                        color: 'var(--text-primary)',
+                        padding: '0 0.65rem',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                    }}
+                >
+                    <option value="all">Toutes les boites</option>
+                    {mailboxes.map((box) => (
+                        <option key={box.id} value={box.id}>
+                            {box.label || box.email} {box.email ? `- ${box.email}` : ''}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
             <div 
                 className={`sidebar-item ${activeFilter === 'inbox' ? 'active' : ''}`} 
                 onClick={() => onFilterChange('inbox')}
@@ -54,6 +86,17 @@ export default function Sidebar({ stats, onFilterChange, activeFilter, onSync, o
                     Boîte de réception
                 </div>
                 {stats.a_traiter > 0 && <span className="item-count blue">{stats.a_traiter}</span>}
+            </div>
+
+            <div 
+                className={`sidebar-item ${activeFilter === 'sent' ? 'active' : ''}`} 
+                onClick={() => onFilterChange('sent')}
+            >
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span className="item-icon"><Send size={16} /></span>
+                    Envoyes
+                </div>
+                {sentCount > 0 && <span className="item-count blue">{sentCount}</span>}
             </div>
 
             <div 

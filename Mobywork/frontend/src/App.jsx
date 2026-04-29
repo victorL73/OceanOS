@@ -69,6 +69,7 @@ const FILTER_MAP = {
   facture:    { categorie: 'facture',    status: 'tous'       },
   newsletter: { categorie: 'newsletter', status: 'tous'       },
   archive:    { categorie: 'tous',       status: 'archive'    },
+  sent:       { folder: 'sent' },
 };
 
 function redirectToOceanOS() {
@@ -117,13 +118,28 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
   const [stats, setStats] = useState({ urgents: 0, a_traiter: 0, factures: 0 });
   const [selectedMail, setSelectedMail] = useState(null);
   const [activeFilter, setActiveFilter] = useState('inbox');
+  const [selectedMailbox, setSelectedMailbox] = useState('all');
+  const [mailboxes, setMailboxes] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchMailboxes = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/mailboxes`);
+      const list = Array.isArray(res.data) ? res.data : [];
+      setMailboxes(list);
+      setSelectedMailbox(prev => prev === 'all' || list.some(box => box.id === prev) ? prev : 'all');
+    } catch (err) {
+      console.error('Erreur chargement boites mail:', err.message);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
       const filter = FILTER_MAP[activeFilter] || FILTER_MAP.inbox;
       const params = { search: searchTerm };
+      if (filter.folder) params.folder = filter.folder;
+      if (selectedMailbox && selectedMailbox !== 'all') params.mailbox = selectedMailbox;
       if (filter.categorie && filter.categorie !== 'tous') params.categorie = filter.categorie;
       if (filter.status    && filter.status    !== 'tous') params.status    = filter.status;
       if (filter.priorite)                                  params.priorite  = filter.priorite;
@@ -136,7 +152,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     } catch (err) {
       console.error('Backend non accessible:', err.message);
     }
-  }, [activeFilter, searchTerm]);
+  }, [activeFilter, searchTerm, selectedMailbox]);
 
   useEffect(() => {
     if (navContext && navContext.id) {
@@ -160,6 +176,10 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
   }, [fetchData]);
 
   useEffect(() => {
+    fetchMailboxes();
+  }, [fetchMailboxes]);
+
+  useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
       if (!selectedMail) return;
@@ -174,7 +194,8 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     try {
       await axios.patch(`${API_URL}/emails/${id}/status`, { status });
       if (selectedMail?.id === id) setSelectedMail(null);
-      fetchData();
+      await fetchData();
+      await fetchMailboxes();
     } catch (err) { console.error('Erreur mise à jour statut'); }
   };
 
@@ -185,7 +206,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
 
   const handleSync = async () => {
     setIsSyncing(true);
-    try { await axios.post(`${API_URL}/sync`); await fetchData(); }
+    try { await axios.post(`${API_URL}/sync`); await fetchData(); await fetchMailboxes(); }
     finally { setIsSyncing(false); }
   };
 
@@ -195,6 +216,9 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
         activeFilter={activeFilter}
         onFilterChange={(f) => { setActiveFilter(f); setSelectedMail(null); }}
         stats={stats}
+        mailboxes={mailboxes}
+        selectedMailbox={selectedMailbox}
+        onMailboxChange={(mailboxId) => { setSelectedMailbox(mailboxId); setSelectedMail(null); }}
         isSyncing={isSyncing}
         onSync={handleSync}
         onCompose={onCompose}
@@ -219,7 +243,8 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
               try {
                 await axios.post(`${API_URL}/emails/${id}/reply`, { message: msg });
                 setSelectedMail(null);
-                fetchData();
+                await fetchData();
+                await fetchMailboxes();
               } catch { alert('Erreur lors de l\'envoi.'); }
             }}
             onMailUpdated={() => handleMailUpdated(selectedMail)}
@@ -229,7 +254,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       {isComposing && (
         <ComposeMailModal
           onClose={() => setIsComposing(false)}
-          onSent={() => { setIsComposing(false); }}
+          onSent={() => { setIsComposing(false); fetchData(); fetchMailboxes(); }}
         />
       )}
 

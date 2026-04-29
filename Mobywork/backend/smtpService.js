@@ -245,7 +245,13 @@ async function sendReply(emailId, replyText, attachments = [], userId = 1, sende
                     }
 
                     const info = await config.transporter.sendMail(mailOptions);
-                    resolve(info);
+                    resolve({
+                        info,
+                        sender: config.sender,
+                        from: config.from,
+                        user: config.user,
+                        bodies,
+                    });
                 } catch (error) {
                     console.error('Erreur SMTP:', error);
                     reject(error);
@@ -278,7 +284,13 @@ async function sendNewMessage(toAddress, subject, messageText, attachments = [],
 
         const info = await config.transporter.sendMail(mailOptions);
         console.log(`Nouvel email envoye avec succes a ${toAddress}`);
-        return info;
+        return {
+            info,
+            sender: config.sender,
+            from: config.from,
+            user: config.user,
+            bodies,
+        };
     } catch (error) {
         console.error('Erreur SMTP (Nouveau Message):', error);
         throw error;

@@ -138,7 +138,9 @@ db.serialize(() => {
         { name: "user_id",         type: "INTEGER DEFAULT 1" },
         { name: "mailbox_id",      type: "TEXT" },
         { name: "mailbox_address", type: "TEXT" },
-        { name: "raw_imap_uid",    type: "TEXT" }
+        { name: "raw_imap_uid",    type: "TEXT" },
+        { name: "direction",       type: "TEXT DEFAULT 'inbound'" },
+        { name: "to_address",      type: "TEXT" }
     ];
 
     columnsToMigrate.forEach(col => {

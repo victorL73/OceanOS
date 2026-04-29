@@ -7,6 +7,7 @@ const multer = require('multer');
 const db = require('./database');
 const { fetchNewEmails } = require('./imapService');
 const { sendReply, sendNewMessage, buildSignature } = require('./smtpService');
+const { getMailAccountsFromSettings } = require('./mailAccounts');
 const { generateReply } = require('./aiService');
 const crmService = require('./crmService');
 require('dotenv').config();
@@ -111,6 +112,93 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: 'uploads/' });
 
+function dbGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+    });
+}
+
+function dbAll(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+    });
+}
+
+function dbRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function(err) {
+            if (err) return reject(err);
+            resolve({ lastID: this.lastID, changes: this.changes });
+        });
+    });
+}
+
+async function getUserMailAccounts(userId) {
+    const settings = await dbGet(`
+        SELECT
+            user_id,
+            imap_host,
+            imap_port,
+            imap_user,
+            imap_pass,
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            smtp_pass,
+            smtp_accounts,
+            smtp_default_sender,
+            nom
+        FROM user_settings
+        WHERE user_id = ?
+    `, [userId]).catch(() => ({}));
+    return getMailAccountsFromSettings(settings || {});
+}
+
+function mailboxFilterClause(account) {
+    if (!account) return { clause: '', params: [] };
+    const params = [account.id, account.email];
+    let clause = ' AND (mailbox_id = ? OR mailbox_address = ?';
+    if (account.id === 'legacy') {
+        clause += " OR mailbox_id IS NULL OR mailbox_id = ''";
+    }
+    clause += ')';
+    return { clause, params };
+}
+
+async function recordSentMail({ userId, sender, to, subject, text, html, replyToMailId = null }) {
+    const senderEmail = sender?.sender?.email || sender?.info?.envelope?.from || sender?.user || '';
+    const senderId = sender?.sender?.id || null;
+    const now = new Date().toISOString();
+
+    await dbRun(
+        `INSERT INTO emails (
+            uid, from_address, to_address, subject, content, html_content,
+            categorie, priorite, status, resume, date_reception, action_recommandee,
+            is_business, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            null,
+            senderEmail,
+            to,
+            subject || 'Sans objet',
+            text || '',
+            html || null,
+            'envoye',
+            'normal',
+            'sent',
+            replyToMailId ? `Reponse envoyee a ${to}` : `Message envoye a ${to}`,
+            now,
+            'Envoye',
+            0,
+            userId,
+            senderId,
+            senderEmail,
+            replyToMailId ? String(replyToMailId) : null,
+            'sent',
+        ]
+    );
+}
+
 // ═══════════════════════════════════════════════════════════
 // ROUTES EMAILS
 // ═══════════════════════════════════════════════════════════
@@ -122,7 +210,7 @@ app.get('/api/stats', (req, res) => {
             SUM(CASE WHEN priorite = 'urgent' AND status = 'a_repondre' THEN 1 ELSE 0 END) as urgents,
             SUM(CASE WHEN status = 'a_repondre' THEN 1 ELSE 0 END) as a_traiter,
             SUM(CASE WHEN categorie = 'facture' THEN 1 ELSE 0 END) as factures
-        FROM emails WHERE user_id = ?
+        FROM emails WHERE user_id = ? AND (direction IS NULL OR direction != 'sent')
     `, [req.user.id], (err, row) => {
         if (err) return res.status(500).json({ error: err });
         res.json({
@@ -133,11 +221,59 @@ app.get('/api/stats', (req, res) => {
     });
 });
 
+app.get('/api/mailboxes', async (req, res) => {
+    try {
+        const accounts = await getUserMailAccounts(req.user.id);
+        const counts = await dbAll(`
+            SELECT
+                COALESCE(mailbox_id, 'legacy') as mailbox_id,
+                COALESCE(mailbox_address, '') as mailbox_address,
+                SUM(CASE WHEN direction = 'sent' THEN 1 ELSE 0 END) as sent_count,
+                SUM(CASE WHEN direction IS NULL OR direction != 'sent' THEN 1 ELSE 0 END) as inbox_count
+            FROM emails
+            WHERE user_id = ?
+            GROUP BY COALESCE(mailbox_id, 'legacy'), COALESCE(mailbox_address, '')
+        `, [req.user.id]);
+
+        const countFor = (account, field) => counts
+            .filter(row => row.mailbox_id === account.id || String(row.mailbox_address).toLowerCase() === String(account.email).toLowerCase() || (account.id === 'legacy' && row.mailbox_id === 'legacy'))
+            .reduce((sum, row) => sum + Number(row[field] || 0), 0);
+
+        res.json(accounts.map(account => ({
+            id: account.id,
+            label: account.label,
+            email: account.email,
+            canReceive: account.receive_enabled !== false,
+            canSend: account.send_enabled !== false,
+            isDefault: account.is_default,
+            inboxCount: countFor(account, 'inbox_count'),
+            sentCount: countFor(account, 'sent_count'),
+        })));
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Impossible de charger les boites mail.' });
+    }
+});
+
 // Lister les emails avec filtres
-app.get('/api/emails', (req, res) => {
-    const { categorie, status, priorite, search } = req.query;
+app.get('/api/emails', async (req, res) => {
+    const { categorie, status, priorite, search, mailbox, folder } = req.query;
     let query = "SELECT * FROM emails WHERE user_id = ?";
     let params = [req.user.id];
+    const isSentFolder = folder === 'sent';
+
+    if (isSentFolder) {
+        query += " AND direction = 'sent'";
+    } else {
+        query += " AND (direction IS NULL OR direction != 'sent')";
+    }
+
+    if (mailbox && mailbox !== 'all') {
+        const accounts = await getUserMailAccounts(req.user.id);
+        const account = accounts.find(item => item.id === mailbox || item.email === mailbox);
+        const mailboxFilter = mailboxFilterClause(account || { id: mailbox, email: mailbox });
+        query += mailboxFilter.clause;
+        params.push(...mailboxFilter.params);
+    }
 
     if (categorie && categorie !== 'tous') { 
         if (categorie === 'opportunite') {
@@ -146,12 +282,12 @@ app.get('/api/emails', (req, res) => {
              query += " AND categorie = ?"; params.push(categorie); 
         }
     }
-    if (status    && status    !== 'tous') { query += " AND status = ?";    params.push(status);    }
+    if (!isSentFolder && status && status !== 'tous') { query += " AND status = ?";    params.push(status);    }
     if (priorite)                          { query += " AND priorite = ?";  params.push(priorite);  }
     if (search) {
-        query += " AND (from_address LIKE ? OR subject LIKE ? OR content LIKE ?)";
+        query += " AND (from_address LIKE ? OR to_address LIKE ? OR subject LIKE ? OR content LIKE ?)";
         const s = `%${search}%`;
-        params.push(s, s, s);
+        params.push(s, s, s, s);
     }
 
     query += " ORDER BY date_reception DESC";
@@ -192,6 +328,18 @@ app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) 
 
     try {
         const info = await sendReply(req.params.id, message, attachments, req.user.id, senderId);
+        const originalMail = await dbGet("SELECT from_address, subject FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id]).catch(() => null);
+        if (originalMail) {
+            await recordSentMail({
+                userId: req.user.id,
+                sender: info,
+                to: originalMail.from_address,
+                subject: `Re: ${originalMail.subject || 'Sans objet'}`,
+                text: info.bodies?.text || message,
+                html: info.bodies?.html || null,
+                replyToMailId: req.params.id,
+            }).catch(err => console.warn('[sent-mail] Sauvegarde reponse impossible:', err.message));
+        }
         db.run("UPDATE emails SET status = 'traite' WHERE id = ? AND user_id = ?", [req.params.id, req.user.id]);
         
         // Optionnel : nettopayer les fichiers du dossier uploads/ après l'envoi
@@ -217,6 +365,14 @@ app.post('/api/emails/compose', upload.array('attachments'), async (req, res) =>
 
     try {
         const info = await sendNewMessage(to, subject, message, attachments, req.user.id, null, senderId);
+        await recordSentMail({
+            userId: req.user.id,
+            sender: info,
+            to,
+            subject,
+            text: info.bodies?.text || message,
+            html: info.bodies?.html || null,
+        }).catch(err => console.warn('[sent-mail] Sauvegarde message impossible:', err.message));
         
         // Nettoyer les fichiers uploadés temporaires
         files.forEach(f => {
