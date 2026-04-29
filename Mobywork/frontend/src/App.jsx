@@ -68,6 +68,7 @@ const FILTER_MAP = {
   client:     { categorie: 'client',     status: 'tous'       },
   facture:    { categorie: 'facture',    status: 'tous'       },
   newsletter: { categorie: 'newsletter', status: 'tous'       },
+  treated:    { categorie: 'tous',       status: 'traite'     },
   archive:    { categorie: 'tous',       status: 'archive'    },
   sent:       { folder: 'sent' },
 };
@@ -115,7 +116,7 @@ function updateBrowserModuleUrl(moduleName, context = null) {
 // ─── COMPOSANT MODULE MAIL (inchangé fonctionnellement) ────────────────────
 function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNavContext }) {
   const [emails, setEmails] = useState([]);
-  const [stats, setStats] = useState({ urgents: 0, a_traiter: 0, factures: 0 });
+  const [stats, setStats] = useState({ urgents: 0, a_traiter: 0, factures: 0, traites: 0 });
   const [selectedMail, setSelectedMail] = useState(null);
   const [activeFilter, setActiveFilter] = useState('inbox');
   const [selectedMailbox, setSelectedMailbox] = useState('all');

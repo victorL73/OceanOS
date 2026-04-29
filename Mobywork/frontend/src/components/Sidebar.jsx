@@ -1,6 +1,6 @@
 import React from 'react';
 import axios from 'axios';
-import { Archive, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
+import { Archive, Check, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
 
 export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all', onMailboxChange, onFilterChange, activeFilter, onSync, onCompose }) {
     
@@ -145,6 +145,17 @@ export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all'
             </div>
 
             <span className="sidebar-section-label" style={{ marginTop: '1.25rem' }}>Classement</span>
+
+            <div
+                className={`sidebar-item ${activeFilter === 'treated' ? 'active' : ''}`}
+                onClick={() => onFilterChange('treated')}
+            >
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span className="item-icon" style={{ color: 'var(--accent-green)' }}><Check size={16} /></span>
+                    Traites
+                </div>
+                {stats.traites > 0 && <span className="item-count green">{stats.traites}</span>}
+            </div>
 
             <div 
                 className={`sidebar-item ${activeFilter === 'archive' ? 'active' : ''}`}

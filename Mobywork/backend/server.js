@@ -209,6 +209,7 @@ app.get('/api/stats', (req, res) => {
         SELECT 
             SUM(CASE WHEN priorite = 'urgent' AND status = 'a_repondre' THEN 1 ELSE 0 END) as urgents,
             SUM(CASE WHEN status = 'a_repondre' THEN 1 ELSE 0 END) as a_traiter,
+            SUM(CASE WHEN status = 'traite' THEN 1 ELSE 0 END) as traites,
             SUM(CASE WHEN categorie = 'facture' THEN 1 ELSE 0 END) as factures
         FROM emails WHERE user_id = ? AND (direction IS NULL OR direction != 'sent')
     `, [req.user.id], (err, row) => {
@@ -216,6 +217,7 @@ app.get('/api/stats', (req, res) => {
         res.json({
             urgents:   row.urgents   || 0,
             a_traiter: row.a_traiter || 0,
+            traites:   row.traites   || 0,
             factures:  row.factures  || 0
         });
     });

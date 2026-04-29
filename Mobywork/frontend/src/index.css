@@ -746,6 +746,23 @@ input, textarea { font-family: inherit; }
 .sidebar-badge.blue   { background: rgba(59,130,246,0.2); color: var(--accent-blue); }
 .sidebar-badge.orange { background: rgba(245,158,11,0.2); color: var(--accent-orange); }
 
+.item-count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.item-count.blue   { background: rgba(59,130,246,0.16); color: var(--accent-blue); }
+.item-count.orange { background: rgba(245,158,11,0.16); color: var(--accent-orange); }
+.item-count.green  { background: rgba(16,185,129,0.16); color: var(--accent-green); }
+
 .sidebar-sync-btn {
   margin-top: auto;
   display: flex;
