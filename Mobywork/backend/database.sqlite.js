@@ -59,6 +59,26 @@ db.serialize(() => {
         date_reception DATETIME
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS mail_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mailbox_address TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT,
+        created_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(mailbox_address, name)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS mail_folder_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mailbox_address TEXT NOT NULL,
+        raw_imap_uid TEXT NOT NULL,
+        folder_id INTEGER NOT NULL,
+        assigned_by INTEGER,
+        assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(mailbox_address, raw_imap_uid)
+    )`);
+
     // Table pour l'historique des actions CRM
     db.run(`CREATE TABLE IF NOT EXISTS crm_activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +161,8 @@ db.serialize(() => {
         { name: "mailbox_address", type: "TEXT" },
         { name: "raw_imap_uid",    type: "TEXT" },
         { name: "direction",       type: "TEXT DEFAULT 'inbound'" },
-        { name: "to_address",      type: "TEXT" }
+        { name: "to_address",      type: "TEXT" },
+        { name: "folder_id",       type: "INTEGER" }
     ];
 
     columnsToMigrate.forEach(col => {

@@ -231,6 +231,27 @@ function sameThread(base, candidate, counterpartEmails) {
     return counterpartEmails.length === 0 || counterpartEmails.some(email => candidateEmails.includes(email));
 }
 
+function normalizeMailboxAddress(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+async function getAllowedMailboxAddresses(userId) {
+    const accounts = await getUserMailAccounts(userId);
+    return accounts
+        .map(account => normalizeMailboxAddress(account.email))
+        .filter(Boolean);
+}
+
+async function resolveMailboxAddress(userId, mailbox) {
+    const accounts = await getUserMailAccounts(userId);
+    const requested = normalizeMailboxAddress(mailbox);
+    const account = accounts.find(item =>
+        normalizeMailboxAddress(item.id) === requested ||
+        normalizeMailboxAddress(item.email) === requested
+    );
+    return normalizeMailboxAddress(account?.email || requested);
+}
+
 function parseAttachments(value) {
     try {
         const parsed = JSON.parse(value || '[]');
@@ -332,12 +353,103 @@ app.get('/api/mailboxes', async (req, res) => {
     }
 });
 
+app.get('/api/mail-folders', async (req, res) => {
+    try {
+        const allowedMailboxes = await getAllowedMailboxAddresses(req.user.id);
+        if (allowedMailboxes.length === 0) return res.json([]);
+
+        let mailboxes = allowedMailboxes;
+        if (req.query.mailbox && req.query.mailbox !== 'all') {
+            const selected = await resolveMailboxAddress(req.user.id, req.query.mailbox);
+            mailboxes = allowedMailboxes.includes(selected) ? [selected] : [];
+        }
+        if (mailboxes.length === 0) return res.json([]);
+
+        const placeholders = mailboxes.map(() => '?').join(',');
+        const folders = await dbAll(
+            `SELECT *
+             FROM mail_folders
+             WHERE LOWER(mailbox_address) IN (${placeholders})
+             ORDER BY mailbox_address ASC, name ASC`,
+            mailboxes
+        );
+
+        const counts = await dbAll(
+            `SELECT folder_id, COUNT(*) as count
+             FROM emails
+             WHERE user_id = ? AND folder_id IS NOT NULL
+             GROUP BY folder_id`,
+            [req.user.id]
+        );
+        const countsByFolder = new Map(counts.map(row => [Number(row.folder_id), Number(row.count || 0)]));
+
+        res.json(folders.map(folder => ({
+            ...folder,
+            count: countsByFolder.get(Number(folder.id)) || 0,
+        })));
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Impossible de charger les dossiers.' });
+    }
+});
+
+app.post('/api/mail-folders', async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    const color = String(req.body?.color || '#3b82f6').trim().slice(0, 32);
+    const mailbox = String(req.body?.mailbox || '').trim();
+
+    if (!name || name.length > 80 || !mailbox) {
+        return res.status(400).json({ error: 'Nom ou boite mail invalide.' });
+    }
+
+    try {
+        const mailboxAddress = await resolveMailboxAddress(req.user.id, mailbox);
+        const allowedMailboxes = await getAllowedMailboxAddresses(req.user.id);
+        if (!allowedMailboxes.includes(mailboxAddress)) {
+            return res.status(403).json({ error: 'Boite mail non autorisee.' });
+        }
+
+        const result = await dbRun(
+            `INSERT INTO mail_folders (mailbox_address, name, color, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [mailboxAddress, name, color, req.user.id, new Date().toISOString()]
+        );
+
+        const folder = await dbGet('SELECT * FROM mail_folders WHERE id = ?', [result.lastID]);
+        res.status(201).json(folder);
+    } catch (error) {
+        const message = /duplicate|unique/i.test(error.message || '')
+            ? 'Un dossier avec ce nom existe deja pour cette boite.'
+            : (error.message || 'Creation du dossier impossible.');
+        res.status(/existe deja/.test(message) ? 409 : 500).json({ error: message });
+    }
+});
+
+app.delete('/api/mail-folders/:id', async (req, res) => {
+    try {
+        const folder = await dbGet('SELECT * FROM mail_folders WHERE id = ?', [req.params.id]);
+        if (!folder) return res.status(404).json({ error: 'Dossier introuvable.' });
+
+        const allowedMailboxes = await getAllowedMailboxAddresses(req.user.id);
+        if (!allowedMailboxes.includes(normalizeMailboxAddress(folder.mailbox_address))) {
+            return res.status(403).json({ error: 'Dossier non autorise.' });
+        }
+
+        await dbRun('UPDATE emails SET folder_id = NULL WHERE folder_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM mail_folder_assignments WHERE folder_id = ?', [req.params.id]);
+        await dbRun('DELETE FROM mail_folders WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Suppression du dossier impossible.' });
+    }
+});
+
 // Lister les emails avec filtres
 app.get('/api/emails', async (req, res) => {
-    const { categorie, status, priorite, search, mailbox, folder } = req.query;
+    const { categorie, status, priorite, search, mailbox, folder, folderId } = req.query;
     let query = "SELECT * FROM emails WHERE user_id = ?";
     let params = [req.user.id];
     const isSentFolder = folder === 'sent';
+    const customFolderId = folderId ? Number(folderId) : null;
 
     if (isSentFolder) {
         query += " AND direction = 'sent'";
@@ -353,15 +465,25 @@ app.get('/api/emails', async (req, res) => {
         params.push(...mailboxFilter.params);
     }
 
-    if (categorie && categorie !== 'tous') { 
+    if (customFolderId) {
+        const targetFolder = await dbGet('SELECT * FROM mail_folders WHERE id = ?', [customFolderId]).catch(() => null);
+        const allowedMailboxes = await getAllowedMailboxAddresses(req.user.id);
+        if (!targetFolder || !allowedMailboxes.includes(normalizeMailboxAddress(targetFolder.mailbox_address))) {
+            return res.status(403).json({ error: 'Dossier non autorise.' });
+        }
+        query += ' AND folder_id = ?';
+        params.push(customFolderId);
+    }
+
+    if (!customFolderId && categorie && categorie !== 'tous') {
         if (categorie === 'opportunite') {
              query += " AND is_business = 1";
         } else {
              query += " AND categorie = ?"; params.push(categorie); 
         }
     }
-    if (!isSentFolder && status && status !== 'tous') { query += " AND status = ?";    params.push(status);    }
-    if (priorite)                          { query += " AND priorite = ?";  params.push(priorite);  }
+    if (!customFolderId && !isSentFolder && status && status !== 'tous') { query += " AND status = ?";    params.push(status);    }
+    if (!customFolderId && priorite)                          { query += " AND priorite = ?";  params.push(priorite);  }
     if (search) {
         query += " AND (from_address LIKE ? OR to_address LIKE ? OR subject LIKE ? OR content LIKE ?)";
         const s = `%${search}%`;
@@ -456,6 +578,86 @@ app.patch('/api/emails/bulk/status', async (req, res) => {
         res.json({ success: true, updated: result.changes || 0, status });
     } catch (error) {
         res.status(500).json({ error: error.message || 'Mise a jour groupee impossible.' });
+    }
+});
+
+app.patch('/api/emails/bulk/folder', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids.map(id => Number(id)).filter(Number.isFinite)
+        : [];
+    const folderId = req.body?.folderId === null || req.body?.folderId === '' || req.body?.folderId === undefined
+        ? null
+        : Number(req.body.folderId);
+
+    if (ids.length === 0 || (folderId !== null && !Number.isFinite(folderId))) {
+        return res.status(400).json({ error: 'Selection ou dossier invalide.' });
+    }
+
+    try {
+        const allowedMailboxes = await getAllowedMailboxAddresses(req.user.id);
+        let targetFolder = null;
+        let targetMailbox = null;
+
+        if (folderId !== null) {
+            targetFolder = await dbGet('SELECT * FROM mail_folders WHERE id = ?', [folderId]);
+            if (!targetFolder) return res.status(404).json({ error: 'Dossier introuvable.' });
+            targetMailbox = normalizeMailboxAddress(targetFolder.mailbox_address);
+            if (!allowedMailboxes.includes(targetMailbox)) {
+                return res.status(403).json({ error: 'Dossier non autorise.' });
+            }
+        }
+
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = await dbAll(
+            `SELECT id, mailbox_address, raw_imap_uid
+             FROM emails
+             WHERE user_id = ? AND id IN (${placeholders})`,
+            [req.user.id, ...ids]
+        );
+
+        let updated = 0;
+        let skipped = 0;
+
+        for (const row of rows) {
+            const mailboxAddress = normalizeMailboxAddress(row.mailbox_address);
+            if (!mailboxAddress || !allowedMailboxes.includes(mailboxAddress)) {
+                skipped += 1;
+                continue;
+            }
+            if (targetMailbox && mailboxAddress !== targetMailbox) {
+                skipped += 1;
+                continue;
+            }
+
+            const rawUid = String(row.raw_imap_uid || '').trim();
+            if (rawUid) {
+                await dbRun(
+                    'UPDATE emails SET folder_id = ? WHERE LOWER(mailbox_address) = ? AND raw_imap_uid = ?',
+                    [folderId, mailboxAddress, rawUid]
+                );
+                await dbRun(
+                    'DELETE FROM mail_folder_assignments WHERE LOWER(mailbox_address) = ? AND raw_imap_uid = ?',
+                    [mailboxAddress, rawUid]
+                );
+                if (folderId !== null) {
+                    await dbRun(
+                        `INSERT INTO mail_folder_assignments (mailbox_address, raw_imap_uid, folder_id, assigned_by, assigned_at)
+                         VALUES (?, ?, ?, ?, ?)`,
+                        [mailboxAddress, rawUid, folderId, req.user.id, new Date().toISOString()]
+                    );
+                }
+            } else {
+                await dbRun(
+                    'UPDATE emails SET folder_id = ? WHERE user_id = ? AND id = ?',
+                    [folderId, req.user.id, row.id]
+                );
+            }
+            updated += 1;
+        }
+
+        res.json({ success: true, updated, skipped, folderId });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Classement groupe impossible.' });
     }
 });
 

@@ -260,6 +260,7 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             raw_imap_uid VARCHAR(80) NULL,
             direction VARCHAR(40) NOT NULL DEFAULT 'inbound',
             to_address TEXT NULL,
+            folder_id BIGINT UNSIGNED NULL,
             UNIQUE KEY uniq_mobywork_emails_uid_user (uid, user_id),
             INDEX idx_mobywork_emails_user_date (user_id, date_reception)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
@@ -270,6 +271,33 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'direction', "VARCHAR(40) NOT NULL DEFAULT 'inbound'");
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'to_address', 'TEXT NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'is_advertising', 'INT NOT NULL DEFAULT 0');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'folder_id', 'BIGINT UNSIGNED NULL');
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS mobywork_mail_folders (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            mailbox_address VARCHAR(190) NOT NULL,
+            name VARCHAR(190) NOT NULL,
+            color VARCHAR(32) NULL,
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_mobywork_mail_folders_box_name (mailbox_address, name),
+            INDEX idx_mobywork_mail_folders_box (mailbox_address)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS mobywork_mail_folder_assignments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            mailbox_address VARCHAR(190) NOT NULL,
+            raw_imap_uid VARCHAR(80) NOT NULL,
+            folder_id BIGINT UNSIGNED NOT NULL,
+            assigned_by BIGINT UNSIGNED NULL,
+            assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_mobywork_mail_folder_assignments_msg (mailbox_address, raw_imap_uid),
+            INDEX idx_mobywork_mail_folder_assignments_folder (folder_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_crm_activities (
@@ -499,6 +527,8 @@ function mobywork_sql_translate(string $sql): string
         'marketing_rules',
         'marketing_actions',
         'prospects',
+        'mail_folders',
+        'mail_folder_assignments',
     ];
 
     foreach ($tables as $table) {

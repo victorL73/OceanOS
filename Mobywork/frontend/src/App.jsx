@@ -121,10 +121,12 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
   const [activeFilter, setActiveFilter] = useState('inbox');
   const [selectedMailbox, setSelectedMailbox] = useState('all');
   const [mailboxes, setMailboxes] = useState([]);
+  const [mailFolders, setMailFolders] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedMailIds, setSelectedMailIds] = useState([]);
   const [isBulkBusy, setIsBulkBusy] = useState(false);
+  const activeFolderId = activeFilter.startsWith('folder:') ? activeFilter.replace('folder:', '') : null;
 
   const fetchMailboxes = useCallback(async () => {
     try {
@@ -137,10 +139,27 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     }
   }, []);
 
+  const fetchFolders = useCallback(async () => {
+    try {
+      const params = {};
+      if (selectedMailbox && selectedMailbox !== 'all') params.mailbox = selectedMailbox;
+      const res = await axios.get(`${API_URL}/mail-folders`, { params });
+      const list = Array.isArray(res.data) ? res.data : [];
+      setMailFolders(list);
+      if (activeFolderId && !list.some(folder => String(folder.id) === String(activeFolderId))) {
+        setActiveFilter('inbox');
+      }
+    } catch (err) {
+      console.error('Erreur chargement dossiers mail:', err.message);
+    }
+  }, [activeFolderId, selectedMailbox]);
+
   const fetchData = useCallback(async () => {
     try {
-      const filter = FILTER_MAP[activeFilter] || FILTER_MAP.inbox;
+      const currentFolderId = activeFilter.startsWith('folder:') ? activeFilter.replace('folder:', '') : null;
+      const filter = currentFolderId ? {} : (FILTER_MAP[activeFilter] || FILTER_MAP.inbox);
       const params = { search: searchTerm };
+      if (currentFolderId) params.folderId = currentFolderId;
       if (filter.folder) params.folder = filter.folder;
       if (selectedMailbox && selectedMailbox !== 'all') params.mailbox = selectedMailbox;
       if (filter.categorie && filter.categorie !== 'tous') params.categorie = filter.categorie;
@@ -178,13 +197,15 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     const id = setInterval(() => {
       fetchData();
       fetchMailboxes();
+      fetchFolders();
     }, 30_000);
     return () => clearInterval(id);
-  }, [fetchData, fetchMailboxes]);
+  }, [fetchData, fetchMailboxes, fetchFolders]);
 
   useEffect(() => {
     fetchMailboxes();
-  }, [fetchMailboxes]);
+    fetchFolders();
+  }, [fetchMailboxes, fetchFolders]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -203,6 +224,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       if (selectedMail?.id === id) setSelectedMail(null);
       await fetchData();
       await fetchMailboxes();
+      await fetchFolders();
     } catch (err) { console.error('Erreur mise à jour statut'); }
   };
 
@@ -221,6 +243,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       }
       await fetchData();
       await fetchMailboxes();
+      await fetchFolders();
     } catch (err) {
       console.error('Erreur synchronisation OVH:', err.message);
       const apiError = err.response?.data?.errors?.[0] || err.response?.data?.error;
@@ -247,6 +270,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     if (selectedMail && selectedMailIds.includes(selectedMail.id)) setSelectedMail(null);
     await fetchData();
     await fetchMailboxes();
+    await fetchFolders();
   };
 
   const handleBulkStatus = async (status) => {
@@ -278,6 +302,64 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     }
   };
 
+  const handleCreateFolder = async () => {
+    let mailboxId = selectedMailbox;
+    if (mailboxId === 'all') {
+      if (mailboxes.length === 1) {
+        mailboxId = mailboxes[0].id;
+      } else {
+        alert('Selectionnez une boite mail avant de creer un dossier partage.');
+        return;
+      }
+    }
+
+    const name = window.prompt('Nom du nouveau dossier');
+    if (!name || !name.trim()) return;
+
+    try {
+      await axios.post(`${API_URL}/mail-folders`, { name: name.trim(), mailbox: mailboxId });
+      await fetchFolders();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Creation du dossier impossible.');
+    }
+  };
+
+  const handleDeleteFolder = async (folderId) => {
+    const folder = mailFolders.find(item => String(item.id) === String(folderId));
+    const ok = window.confirm(`Supprimer le dossier "${folder?.name || ''}" ? Les mails resteront dans la boite.`);
+    if (!ok) return;
+
+    try {
+      await axios.delete(`${API_URL}/mail-folders/${folderId}`);
+      if (String(activeFolderId) === String(folderId)) setActiveFilter('inbox');
+      await fetchFolders();
+      await fetchData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Suppression du dossier impossible.');
+    }
+  };
+
+  const handleBulkFolder = async (folderId) => {
+    if (selectedMailIds.length === 0) return;
+    setIsBulkBusy(true);
+    try {
+      const targetFolderId = folderId === '__none' ? null : folderId;
+      const res = await axios.patch(`${API_URL}/emails/bulk/folder`, {
+        ids: selectedMailIds,
+        folderId: targetFolderId,
+      });
+      if (Number(res.data?.skipped || 0) > 0) {
+        alert(`${res.data.skipped} mail(s) ignores car ils ne correspondent pas a la boite de ce dossier.`);
+      }
+      await refreshAfterBulk();
+      await fetchFolders();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Classement dans le dossier impossible.');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
   return (
     <div className={`app-content mail-layout ${selectedMail ? 'has-selection' : ''}`}>
       <Sidebar
@@ -290,6 +372,9 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
         isSyncing={isSyncing}
         onSync={handleSync}
         onCompose={onCompose}
+        folders={mailFolders}
+        onCreateFolder={handleCreateFolder}
+        onDeleteFolder={handleDeleteFolder}
       />
       <div className="mail-slider-wrapper">
         <div className={`mail-inner-slider ${selectedMail ? 'has-selection' : ''}`}>
@@ -308,6 +393,8 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
             onSelectAll={handleSelectAllVisible}
             onBulkStatus={handleBulkStatus}
             onBulkDelete={handleBulkDelete}
+            onBulkFolder={handleBulkFolder}
+            folders={mailFolders}
           />
           <MailDetail
             mail={selectedMail}
@@ -320,6 +407,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
                 setSelectedMail(null);
                 await fetchData();
                 await fetchMailboxes();
+                await fetchFolders();
               } catch { alert('Erreur lors de l\'envoi.'); }
             }}
             onMailUpdated={() => handleMailUpdated(selectedMail)}
@@ -329,7 +417,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       {isComposing && (
         <ComposeMailModal
           onClose={() => setIsComposing(false)}
-          onSent={() => { setIsComposing(false); fetchData(); fetchMailboxes(); }}
+          onSent={() => { setIsComposing(false); fetchData(); fetchMailboxes(); fetchFolders(); }}
         />
       )}
 

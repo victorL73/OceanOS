@@ -14,6 +14,8 @@ export default function MailList({
     onSelectAll,
     onBulkStatus,
     onBulkDelete,
+    onBulkFolder,
+    folders = [],
 }) {
 
     const formatDate = (dateString) => {
@@ -40,6 +42,7 @@ export default function MailList({
     const selectedCount = selectedIds.length;
     const allVisibleSelected = mails.length > 0 && mails.every(mail => selectedIds.includes(mail.id));
     const canDeleteForever = activeFilter === 'archive';
+    const folderById = new Map(folders.map(folder => [String(folder.id), folder]));
 
     return (
         <div className="mail-list-panel">
@@ -74,6 +77,27 @@ export default function MailList({
                         <button className="mail-bulk-btn" onClick={() => onBulkStatus('archive')} disabled={isBulkBusy} title="Archiver">
                             <Archive size={13} /> Archiver
                         </button>
+                        {folders.length > 0 && (
+                            <select
+                                className="mail-folder-select"
+                                defaultValue=""
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value) onBulkFolder?.(value);
+                                    e.target.value = '';
+                                }}
+                                disabled={isBulkBusy}
+                                title="Classer dans un dossier"
+                            >
+                                <option value="">Classer...</option>
+                                {folders.map(folder => (
+                                    <option key={folder.id} value={folder.id}>
+                                        {folder.name} - {folder.mailbox_address}
+                                    </option>
+                                ))}
+                                <option value="__none">Retirer du dossier</option>
+                            </select>
+                        )}
                         {activeFilter === 'treated' && (
                             <button className="mail-bulk-btn" onClick={() => onBulkStatus('a_repondre')} disabled={isBulkBusy} title="Remettre a traiter">
                                 <RotateCcw size={13} /> A traiter
@@ -107,6 +131,7 @@ export default function MailList({
 
                     // Assombrir les logs "Archiver" 
                     const isIgnored = mail.action_recommandee === 'Ignorer' || mail.action_recommandee === 'Archiver';
+                    const assignedFolder = mail.folder_id ? folderById.get(String(mail.folder_id)) : null;
 
                     return (
                         <div 
@@ -143,8 +168,9 @@ export default function MailList({
                             {(isSent || mail.mailbox_address) && (
                                 <div className="mail-card-tags">
                                     {isSent && <span className="badge badge-traite">Envoye</span>}
-                                    {mail.mailbox_address && <span className="badge badge-normal">{mail.mailbox_address}</span>}
-                                </div>
+                                {mail.mailbox_address && <span className="badge badge-normal">{mail.mailbox_address}</span>}
+                                {assignedFolder && <span className="badge badge-folder">{assignedFolder.name}</span>}
+                            </div>
                             )}
 
                             <div className="mail-card-tags">

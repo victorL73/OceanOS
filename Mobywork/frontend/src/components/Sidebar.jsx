@@ -1,8 +1,21 @@
 import React from 'react';
 import axios from 'axios';
-import { Archive, Check, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
+import { Archive, Check, Folder, Inbox, Plus, Star, AlertTriangle, FileText, RefreshCw, Trash2, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
 
-export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all', onMailboxChange, onFilterChange, activeFilter, onSync, isSyncing = false, onCompose }) {
+export default function Sidebar({
+    stats,
+    mailboxes = [],
+    folders = [],
+    selectedMailbox = 'all',
+    onMailboxChange,
+    onFilterChange,
+    activeFilter,
+    onSync,
+    isSyncing = false,
+    onCompose,
+    onCreateFolder,
+    onDeleteFolder,
+}) {
     
     const [isAutoPilotGearing, setIsAutoPilotGearing] = React.useState(false);
     const selectedBox = mailboxes.find(box => box.id === selectedMailbox);
@@ -145,6 +158,44 @@ export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all'
             </div>
 
             <span className="sidebar-section-label" style={{ marginTop: '1.25rem' }}>Classement</span>
+
+            <div className="mail-folders-header">
+                <span>Dossiers</span>
+                <button
+                    type="button"
+                    className="mail-folder-add"
+                    onClick={onCreateFolder}
+                    title="Creer un dossier pour la boite affichee"
+                >
+                    <Plus size={13} />
+                </button>
+            </div>
+
+            {folders.length > 0 && folders.map(folder => (
+                <div
+                    key={folder.id}
+                    className={`sidebar-item mail-folder-item ${activeFilter === `folder:${folder.id}` ? 'active' : ''}`}
+                    onClick={() => onFilterChange(`folder:${folder.id}`)}
+                >
+                    <span className="item-icon" style={{ color: folder.color || 'var(--accent-blue)' }}><Folder size={16} /></span>
+                    <div className="mail-folder-label">
+                        <span>{folder.name}</span>
+                        {selectedMailbox === 'all' && <small>{folder.mailbox_address}</small>}
+                    </div>
+                    {folder.count > 0 && <span className="item-count blue">{folder.count}</span>}
+                    <button
+                        type="button"
+                        className="mail-folder-delete"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteFolder?.(folder.id);
+                        }}
+                        title="Supprimer ce dossier"
+                    >
+                        <Trash2 size={12} />
+                    </button>
+                </div>
+            ))}
 
             <div
                 className={`sidebar-item ${activeFilter === 'treated' ? 'active' : ''}`}

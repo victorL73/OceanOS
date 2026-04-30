@@ -19,6 +19,12 @@ function dbAll(sql, params = []) {
     });
 }
 
+function dbGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+    });
+}
+
 function dbRun(sql, params = []) {
     return new Promise((resolve, reject) => {
         db.run(sql, params, function(err) {
@@ -26,6 +32,24 @@ function dbRun(sql, params = []) {
             resolve({ lastID: this.lastID, changes: this.changes });
         });
     });
+}
+
+function normalizeMailboxAddress(value = '') {
+    return String(value || '').trim().toLowerCase();
+}
+
+async function resolveMappedFolderId(account, rawUid) {
+    const mailboxAddress = normalizeMailboxAddress(account.email);
+    if (!mailboxAddress || !rawUid) return null;
+
+    const row = await dbGet(
+        `SELECT folder_id
+         FROM mail_folder_assignments
+         WHERE mailbox_address = ? AND raw_imap_uid = ?`,
+        [mailboxAddress, String(rawUid)]
+    ).catch(() => null);
+
+    return row?.folder_id || null;
 }
 
 function defaultEmailAnalysis(subject, fromAddr) {
@@ -232,6 +256,7 @@ async function syncMailbox(userConfig, account) {
                     const htmlContent = parsed.html || null;
                     const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
                     const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
+                    const folderId = await resolveMappedFolderId(account, uidInfo.rawUid);
 
                     const aiResult = defaultEmailAnalysis(subject, fromAddr);
 
@@ -241,8 +266,8 @@ async function syncMailbox(userConfig, account) {
                             categorie, priorite, resume,
                             reponse_formelle, reponse_amicale, reponse_rapide,
                             amount, due_date, attachments, date_reception, action_recommandee, is_business,
-                            is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address, folder_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             uidInfo.internalUid,
                             fromAddr,
@@ -268,6 +293,7 @@ async function syncMailbox(userConfig, account) {
                             String(uidInfo.rawUid),
                             'inbound',
                             toAddr,
+                            folderId,
                         ]
                     );
 
