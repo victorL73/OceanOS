@@ -663,12 +663,12 @@ async function loadServices() {
 }
 
 async function runServerUpdate() {
-  const ok = window.confirm("Mettre a jour OceanOS depuis Git puis recharger Apache et Mobywork ?");
+  const ok = window.confirm("Mettre a jour OceanOS depuis Git puis relancer Apache et le backend Mobywork ?");
   if (!ok) return;
 
   elements.updateServices.disabled = true;
   elements.reloadServices.disabled = true;
-  showServicesStatus("Mise a jour Git en cours...");
+  showServicesStatus("Mise a jour Git en cours, puis relance Mobywork...");
   try {
     const payload = await requestJson(SERVICES_URL, {
       method: "POST",

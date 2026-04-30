@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-04-27-update-button';
+const OCEANOS_SERVICES_API_VERSION = '2026-04-30-update-restarts-mobywork';
 
 function oceanos_service_control_path(): string
 {
@@ -264,6 +264,21 @@ function oceanos_service_status_payload(): array
     ];
 }
 
+function oceanos_restart_mobywork_after_update(array $actionResult): array
+{
+    $restartResult = oceanos_run_service_control('restart', 'mobywork');
+    $message = trim((string) ($actionResult['message'] ?? 'Mise a jour terminee.'));
+    if ($message === '') {
+        $message = 'Mise a jour terminee.';
+    }
+
+    return [
+        ...$actionResult,
+        'message' => rtrim($message, '.') . '. Backend Mobywork relance.',
+        'mobyworkRestart' => $restartResult,
+    ];
+}
+
 function oceanos_require_services_admin(): array
 {
     try {
@@ -321,6 +336,10 @@ try {
         $actionResult = $action === 'status'
             ? ['ok' => true]
             : oceanos_run_service_control($action, $service);
+
+        if ($action === 'update' && in_array($service, ['all', 'mobywork'], true)) {
+            $actionResult = oceanos_restart_mobywork_after_update($actionResult);
+        }
 
         oceanos_json_response([
             ...oceanos_service_status_payload(),
