@@ -28,6 +28,63 @@ function dbRun(sql, params = []) {
     });
 }
 
+function defaultEmailAnalysis(subject, fromAddr) {
+    return {
+        categorie: 'autre',
+        priorite: 'normal',
+        resume: `Mail recu de ${fromAddr || 'expediteur inconnu'} : ${subject || 'Sans objet'}`,
+        reponse_formelle: '',
+        reponse_amicale: '',
+        reponse_rapide: '',
+        amount: null,
+        due_date: null,
+        action_recommandee: 'Répondre',
+        is_business: false,
+    };
+}
+
+function scheduleEmailAnalysis(mailId, subject, content, fromAddr, userId) {
+    if (!mailId) return;
+
+    setTimeout(async () => {
+        try {
+            console.log(`[IA] Analyse differee du mail #${mailId}: ${subject || 'Sans objet'}`);
+            const aiResult = await analyzeEmail(subject, String(content || '').substring(0, 4000), fromAddr, userId);
+            await dbRun(
+                `UPDATE emails
+                 SET categorie = ?,
+                     priorite = ?,
+                     resume = ?,
+                     reponse_formelle = ?,
+                     reponse_amicale = ?,
+                     reponse_rapide = ?,
+                     amount = ?,
+                     due_date = ?,
+                     action_recommandee = ?,
+                     is_business = ?
+                 WHERE id = ? AND user_id = ?`,
+                [
+                    aiResult.categorie || 'autre',
+                    aiResult.priorite || 'normal',
+                    aiResult.resume || '',
+                    aiResult.reponse_formelle || '',
+                    aiResult.reponse_amicale || '',
+                    aiResult.reponse_rapide || '',
+                    aiResult.amount || null,
+                    aiResult.due_date || null,
+                    aiResult.action_recommandee || 'Répondre',
+                    aiResult.is_business ? 1 : 0,
+                    mailId,
+                    userId,
+                ]
+            );
+            console.log(`[IA] Analyse differee appliquee au mail #${mailId}`);
+        } catch (error) {
+            console.warn(`[IA] Analyse differee impossible pour mail #${mailId}:`, error.message || error);
+        }
+    }, 0);
+}
+
 async function fetchNewEmails(userId = null) {
     if (syncInProgress) {
         console.log('[IMAP] Synchronisation deja en cours, cycle ignore.');
@@ -173,10 +230,9 @@ async function syncMailbox(userConfig, account) {
                     const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
                     const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
 
-                    console.log(`[IA] Analyse du message entrant: [${account.email} UID ${uidInfo.rawUid}] ${subject}`);
-                    const aiResult = await analyzeEmail(subject, content.substring(0, 4000), fromAddr, userConfig.user_id);
+                    const aiResult = defaultEmailAnalysis(subject, fromAddr);
 
-                    await dbRun(
+                    const insertResult = await dbRun(
                         `INSERT INTO emails (
                             uid, from_address, subject, content, html_content,
                             categorie, priorite, resume,
@@ -212,7 +268,8 @@ async function syncMailbox(userConfig, account) {
                     );
 
                     summary.imported += 1;
-                    console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre (${aiResult.categorie} - ${aiResult.priorite}) | ${attachmentsMeta.length} PJ`);
+                    console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre sans attendre l'IA | ${attachmentsMeta.length} PJ`);
+                    scheduleEmailAnalysis(insertResult.lastID, subject, content, fromAddr, userConfig.user_id);
                 } catch (messageError) {
                     const errorMessage = `UID ${uidInfo.rawUid}: ${messageError.message || messageError}`;
                     summary.errors.push(errorMessage);
