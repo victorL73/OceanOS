@@ -3,12 +3,10 @@ const { simpleParser } = require('mailparser');
 const db = require('./database');
 const { analyzeEmail } = require('./aiService');
 const { getReceiverAccountsFromSettings, storedImapUid } = require('./mailAccounts');
+const { ATTACHMENTS_DIR, ensureWritableDirectory } = require('./attachmentStorage');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-
-const ATTACHMENTS_DIR = path.join(__dirname, 'attachments');
-if (!fs.existsSync(ATTACHMENTS_DIR)) fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
 
 const IMAP_SOCKET_TIMEOUT_MS = Number(process.env.IMAP_SOCKET_TIMEOUT_MS || 30000);
 let syncInProgress = false;
@@ -205,7 +203,10 @@ async function saveAttachments(parsed, account, rawUid) {
     if (!parsed.attachments || parsed.attachments.length === 0) return attachmentsMeta;
 
     const mailDir = path.join(ATTACHMENTS_DIR, `${account.id}_${rawUid}`);
-    if (!fs.existsSync(mailDir)) fs.mkdirSync(mailDir, { recursive: true });
+    if (!ensureWritableDirectory(mailDir)) {
+        console.warn(`[IMAP] Pieces jointes ignorees pour ${account.email} UID ${rawUid}: dossier non accessible.`);
+        return attachmentsMeta;
+    }
 
     for (const att of parsed.attachments) {
         const safeName = safeAttachmentName(att.filename);

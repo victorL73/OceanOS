@@ -8,6 +8,7 @@ const db = require('./database');
 const { fetchNewEmails } = require('./imapService');
 const { sendReply, sendNewMessage, buildSignature } = require('./smtpService');
 const { getMailAccountsFromSettings } = require('./mailAccounts');
+const { ATTACHMENTS_DIR, isInsideDirectory, resolveStoredAttachmentPath } = require('./attachmentStorage');
 const { generateReply } = require('./aiService');
 const crmService = require('./crmService');
 require('dotenv').config();
@@ -111,7 +112,6 @@ app.get('/api/prestashop/products', async (req, res) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: 'uploads/' });
-const ATTACHMENTS_DIR = path.resolve(__dirname, 'attachments');
 
 function dbGet(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -266,11 +266,7 @@ function parseAttachments(value) {
 }
 
 function resolveAttachmentPath(att = {}) {
-    if (!att.path) return null;
-    const storedPath = path.isAbsolute(att.path) ? att.path : path.join(__dirname, att.path);
-    const resolved = path.resolve(storedPath);
-    const base = `${ATTACHMENTS_DIR}${path.sep}`;
-    return resolved.startsWith(base) ? resolved : null;
+    return resolveStoredAttachmentPath(att.path);
 }
 
 function cleanupEmailAttachments(rows = []) {
@@ -291,7 +287,7 @@ function cleanupEmailAttachments(rows = []) {
 
     touchedDirs.forEach(dir => {
         try {
-            if (dir.startsWith(`${ATTACHMENTS_DIR}${path.sep}`) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+            if (isInsideDirectory(dir, ATTACHMENTS_DIR) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
                 fs.rmdirSync(dir);
             }
         } catch (error) {
