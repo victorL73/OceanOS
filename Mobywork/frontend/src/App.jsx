@@ -211,12 +211,17 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      await axios.post(`${API_URL}/sync`);
+      const syncRes = await axios.post(`${API_URL}/sync`);
+      if (syncRes.data?.success === false && syncRes.data?.errors?.length) {
+        console.warn('Synchronisation OVH avec erreurs:', syncRes.data.errors);
+        alert(`Synchronisation OVH terminee avec erreur : ${syncRes.data.errors[0]}`);
+      }
       await fetchData();
       await fetchMailboxes();
     } catch (err) {
       console.error('Erreur synchronisation OVH:', err.message);
-      alert("Erreur lors de la synchronisation OVH. Vérifiez le backend et la configuration mail.");
+      const apiError = err.response?.data?.errors?.[0] || err.response?.data?.error;
+      alert(apiError || "Erreur lors de la synchronisation OVH. Vérifiez le backend et la configuration mail.");
     }
     finally { setIsSyncing(false); }
   };
@@ -490,12 +495,17 @@ export default function App() {
   const handleSync = async () => {
     setIsSyncing(true);
     try { 
-      await axios.post(`${API_URL}/sync`); 
+      const syncRes = await axios.post(`${API_URL}/sync`); 
       await fetchNotifications();
       await fetchEmailUnread();
-      toast.success('Synchronisation', 'Données mises à jour avec succès.');
-    } catch {
-      toast.error('Synchronisation', 'Impossible de synchroniser. Vérifiez votre connexion.');
+      if (syncRes.data?.success === false && syncRes.data?.errors?.length) {
+        toast.warning('Synchronisation', syncRes.data.errors[0]);
+      } else {
+        toast.success('Synchronisation', 'Données mises à jour avec succès.');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.errors?.[0] || err.response?.data?.error || 'Impossible de synchroniser. Vérifiez votre connexion.';
+      toast.error('Synchronisation', msg);
     } finally { setIsSyncing(false); }
   };
 

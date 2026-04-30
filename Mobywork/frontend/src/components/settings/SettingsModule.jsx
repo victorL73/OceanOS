@@ -404,7 +404,7 @@ export default function SettingsModule({ user, onLogout }) {
               <Field label="Adresse email">
                 <input type="email" value={account.email || ''} onChange={(e) => updateSmtpAccount(index, 'email', e.target.value)} placeholder="contact@renovboat.com" style={inputStyle} />
               </Field>
-              <Field label="Identifiant mail" hint="Laissez vide pour utiliser l'identifiant principal.">
+              <Field label="Identifiant mail" hint="Laissez vide pour utiliser cette adresse email comme identifiant.">
                 <input value={account.user || account.smtp_user || account.imap_user || ''} onChange={(e) => updateSmtpAccount(index, 'user', e.target.value)} placeholder="contact@renovboat.com" style={inputStyle} />
               </Field>
               <Field label="Mot de passe mail" hint="Laissez vide pour utiliser le mot de passe principal.">

@@ -36,8 +36,8 @@ async function fetchNewEmails(userId = null) {
 
     syncInProgress = true;
     try {
-        await fetchNewEmailsInternal(userId);
-        return { success: true, skipped: false };
+        const summary = await fetchNewEmailsInternal(userId);
+        return { success: summary.errors.length === 0, skipped: false, ...summary };
     } finally {
         syncInProgress = false;
     }
@@ -105,6 +105,15 @@ async function saveAttachments(parsed, account, rawUid) {
 }
 
 async function syncMailbox(userConfig, account) {
+    const summary = {
+        userId: userConfig.user_id,
+        mailboxId: account.id,
+        mailbox: account.email,
+        imported: 0,
+        checked: 0,
+        errors: [],
+    };
+
     console.log(`[IMAP] Connexion au compte ${account.email} (user ${userConfig.user_id})...`);
 
     let imapConnectionError = null;
@@ -130,7 +139,7 @@ async function syncMailbox(userConfig, account) {
         const lock = await client.getMailboxLock('INBOX');
 
         try {
-            const rows = await dbAll('SELECT uid FROM emails WHERE user_id = ?', [userConfig.user_id]);
+            const rows = await dbAll('SELECT uid FROM emails WHERE user_id = ? AND uid IS NOT NULL', [userConfig.user_id]);
             const existingUids = new Set(rows.map(row => String(row.uid)));
 
             const uidsToProcess = [];
@@ -140,66 +149,75 @@ async function syncMailbox(userConfig, account) {
                     uidsToProcess.push({ rawUid: msg.uid, internalUid });
                 }
             }
+            summary.checked = uidsToProcess.length;
 
             if (uidsToProcess.length === 0) {
                 console.log(`[IMAP] Aucun nouveau message pour ${account.email}.`);
             }
 
             for (const uidInfo of uidsToProcess) {
-                const msgSource = await client.fetchOne(uidInfo.rawUid, { source: true }, { uid: true });
-                if (!msgSource?.source) {
-                    console.warn(`[IMAP] Source introuvable pour ${account.email} UID ${uidInfo.rawUid}.`);
-                    continue;
+                try {
+                    const msgSource = await client.fetchOne(uidInfo.rawUid, { source: true }, { uid: true });
+                    if (!msgSource?.source) {
+                        console.warn(`[IMAP] Source introuvable pour ${account.email} UID ${uidInfo.rawUid}.`);
+                        summary.errors.push(`UID ${uidInfo.rawUid}: source introuvable`);
+                        continue;
+                    }
+                    const parsed = await simpleParser(msgSource.source);
+
+                    const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';
+                    const toAddr = (parsed.to?.value || []).map(item => item.address).filter(Boolean).join(', ');
+                    const subject = parsed.subject || 'Sans objet';
+                    const content = parsed.text || 'Pas de contenu textuel';
+                    const htmlContent = parsed.html || null;
+                    const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
+                    const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
+
+                    console.log(`[IA] Analyse du message entrant: [${account.email} UID ${uidInfo.rawUid}] ${subject}`);
+                    const aiResult = await analyzeEmail(subject, content.substring(0, 4000), fromAddr, userConfig.user_id);
+
+                    await dbRun(
+                        `INSERT INTO emails (
+                            uid, from_address, subject, content, html_content,
+                            categorie, priorite, resume,
+                            reponse_formelle, reponse_amicale, reponse_rapide,
+                            amount, due_date, attachments, date_reception, action_recommandee, is_business,
+                            user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            uidInfo.internalUid,
+                            fromAddr,
+                            subject,
+                            content,
+                            htmlContent,
+                            aiResult.categorie,
+                            aiResult.priorite,
+                            aiResult.resume,
+                            aiResult.reponse_formelle,
+                            aiResult.reponse_amicale,
+                            aiResult.reponse_rapide,
+                            aiResult.amount,
+                            aiResult.due_date,
+                            JSON.stringify(attachmentsMeta),
+                            date,
+                            aiResult.action_recommandee || 'Repondre',
+                            aiResult.is_business ? 1 : 0,
+                            userConfig.user_id,
+                            account.id,
+                            account.email,
+                            String(uidInfo.rawUid),
+                            'inbound',
+                            toAddr,
+                        ]
+                    );
+
+                    summary.imported += 1;
+                    console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre (${aiResult.categorie} - ${aiResult.priorite}) | ${attachmentsMeta.length} PJ`);
+                } catch (messageError) {
+                    const errorMessage = `UID ${uidInfo.rawUid}: ${messageError.message || messageError}`;
+                    summary.errors.push(errorMessage);
+                    console.error(`[IMAP] Erreur import ${account.email} ${errorMessage}`);
                 }
-                const parsed = await simpleParser(msgSource.source);
-
-                const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';
-                const toAddr = (parsed.to?.value || []).map(item => item.address).filter(Boolean).join(', ');
-                const subject = parsed.subject || 'Sans objet';
-                const content = parsed.text || 'Pas de contenu textuel';
-                const htmlContent = parsed.html || null;
-                const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
-                const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
-
-                console.log(`[IA] Analyse du message entrant: [${account.email} UID ${uidInfo.rawUid}] ${subject}`);
-                const aiResult = await analyzeEmail(subject, content.substring(0, 4000), fromAddr, userConfig.user_id);
-
-                await dbRun(
-                    `INSERT INTO emails (
-                        uid, from_address, subject, content, html_content,
-                        categorie, priorite, resume,
-                        reponse_formelle, reponse_amicale, reponse_rapide,
-                        amount, due_date, attachments, date_reception, action_recommandee, is_business,
-                        user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        uidInfo.internalUid,
-                        fromAddr,
-                        subject,
-                        content,
-                        htmlContent,
-                        aiResult.categorie,
-                        aiResult.priorite,
-                        aiResult.resume,
-                        aiResult.reponse_formelle,
-                        aiResult.reponse_amicale,
-                        aiResult.reponse_rapide,
-                        aiResult.amount,
-                        aiResult.due_date,
-                        JSON.stringify(attachmentsMeta),
-                        date,
-                        aiResult.action_recommandee || 'Repondre',
-                        aiResult.is_business ? 1 : 0,
-                        userConfig.user_id,
-                        account.id,
-                        account.email,
-                        String(uidInfo.rawUid),
-                        'inbound',
-                        toAddr,
-                    ]
-                );
-
-                console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre (${aiResult.categorie} - ${aiResult.priorite}) | ${attachmentsMeta.length} PJ`);
             }
         } finally {
             lock.release();
@@ -216,31 +234,50 @@ async function syncMailbox(userConfig, account) {
         } catch {}
         const finalError = error?.message ? error : imapConnectionError;
         console.error(`[IMAP] Erreur connexion ${account.email} USER ${userConfig.user_id}:`, finalError?.message || 'Erreur inconnue');
+        summary.errors.push(finalError?.message || 'Erreur connexion IMAP inconnue');
     }
+
+    return summary;
 }
 
 async function fetchNewEmailsInternal(userId = null) {
     console.log(`[IMAP] Lancement de la synchronisation mail (Utilisateur: ${userId || 'TOUS'})...`);
+    const summary = {
+        users: 0,
+        accounts: 0,
+        imported: 0,
+        mailboxes: [],
+        errors: [],
+    };
 
     const usersToSync = await getUserMailSettings(userId);
+    summary.users = usersToSync.length;
     if (usersToSync.length === 0) {
         console.log('[IMAP] Aucun compte mail parametre pour la synchronisation.');
-        return;
+        return summary;
     }
 
     for (const userConfig of usersToSync) {
         const accountsToSync = getReceiverAccountsFromSettings(userConfig)
             .filter(account => account.host && account.user && account.pass);
+        summary.accounts += accountsToSync.length;
 
         if (accountsToSync.length === 0) {
-            console.log(`[IMAP] Aucun compte reception complet pour user ${userConfig.user_id}.`);
+            const message = `Aucun compte reception complet pour user ${userConfig.user_id}.`;
+            console.log(`[IMAP] ${message}`);
+            summary.errors.push(message);
             continue;
         }
 
         for (const account of accountsToSync) {
-            await syncMailbox(userConfig, account);
+            const mailboxSummary = await syncMailbox(userConfig, account);
+            summary.imported += mailboxSummary.imported;
+            summary.mailboxes.push(mailboxSummary);
+            summary.errors.push(...mailboxSummary.errors.map(error => `${account.email}: ${error}`));
         }
     }
+
+    return summary;
 }
 
 module.exports = { fetchNewEmails };

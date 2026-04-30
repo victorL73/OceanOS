@@ -391,11 +391,15 @@ app.post('/api/emails/compose', upload.array('attachments'), async (req, res) =>
 app.post('/api/sync', async (req, res) => {
     try {
         const result = await fetchNewEmails(req.user.id);
-        res.json({
-            success: true,
+        const statusCode = result?.errors?.length && Number(result.imported || 0) === 0 ? 500 : 200;
+        res.status(statusCode).json({
+            success: statusCode < 400,
             skipped: !!result?.skipped,
+            ...result,
             message: result?.skipped
                 ? "Une synchronisation est déjà en cours."
+                : result?.errors?.length
+                    ? "Synchronisation terminée avec erreurs."
                 : "Synchronisation effectuée."
         });
     } catch (error) {

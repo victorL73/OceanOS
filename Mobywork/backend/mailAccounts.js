@@ -43,10 +43,14 @@ function normalizeMailAccount(account = {}, index = 0, settings = {}) {
 
     const id = String(account.id || accountIdFromEmail(email, index)).trim();
     const globalHost = settings.imap_host || settings.smtp_host || '';
-    const user = account.user || account.login || account.imap_user || account.smtp_user || settings.imap_user || settings.smtp_user || email;
+    const isLegacyMailbox = sameEmail(email, settings.imap_user) || sameEmail(email, settings.smtp_user);
+    const user = account.user
+        || account.login
+        || account.imap_user
+        || account.smtp_user
+        || (isLegacyMailbox ? (settings.imap_user || settings.smtp_user) : email);
     const pass = account.pass || account.password || account.imap_pass || account.smtp_pass || settings.imap_pass || settings.smtp_pass || '';
     const label = account.label || account.name || email;
-    const isLegacyMailbox = sameEmail(email, settings.imap_user) || sameEmail(email, settings.smtp_user);
 
     return {
         id,
