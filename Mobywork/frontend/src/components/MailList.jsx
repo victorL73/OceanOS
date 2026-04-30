@@ -17,6 +17,7 @@ export default function MailList({
     onBulkFolder,
     folders = [],
 }) {
+    const [draggingIds, setDraggingIds] = React.useState([]);
 
     const formatDate = (dateString) => {
         if (!dateString) return '';
@@ -43,6 +44,14 @@ export default function MailList({
     const allVisibleSelected = mails.length > 0 && mails.every(mail => selectedIds.includes(mail.id));
     const canDeleteForever = activeFilter === 'archive';
     const folderById = new Map(folders.map(folder => [String(folder.id), folder]));
+
+    const startDragMail = (event, mail) => {
+        const ids = selectedIds.includes(mail.id) ? selectedIds : [mail.id];
+        setDraggingIds(ids);
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('application/x-mobywork-mails', JSON.stringify(ids));
+        event.dataTransfer.setData('text/plain', ids.join(','));
+    };
 
     return (
         <div className="mail-list-panel">
@@ -136,8 +145,11 @@ export default function MailList({
                     return (
                         <div 
                             key={mail.id} 
-                            className={`mail-card ${selectedMailId === mail.id ? 'selected' : ''} ${selectedIds.includes(mail.id) ? 'bulk-selected' : ''} ${mail.status === 'a_repondre' ? 'unread' : ''}`}
+                            className={`mail-card ${selectedMailId === mail.id ? 'selected' : ''} ${selectedIds.includes(mail.id) ? 'bulk-selected' : ''} ${mail.status === 'a_repondre' ? 'unread' : ''} ${draggingIds.includes(mail.id) ? 'dragging' : ''}`}
                             onClick={() => onSelectMail(mail)}
+                            draggable
+                            onDragStart={(event) => startDragMail(event, mail)}
+                            onDragEnd={() => setDraggingIds([])}
                             style={{ opacity: isIgnored ? 0.6 : 1 }}
                         >
                             <button

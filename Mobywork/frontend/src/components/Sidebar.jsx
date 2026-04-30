@@ -15,13 +15,56 @@ export default function Sidebar({
     onCompose,
     onCreateFolder,
     onDeleteFolder,
+    onDropMail,
 }) {
     
     const [isAutoPilotGearing, setIsAutoPilotGearing] = React.useState(false);
+    const [dragOverTarget, setDragOverTarget] = React.useState(null);
     const selectedBox = mailboxes.find(box => box.id === selectedMailbox);
     const sentCount = selectedMailbox === 'all'
         ? mailboxes.reduce((sum, box) => sum + Number(box.sentCount || 0), 0)
         : Number(selectedBox?.sentCount || 0);
+
+    const getDropKey = (target) => `${target.type}:${target.folderId || target.status || 'default'}`;
+
+    const readDraggedMailIds = (event) => {
+        const raw = event.dataTransfer.getData('application/x-mobywork-mails') || event.dataTransfer.getData('text/plain');
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed.map(Number).filter(Number.isFinite);
+        } catch {}
+        return String(raw).split(',').map(Number).filter(Number.isFinite);
+    };
+
+    const getDropProps = (target) => {
+        if (!onDropMail) return {};
+        const key = getDropKey(target);
+        return {
+            onDragOver: (event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setDragOverTarget(key);
+            },
+            onDragEnter: (event) => {
+                event.preventDefault();
+                setDragOverTarget(key);
+            },
+            onDragLeave: (event) => {
+                const related = event.relatedTarget;
+                if (!related || !event.currentTarget.contains(related)) {
+                    setDragOverTarget(null);
+                }
+            },
+            onDrop: (event) => {
+                event.preventDefault();
+                setDragOverTarget(null);
+                onDropMail(target, readDraggedMailIds(event));
+            },
+        };
+    };
+
+    const getDropClass = (target) => dragOverTarget === getDropKey(target) ? ' drop-active' : '';
 
     const doAutoPilot = async () => {
         if(isAutoPilotGearing || isSyncing) return;
@@ -91,8 +134,9 @@ export default function Sidebar({
             </div>
 
             <div 
-                className={`sidebar-item ${activeFilter === 'inbox' ? 'active' : ''}`} 
+                className={`sidebar-item ${activeFilter === 'inbox' ? 'active' : ''}${getDropClass({ type: 'inbox', clearFolder: true })}`} 
                 onClick={() => onFilterChange('inbox')}
+                {...getDropProps({ type: 'inbox', clearFolder: true })}
             >
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                     <span className="item-icon"><Inbox size={16} /></span>
@@ -174,8 +218,9 @@ export default function Sidebar({
             {folders.length > 0 && folders.map(folder => (
                 <div
                     key={folder.id}
-                    className={`sidebar-item mail-folder-item ${activeFilter === `folder:${folder.id}` ? 'active' : ''}`}
+                    className={`sidebar-item mail-folder-item ${activeFilter === `folder:${folder.id}` ? 'active' : ''}${getDropClass({ type: 'folder', folderId: folder.id })}`}
                     onClick={() => onFilterChange(`folder:${folder.id}`)}
+                    {...getDropProps({ type: 'folder', folderId: folder.id })}
                 >
                     <span className="item-icon" style={{ color: folder.color || 'var(--accent-blue)' }}><Folder size={16} /></span>
                     <div className="mail-folder-label">
@@ -198,8 +243,9 @@ export default function Sidebar({
             ))}
 
             <div
-                className={`sidebar-item ${activeFilter === 'treated' ? 'active' : ''}`}
+                className={`sidebar-item ${activeFilter === 'treated' ? 'active' : ''}${getDropClass({ type: 'status', status: 'traite', clearFolder: true })}`}
                 onClick={() => onFilterChange('treated')}
+                {...getDropProps({ type: 'status', status: 'traite', clearFolder: true })}
             >
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                     <span className="item-icon" style={{ color: 'var(--accent-green)' }}><Check size={16} /></span>
@@ -209,8 +255,9 @@ export default function Sidebar({
             </div>
 
             <div 
-                className={`sidebar-item ${activeFilter === 'archive' ? 'active' : ''}`}
+                className={`sidebar-item ${activeFilter === 'archive' ? 'active' : ''}${getDropClass({ type: 'status', status: 'archive', clearFolder: true })}`}
                 onClick={() => onFilterChange('archive')}
+                {...getDropProps({ type: 'status', status: 'archive', clearFolder: true })}
             >
                 <span className="item-icon"><Archive size={16} /></span>
                 Archivés

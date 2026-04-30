@@ -727,6 +727,12 @@ input, textarea { font-family: inherit; }
   border-color: rgba(59,130,246,0.25);
   font-weight: 600;
 }
+.sidebar-item.drop-active {
+  background: rgba(59,130,246,0.18);
+  color: var(--text-primary);
+  border-color: var(--border-active);
+  box-shadow: inset 0 0 0 1px rgba(59,130,246,0.35);
+}
 .sidebar-item .item-icon {
   flex-shrink: 0;
   opacity: 0.8;
@@ -985,6 +991,13 @@ input, textarea { font-family: inherit; }
 }
 .mail-card.bulk-selected {
   background: rgba(59,130,246,0.1);
+}
+.mail-card[draggable="true"] {
+  cursor: grab;
+}
+.mail-card.dragging {
+  opacity: 0.45 !important;
+  cursor: grabbing;
 }
 .mail-card.unread .mail-card-subject { font-weight: 700; }
 

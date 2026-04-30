@@ -360,6 +360,43 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     }
   };
 
+  const handleDropMail = async (target, ids = []) => {
+    const mailIds = Array.from(new Set(ids.map(Number).filter(Number.isFinite)));
+    if (mailIds.length === 0) return;
+
+    setIsBulkBusy(true);
+    try {
+      if (target.type === 'folder') {
+        const res = await axios.patch(`${API_URL}/emails/bulk/folder`, {
+          ids: mailIds,
+          folderId: target.folderId,
+        });
+        if (Number(res.data?.skipped || 0) > 0) {
+          alert(`${res.data.skipped} mail(s) ignores car ils ne correspondent pas a la boite de ce dossier.`);
+        }
+      } else {
+        if (target.clearFolder) {
+          await axios.patch(`${API_URL}/emails/bulk/folder`, { ids: mailIds, folderId: null });
+        }
+        if (target.type === 'inbox') {
+          await axios.patch(`${API_URL}/emails/bulk/status`, { ids: mailIds, status: 'a_repondre' });
+        } else if (target.type === 'status' && target.status) {
+          await axios.patch(`${API_URL}/emails/bulk/status`, { ids: mailIds, status: target.status });
+        }
+      }
+
+      setSelectedMailIds(prev => prev.filter(id => !mailIds.includes(Number(id))));
+      if (selectedMail && mailIds.includes(Number(selectedMail.id))) setSelectedMail(null);
+      await fetchData();
+      await fetchMailboxes();
+      await fetchFolders();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Deplacement du mail impossible.');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
   return (
     <div className={`app-content mail-layout ${selectedMail ? 'has-selection' : ''}`}>
       <Sidebar
@@ -375,6 +412,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
         folders={mailFolders}
         onCreateFolder={handleCreateFolder}
         onDeleteFolder={handleDeleteFolder}
+        onDropMail={handleDropMail}
       />
       <div className="mail-slider-wrapper">
         <div className={`mail-inner-slider ${selectedMail ? 'has-selection' : ''}`}>
