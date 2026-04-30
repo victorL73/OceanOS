@@ -2,7 +2,7 @@ import React from 'react';
 import axios from 'axios';
 import { Archive, Check, Inbox, Star, AlertTriangle, FileText, RefreshCw, Zap, TrendingUp, Users, PenTool, Send } from 'lucide-react';
 
-export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all', onMailboxChange, onFilterChange, activeFilter, onSync, onCompose }) {
+export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all', onMailboxChange, onFilterChange, activeFilter, onSync, isSyncing = false, onCompose }) {
     
     const [isAutoPilotGearing, setIsAutoPilotGearing] = React.useState(false);
     const selectedBox = mailboxes.find(box => box.id === selectedMailbox);
@@ -11,12 +11,12 @@ export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all'
         : Number(selectedBox?.sentCount || 0);
 
     const doAutoPilot = async () => {
-        if(isAutoPilotGearing) return;
+        if(isAutoPilotGearing || isSyncing) return;
         setIsAutoPilotGearing(true);
         try {
             const res = await axios.post(`${import.meta.env.VITE_API_URL || '/api'}/autopilot`);
             alert(res.data.message);
-            onSync(); // rafraichit les listes
+            await onSync?.(); // rafraichit les listes
         } catch (err) {
             console.error(err);
             alert("Erreur lors de l'Auto-pilote");
@@ -169,10 +169,11 @@ export default function Sidebar({ stats, mailboxes = [], selectedMailbox = 'all'
                 <button 
                   className="sidebar-sync-btn" 
                   onClick={onSync} 
-                  disabled={isAutoPilotGearing}
+                  disabled={isAutoPilotGearing || isSyncing}
+                  title={isSyncing ? 'Synchronisation en cours' : 'Synchroniser les mails OVH'}
                 >
-                    <RefreshCw size={14} className={isAutoPilotGearing ? 'animate-spin' : ''} />
-                    Sync OVH
+                    <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+                    {isSyncing ? 'Synchro...' : 'Sync OVH'}
                 </button>
                 <button 
                   className="crm-btn-primary" 

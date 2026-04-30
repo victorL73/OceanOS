@@ -172,9 +172,12 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 60_000);
+    const id = setInterval(() => {
+      fetchData();
+      fetchMailboxes();
+    }, 30_000);
     return () => clearInterval(id);
-  }, [fetchData]);
+  }, [fetchData, fetchMailboxes]);
 
   useEffect(() => {
     fetchMailboxes();
@@ -207,7 +210,14 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
 
   const handleSync = async () => {
     setIsSyncing(true);
-    try { await axios.post(`${API_URL}/sync`); await fetchData(); await fetchMailboxes(); }
+    try {
+      await axios.post(`${API_URL}/sync`);
+      await fetchData();
+      await fetchMailboxes();
+    } catch (err) {
+      console.error('Erreur synchronisation OVH:', err.message);
+      alert("Erreur lors de la synchronisation OVH. Vérifiez le backend et la configuration mail.");
+    }
     finally { setIsSyncing(false); }
   };
 
@@ -415,7 +425,7 @@ export default function App() {
   useEffect(() => {
     if (token) {
       fetchEmailUnread();
-      const id = setInterval(fetchEmailUnread, 60_000);
+      const id = setInterval(fetchEmailUnread, 30_000);
       return () => clearInterval(id);
     }
   }, [token, fetchEmailUnread]);

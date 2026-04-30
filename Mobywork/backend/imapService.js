@@ -31,12 +31,13 @@ function dbRun(sql, params = []) {
 async function fetchNewEmails(userId = null) {
     if (syncInProgress) {
         console.log('[IMAP] Synchronisation deja en cours, cycle ignore.');
-        return;
+        return { success: true, skipped: true, reason: 'sync_in_progress' };
     }
 
     syncInProgress = true;
     try {
         await fetchNewEmailsInternal(userId);
+        return { success: true, skipped: false };
     } finally {
         syncInProgress = false;
     }
@@ -145,7 +146,11 @@ async function syncMailbox(userConfig, account) {
             }
 
             for (const uidInfo of uidsToProcess) {
-                const msgSource = await client.fetchOne(uidInfo.rawUid, { source: true });
+                const msgSource = await client.fetchOne(uidInfo.rawUid, { source: true }, { uid: true });
+                if (!msgSource?.source) {
+                    console.warn(`[IMAP] Source introuvable pour ${account.email} UID ${uidInfo.rawUid}.`);
+                    continue;
+                }
                 const parsed = await simpleParser(msgSource.source);
 
                 const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';

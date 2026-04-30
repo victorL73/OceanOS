@@ -389,8 +389,19 @@ app.post('/api/emails/compose', upload.array('attachments'), async (req, res) =>
 
 // Synchronisation manuelle IMAP
 app.post('/api/sync', async (req, res) => {
-    await fetchNewEmails(req.user.id);
-    res.json({ success: true, message: "Synchronisation effectuée." });
+    try {
+        const result = await fetchNewEmails(req.user.id);
+        res.json({
+            success: true,
+            skipped: !!result?.skipped,
+            message: result?.skipped
+                ? "Une synchronisation est déjà en cours."
+                : "Synchronisation effectuée."
+        });
+    } catch (error) {
+        console.error("Erreur sync IMAP manuelle:", error.message);
+        res.status(500).json({ success: false, error: error.message || "Synchronisation impossible." });
+    }
 });
 
 // Auto-Pilote IA
@@ -692,7 +703,7 @@ app.use((err, req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // CRON JOBS
 // ═══════════════════════════════════════════════════════════
-cron.schedule('*/3 * * * *', () => {
+cron.schedule('*/30 * * * * *', () => {
     console.log("⏰ Vérification des nouveaux mails OVH...");
     fetchNewEmails().catch(err => console.error("Erreur sync IMAP planifiee:", err.message));
 });
