@@ -4,6 +4,8 @@ import { X, Send, Paperclip, Clock } from 'lucide-react';
 
 export default function ComposeMailModal({ onClose, onSent }) {
     const [to, setTo] = useState('');
+    const [cc, setCc] = useState('');
+    const [bcc, setBcc] = useState('');
     const [subject, setSubject] = useState('');
     const [message, setMessage] = useState('');
     const [attachments, setAttachments] = useState([]);
@@ -31,6 +33,8 @@ export default function ComposeMailModal({ onClose, onSent }) {
         try {
             const formData = new FormData();
             formData.append('to', to);
+            formData.append('cc', cc);
+            formData.append('bcc', bcc);
             formData.append('subject', subject);
             formData.append('message', message);
             if (senderId) formData.append('senderId', senderId);
@@ -98,14 +102,39 @@ export default function ComposeMailModal({ onClose, onSent }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                         <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>À</label>
                         <input 
-                            type="email" 
+                            type="text" 
                             className="crm-input" 
                             value={to} 
                             onChange={(e) => setTo(e.target.value)} 
-                            placeholder="exemple@domaine.com"
+                            placeholder="exemple@domaine.com, autre@domaine.com"
                             disabled={isSending}
                             style={{ flex: 1 }}
                         />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Cc</label>
+                            <input
+                                type="text"
+                                className="crm-input"
+                                value={cc}
+                                onChange={(e) => setCc(e.target.value)}
+                                placeholder="copie@domaine.com"
+                                disabled={isSending}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Cci</label>
+                            <input
+                                type="text"
+                                className="crm-input"
+                                value={bcc}
+                                onChange={(e) => setBcc(e.target.value)}
+                                placeholder="copie-cachee@domaine.com"
+                                disabled={isSending}
+                            />
+                        </div>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>

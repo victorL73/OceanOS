@@ -166,21 +166,23 @@ function mailboxFilterClause(account) {
     return { clause, params };
 }
 
-async function recordSentMail({ userId, sender, to, subject, text, html, replyToMailId = null }) {
+async function recordSentMail({ userId, sender, to, cc = '', bcc = '', subject, text, html, replyToMailId = null }) {
     const senderEmail = sender?.sender?.email || sender?.info?.envelope?.from || sender?.user || '';
     const senderId = sender?.sender?.id || null;
     const now = new Date().toISOString();
 
     await dbRun(
         `INSERT INTO emails (
-            uid, from_address, to_address, subject, content, html_content,
+            uid, from_address, to_address, cc_address, bcc_address, subject, content, html_content,
             categorie, priorite, status, resume, date_reception, action_recommandee,
             is_business, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             null,
             senderEmail,
             to,
+            cc || '',
+            bcc || '',
             subject || 'Sans objet',
             text || '',
             html || null,
@@ -217,6 +219,8 @@ function rowEmails(row = {}) {
     return Array.from(new Set([
         ...extractEmails(row.from_address),
         ...extractEmails(row.to_address),
+        ...extractEmails(row.cc_address),
+        ...extractEmails(row.bcc_address),
         ...extractEmails(row.mailbox_address),
     ]));
 }
@@ -445,11 +449,12 @@ app.delete('/api/mail-folders/:id', async (req, res) => {
 
 // Lister les emails avec filtres
 app.get('/api/emails', async (req, res) => {
-    const { categorie, status, priorite, search, mailbox, folder, folderId } = req.query;
+    const { categorie, status, priorite, search, mailbox, folder, folderId, unfiled } = req.query;
     let query = "SELECT * FROM emails WHERE user_id = ?";
     let params = [req.user.id];
     const isSentFolder = folder === 'sent';
     const customFolderId = folderId ? Number(folderId) : null;
+    const onlyUnfiled = ['1', 'true', 'yes'].includes(String(unfiled || '').toLowerCase());
 
     if (isSentFolder) {
         query += " AND direction = 'sent'";
@@ -473,6 +478,8 @@ app.get('/api/emails', async (req, res) => {
         }
         query += ' AND folder_id = ?';
         params.push(customFolderId);
+    } else if (onlyUnfiled && !isSentFolder) {
+        query += ' AND folder_id IS NULL';
     }
 
     if (!customFolderId && categorie && categorie !== 'tous') {
@@ -702,7 +709,7 @@ app.patch('/api/emails/:id/status', (req, res) => {
 
 // Envoyer une réponse SMTP
 app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) => {
-    const { message, senderId } = req.body;
+    const { message, senderId, cc = '', bcc = '' } = req.body;
     const files = req.files || [];
     
     // Convertir les fichiers multer en format attendu par nodemailer
@@ -712,13 +719,15 @@ app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) 
     }));
 
     try {
-        const info = await sendReply(req.params.id, message, attachments, req.user.id, senderId);
+        const info = await sendReply(req.params.id, message, attachments, req.user.id, senderId, cc, bcc);
         const originalMail = await dbGet("SELECT from_address, subject FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id]).catch(() => null);
         if (originalMail) {
             await recordSentMail({
                 userId: req.user.id,
                 sender: info,
                 to: originalMail.from_address,
+                cc,
+                bcc,
                 subject: `Re: ${originalMail.subject || 'Sans objet'}`,
                 text: info.bodies?.text || message,
                 html: info.bodies?.html || null,
@@ -740,7 +749,7 @@ app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) 
 
 // Envoyer un NOUVEAU message
 app.post('/api/emails/compose', upload.array('attachments'), async (req, res) => {
-    const { to, subject, message, senderId } = req.body;
+    const { to, cc = '', bcc = '', subject, message, senderId } = req.body;
     const files = req.files || [];
     
     const attachments = files.map(file => ({
@@ -749,11 +758,13 @@ app.post('/api/emails/compose', upload.array('attachments'), async (req, res) =>
     }));
 
     try {
-        const info = await sendNewMessage(to, subject, message, attachments, req.user.id, null, senderId);
+        const info = await sendNewMessage(to, subject, message, attachments, req.user.id, null, senderId, cc, bcc);
         await recordSentMail({
             userId: req.user.id,
             sender: info,
             to,
+            cc,
+            bcc,
             subject,
             text: info.bodies?.text || message,
             html: info.bodies?.html || null,

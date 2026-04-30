@@ -87,6 +87,14 @@ function formatFrom(account) {
     return name ? `"${name.replace(/"/g, "'")}" <${email}>` : email;
 }
 
+function normalizeRecipients(value = '') {
+    return String(value || '')
+        .split(/[;,]/)
+        .map(item => item.trim())
+        .filter(Boolean)
+        .join(', ');
+}
+
 function fetchSmtpSettings(userId) {
     return new Promise((resolve, reject) => {
         db.get(`
@@ -222,7 +230,7 @@ function buildMailBodies(messageText, settings, htmlBody = null) {
     return { text, html };
 }
 
-async function sendReply(emailId, replyText, attachments = [], userId = 1, senderId = null) {
+async function sendReply(emailId, replyText, attachments = [], userId = 1, senderId = null, ccAddress = '', bccAddress = '') {
     return new Promise(async (resolve, reject) => {
         try {
             const config = await getTransporter(userId, senderId);
@@ -238,6 +246,10 @@ async function sendReply(emailId, replyText, attachments = [], userId = 1, sende
                         subject: `Re: ${mail.subject}`,
                         text: bodies.text,
                     };
+                    const cc = normalizeRecipients(ccAddress);
+                    const bcc = normalizeRecipients(bccAddress);
+                    if (cc) mailOptions.cc = cc;
+                    if (bcc) mailOptions.bcc = bcc;
                     if (bodies.html) mailOptions.html = bodies.html;
 
                     if (attachments && attachments.length > 0) {
@@ -263,16 +275,20 @@ async function sendReply(emailId, replyText, attachments = [], userId = 1, sende
     });
 }
 
-async function sendNewMessage(toAddress, subject, messageText, attachments = [], userId = 1, htmlBody = null, senderId = null) {
+async function sendNewMessage(toAddress, subject, messageText, attachments = [], userId = 1, htmlBody = null, senderId = null, ccAddress = '', bccAddress = '') {
     try {
         const config = await getTransporter(userId, senderId);
         const bodies = buildMailBodies(messageText, config.settings, htmlBody);
+        const cc = normalizeRecipients(ccAddress);
+        const bcc = normalizeRecipients(bccAddress);
         const mailOptions = {
             from: config.from,
             to: toAddress,
             subject,
             text: bodies.text,
         };
+        if (cc) mailOptions.cc = cc;
+        if (bcc) mailOptions.bcc = bcc;
 
         if (bodies.html) {
             mailOptions.html = bodies.html;

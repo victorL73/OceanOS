@@ -260,6 +260,8 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             raw_imap_uid VARCHAR(80) NULL,
             direction VARCHAR(40) NOT NULL DEFAULT 'inbound',
             to_address TEXT NULL,
+            cc_address TEXT NULL,
+            bcc_address TEXT NULL,
             folder_id BIGINT UNSIGNED NULL,
             UNIQUE KEY uniq_mobywork_emails_uid_user (uid, user_id),
             INDEX idx_mobywork_emails_user_date (user_id, date_reception)
@@ -270,6 +272,8 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'raw_imap_uid', 'VARCHAR(80) NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'direction', "VARCHAR(40) NOT NULL DEFAULT 'inbound'");
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'to_address', 'TEXT NULL');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'cc_address', 'TEXT NULL');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'bcc_address', 'TEXT NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'is_advertising', 'INT NOT NULL DEFAULT 0');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'folder_id', 'BIGINT UNSIGNED NULL');
 

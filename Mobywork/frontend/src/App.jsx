@@ -63,13 +63,13 @@ axios.interceptors.response.use(
 );
 
 const FILTER_MAP = {
-  inbox:      { categorie: 'tous',       status: 'a_repondre' },
+  inbox:      { categorie: 'tous',       status: 'a_repondre', unfiled: true },
   urgent:     { categorie: 'tous',       priorite: 'urgent'   },
   client:     { categorie: 'client',     status: 'tous'       },
   facture:    { categorie: 'facture',    status: 'tous'       },
   newsletter: { categorie: 'newsletter', status: 'tous'       },
-  treated:    { categorie: 'tous',       status: 'traite'     },
-  archive:    { categorie: 'tous',       status: 'archive'    },
+  treated:    { categorie: 'tous',       status: 'traite',     unfiled: true },
+  archive:    { categorie: 'tous',       status: 'archive',    unfiled: true },
   sent:       { folder: 'sent' },
 };
 
@@ -165,6 +165,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       if (filter.categorie && filter.categorie !== 'tous') params.categorie = filter.categorie;
       if (filter.status    && filter.status    !== 'tous') params.status    = filter.status;
       if (filter.priorite)                                  params.priorite  = filter.priorite;
+      if (filter.unfiled)                                    params.unfiled   = '1';
       const [emailsRes, statsRes] = await Promise.all([
         axios.get(`${API_URL}/emails`, { params }),
         axios.get(`${API_URL}/stats`),

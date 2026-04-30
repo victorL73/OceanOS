@@ -38,6 +38,24 @@ function normalizeMailboxAddress(value = '') {
     return String(value || '').trim().toLowerCase();
 }
 
+function formatParsedAddresses(addresses) {
+    return (addresses?.value || [])
+        .map(item => item.address)
+        .filter(Boolean)
+        .join(', ');
+}
+
+function getMailboxMessageKey(mailboxAddress, rawUid) {
+    const mailbox = normalizeMailboxAddress(mailboxAddress);
+    const uid = String(rawUid || '').trim();
+    return mailbox && uid ? `${mailbox}:${uid}` : '';
+}
+
+function isDuplicateEmailError(error) {
+    const message = String(error?.message || error || '');
+    return /duplicate entry/i.test(message) && /uniq_mobywork_emails_uid_user|uid_user/i.test(message);
+}
+
 async function resolveMappedFolderId(account, rawUid) {
     const mailboxAddress = normalizeMailboxAddress(account.email);
     if (!mailboxAddress || !rawUid) return null;
@@ -223,13 +241,31 @@ async function syncMailbox(userConfig, account) {
         const lock = await client.getMailboxLock('INBOX');
 
         try {
-            const rows = await dbAll('SELECT uid FROM emails WHERE user_id = ? AND uid IS NOT NULL', [userConfig.user_id]);
-            const existingUids = new Set(rows.map(row => String(row.uid)));
+            const rows = await dbAll(
+                `SELECT
+                    CAST(uid AS CHAR) AS uid,
+                    mailbox_address,
+                    CAST(raw_imap_uid AS CHAR) AS raw_imap_uid
+                 FROM emails
+                 WHERE user_id = ? AND direction != 'sent'`,
+                [userConfig.user_id]
+            );
+            const existingUids = new Set(rows.map(row => String(row.uid || '')).filter(Boolean));
+            const existingMessageKeys = new Set(
+                rows
+                    .map(row => getMailboxMessageKey(row.mailbox_address, row.raw_imap_uid))
+                    .filter(Boolean)
+            );
 
             const uidsToProcess = [];
             for await (const msg of client.fetch('1:*', { uid: true })) {
                 const internalUid = storedImapUid(account, msg.uid);
-                if (internalUid && !existingUids.has(internalUid)) {
+                const mailboxKey = getMailboxMessageKey(account.email, msg.uid);
+                if (
+                    internalUid &&
+                    !existingUids.has(String(internalUid)) &&
+                    !existingMessageKeys.has(mailboxKey)
+                ) {
                     uidsToProcess.push({ rawUid: msg.uid, internalUid });
                 }
             }
@@ -250,7 +286,9 @@ async function syncMailbox(userConfig, account) {
                     const parsed = await simpleParser(msgSource.source);
 
                     const fromAddr = parsed.from?.value[0]?.address || 'Expediteur inconnu';
-                    const toAddr = (parsed.to?.value || []).map(item => item.address).filter(Boolean).join(', ');
+                    const toAddr = formatParsedAddresses(parsed.to);
+                    const ccAddr = formatParsedAddresses(parsed.cc);
+                    const bccAddr = formatParsedAddresses(parsed.bcc);
                     const subject = parsed.subject || 'Sans objet';
                     const content = parsed.text || 'Pas de contenu textuel';
                     const htmlContent = parsed.html || null;
@@ -266,8 +304,8 @@ async function syncMailbox(userConfig, account) {
                             categorie, priorite, resume,
                             reponse_formelle, reponse_amicale, reponse_rapide,
                             amount, due_date, attachments, date_reception, action_recommandee, is_business,
-                            is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address, folder_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address, cc_address, bcc_address, folder_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             uidInfo.internalUid,
                             fromAddr,
@@ -293,14 +331,24 @@ async function syncMailbox(userConfig, account) {
                             String(uidInfo.rawUid),
                             'inbound',
                             toAddr,
+                            ccAddr,
+                            bccAddr,
                             folderId,
                         ]
                     );
 
                     summary.imported += 1;
+                    existingUids.add(String(uidInfo.internalUid));
+                    existingMessageKeys.add(getMailboxMessageKey(account.email, uidInfo.rawUid));
                     console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre sans attendre l'IA | ${attachmentsMeta.length} PJ`);
                     scheduleEmailAnalysis(insertResult.lastID, subject, content, fromAddr, userConfig.user_id);
                 } catch (messageError) {
+                    if (isDuplicateEmailError(messageError)) {
+                        existingUids.add(String(uidInfo.internalUid));
+                        existingMessageKeys.add(getMailboxMessageKey(account.email, uidInfo.rawUid));
+                        console.log(`[IMAP] Mail deja present ignore [${account.email} UID ${uidInfo.rawUid}]`);
+                        continue;
+                    }
                     const errorMessage = `UID ${uidInfo.rawUid}: ${messageError.message || messageError}`;
                     summary.errors.push(errorMessage);
                     console.error(`[IMAP] Erreur import ${account.email} ${errorMessage}`);

@@ -162,6 +162,8 @@ db.serialize(() => {
         { name: "raw_imap_uid",    type: "TEXT" },
         { name: "direction",       type: "TEXT DEFAULT 'inbound'" },
         { name: "to_address",      type: "TEXT" },
+        { name: "cc_address",      type: "TEXT" },
+        { name: "bcc_address",     type: "TEXT" },
         { name: "folder_id",       type: "INTEGER" }
     ];
 

@@ -51,6 +51,8 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   const [replyAttachments, setReplyAttachments] = useState([]);
   const [senders, setSenders] = useState([]);
   const [senderId, setSenderId] = useState('');
+  const [replyCc, setReplyCc] = useState('');
+  const [replyBcc, setReplyBcc] = useState('');
   const [thread, setThread] = useState([]);
   const [isThreadLoading, setIsThreadLoading] = useState(false);
   const autoOpenedThreadFor = useRef(null);
@@ -78,6 +80,11 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   useEffect(() => {
     if (mail?.id && !isSent) setActiveTab('ai');
   }, [isSent, mail?.id]);
+
+  useEffect(() => {
+    setReplyCc('');
+    setReplyBcc('');
+  }, [mail?.id]);
 
   useEffect(() => {
     if (!mail?.id) {
@@ -140,6 +147,8 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
       try {
           const formData = new FormData();
           formData.append('message', draftReply);
+          formData.append('cc', replyCc);
+          formData.append('bcc', replyBcc);
           if (senderId) formData.append('senderId', senderId);
           replyAttachments.forEach(file => {
               formData.append('attachments', file);
@@ -150,6 +159,8 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
           });
           onMarkDone(mail.id);
           setDraftReply('');
+          setReplyCc('');
+          setReplyBcc('');
           setReplyAttachments([]);
       } catch (e) {
           alert("Erreur lors de l'envoi.");
@@ -185,6 +196,13 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                 <Clock size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
                 {calcReadTime(mail.content)} min de lecture
               </div>
+              {(mail.cc_address || mail.bcc_address) && (
+                <div className="mail-detail-meta" style={{ marginTop: '0.25rem' }}>
+                  {mail.cc_address && <><span>Cc : </span><strong style={{ color: 'var(--text-primary)' }}>{mail.cc_address}</strong></>}
+                  {mail.cc_address && mail.bcc_address && <>&nbsp;-&nbsp;</>}
+                  {mail.bcc_address && <><span>Cci : </span><strong style={{ color: 'var(--text-primary)' }}>{mail.bcc_address}</strong></>}
+                </div>
+              )}
              </div>
           </div>
           {!isSent && <div className="mail-detail-actions">
@@ -277,6 +295,13 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                       <strong>{itemSent ? `A : ${item.to_address || item.from_address || 'Destinataire inconnu'}` : `De : ${item.from_address || 'Expediteur inconnu'}`}</strong>
                       <span>{formatThreadDate(item.date_reception)}</span>
                     </div>
+                    {(item.cc_address || item.bcc_address) && (
+                      <div className="thread-subject">
+                        {item.cc_address && <span>Cc : {item.cc_address}</span>}
+                        {item.cc_address && item.bcc_address && <span> - </span>}
+                        {item.bcc_address && <span>Cci : {item.bcc_address}</span>}
+                      </div>
+                    )}
                     <div className="thread-subject">
                       {item.subject || 'Sans objet'} {itemCurrent && <span className="thread-current-label">mail ouvert</span>}
                     </div>
@@ -340,6 +365,30 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                  </select>
                </div>
              )}
+             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '0.6rem' }}>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, minWidth: 28 }}>Cc</span>
+                 <input
+                   className="crm-input"
+                   value={replyCc}
+                   onChange={(e) => setReplyCc(e.target.value)}
+                   placeholder="copie@domaine.com"
+                   disabled={isSending}
+                   style={{ height: '34px', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
+                 />
+               </div>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, minWidth: 28 }}>Cci</span>
+                 <input
+                   className="crm-input"
+                   value={replyBcc}
+                   onChange={(e) => setReplyBcc(e.target.value)}
+                   placeholder="copie-cachee@domaine.com"
+                   disabled={isSending}
+                   style={{ height: '34px', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
+                 />
+               </div>
+             </div>
              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                 <textarea 
                    id="reply-box"
