@@ -42,6 +42,11 @@ export default function TopBar({
   }, []);
 
   const crumbs = BREADCRUMBS[activeModule] || ['MobyWorkspace'];
+  const handleNotificationClick = (notification) => {
+    if (!notification?.module || !onGlobalNavigate) return;
+    onGlobalNavigate(notification.module, notification.context || null);
+    setShowNotif(false);
+  };
   const moduleIcon = MODULE_ICONS[activeModule] || '📋';
 
   return (
@@ -126,7 +131,13 @@ export default function TopBar({
               {notifications.length === 0 ? (
                 <p style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center' }}>✅ Aucune notification</p>
               ) : notifications.map((n, i) => (
-                <div key={i} className="gtb-notif-item">
+                <div
+                  key={n.id || i}
+                  className="gtb-notif-item"
+                  onClick={() => handleNotificationClick(n)}
+                  role={n.module ? 'button' : undefined}
+                  style={{ cursor: n.module ? 'pointer' : 'default' }}
+                >
                   <span>{n.icon}</span>
                   <span>{n.text}</span>
                 </div>

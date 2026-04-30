@@ -140,6 +140,7 @@ export default function AiFeedPanel({ onModuleNav }) {
 
   const visible = showAll ? suggestions : suggestions.slice(0, 4);
   const active = suggestions.filter(s => !executed.includes(s.id) && !ignored.includes(s.id));
+  const countedActive = active.filter(s => s.notify !== false && s.id !== 'sug_idle');
 
   const handleRefresh = async () => {
     await fetchSuggestions();
@@ -151,8 +152,8 @@ export default function AiFeedPanel({ onModuleNav }) {
         <div className="ai-feed-title">
           <Sparkles size={16} className="ai-feed-icon" />
           <span>Feed IA — Suggestions prioritaires</span>
-          {active.length > 0 && (
-            <span className="ai-feed-count">{active.length}</span>
+          {countedActive.length > 0 && (
+            <span className="ai-feed-count">{countedActive.length}</span>
           )}
         </div>
         <button className="ai-feed-refresh" onClick={handleRefresh} disabled={isRefreshing}>

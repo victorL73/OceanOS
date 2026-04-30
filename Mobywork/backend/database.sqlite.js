@@ -104,6 +104,18 @@ db.serialize(() => {
         PRIMARY KEY (user_id, suggestion_id)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS mail_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        email_id INTEGER NOT NULL,
+        mailbox_address TEXT,
+        from_address TEXT,
+        subject TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        dismissed_at DATETIME,
+        UNIQUE(user_id, email_id)
+    )`);
+
     // Table pour les factures extraites des emails
     db.run(`CREATE TABLE IF NOT EXISTS expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

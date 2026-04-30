@@ -590,11 +590,15 @@ export default function App() {
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/dashboard/suggestions`);
-      const mapped = res.data.map(s => ({
-        id: s.id,
-        icon: s.icon,
-        text: s.title
-      }));
+      const mapped = res.data
+        .filter(s => s && s.notify !== false && s.id !== 'sug_idle')
+        .map(s => ({
+          id: s.id,
+          icon: s.icon,
+          text: s.title,
+          module: s.module === 'email' ? 'mail' : s.module,
+          context: s.emailId ? { id: s.emailId } : null
+        }));
       setNotifications(mapped);
     } catch (err) {
       console.error('Erreur chargement notifications');

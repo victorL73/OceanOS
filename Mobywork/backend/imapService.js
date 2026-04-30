@@ -45,6 +45,28 @@ function formatParsedAddresses(addresses) {
         .join(', ');
 }
 
+async function createMailNotification(userId, emailId, mailboxAddress, fromAddress, subject) {
+    if (!userId || !emailId) return;
+
+    try {
+        await dbRun(
+            `INSERT OR IGNORE INTO mail_notifications (
+                user_id, email_id, mailbox_address, from_address, subject, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                userId,
+                emailId,
+                normalizeMailboxAddress(mailboxAddress),
+                fromAddress || '',
+                subject || 'Sans objet',
+                new Date().toISOString(),
+            ]
+        );
+    } catch (error) {
+        console.warn('[IMAP] Notification mail non creee:', error.message);
+    }
+}
+
 function getMailboxMessageKey(mailboxAddress, rawUid) {
     const mailbox = normalizeMailboxAddress(mailboxAddress);
     const uid = String(rawUid || '').trim();
@@ -341,6 +363,7 @@ async function syncMailbox(userConfig, account) {
                     existingUids.add(String(uidInfo.internalUid));
                     existingMessageKeys.add(getMailboxMessageKey(account.email, uidInfo.rawUid));
                     console.log(`[IMAP] Mail [${account.email} UID ${uidInfo.rawUid}] enregistre sans attendre l'IA | ${attachmentsMeta.length} PJ`);
+                    await createMailNotification(userConfig.user_id, insertResult.lastID, account.email, fromAddr, subject);
                     scheduleEmailAnalysis(insertResult.lastID, subject, content, fromAddr, userConfig.user_id);
                 } catch (messageError) {
                     if (isDuplicateEmailError(messageError)) {

@@ -316,6 +316,40 @@ const dashboardService = {
                 db.all("SELECT suggestion_id FROM dismissed_suggestions WHERE user_id = ?", [userId], (err, rows) => resolve(rows || []));
             });
             dismissedIds = new Set(dismissedRows.map(r => r.suggestion_id));
+
+            const mailNotifications = await new Promise(resolve => {
+                db.all(
+                    `SELECT id, email_id, mailbox_address, from_address, subject, created_at
+                     FROM mail_notifications
+                     WHERE user_id = ? AND dismissed_at IS NULL
+                     ORDER BY created_at DESC
+                     LIMIT 10`,
+                    [userId],
+                    (err, rows) => {
+                        if (err) {
+                            console.warn("Notifications mail indisponibles:", err.message);
+                            return resolve([]);
+                        }
+                        resolve(rows || []);
+                    }
+                );
+            });
+
+            mailNotifications.forEach(mail => {
+                suggestions.push({
+                    id: `mail_new_${mail.id}`,
+                    type: "email",
+                    priority: "normal",
+                    icon: "📬",
+                    title: `Nouveau mail recu : ${mail.subject || "Sans objet"}`,
+                    description: `${mail.from_address || "Expediteur inconnu"}${mail.mailbox_address ? ` -> ${mail.mailbox_address}` : ""}`,
+                    action: "Ouvrir le mail",
+                    impact: "A traiter",
+                    module: "email",
+                    emailId: mail.email_id,
+                    notify: true
+                });
+            });
             // 1. Paniers Abandonnés (urgent, type: relance)
             const alertsData = await this.getAlertsData(userId);
             const activeCarts = alertsData.abandonedCarts;
@@ -437,7 +471,8 @@ const dashboardService = {
                 description: "Votre gestion est excellente. L'IA continue de surveiller votre activité en coulisses.",
                 action: "Voir les statistiques",
                 impact: "Tranquilité",
-                module: "dashboard"
+                module: "dashboard",
+                notify: false
             });
         }
 

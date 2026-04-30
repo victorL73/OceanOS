@@ -319,6 +319,20 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS mobywork_dismissed_carts (user_id BIGINT UNSIGNED NOT NULL, cart_id BIGINT NOT NULL, PRIMARY KEY (user_id, cart_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     $pdo->exec("CREATE TABLE IF NOT EXISTS mobywork_dismissed_suggestions (user_id BIGINT UNSIGNED NOT NULL, suggestion_id VARCHAR(190) NOT NULL, PRIMARY KEY (user_id, suggestion_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS mobywork_mail_notifications (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NOT NULL,
+            email_id BIGINT UNSIGNED NOT NULL,
+            mailbox_address TEXT NULL,
+            from_address TEXT NULL,
+            subject TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            dismissed_at DATETIME NULL,
+            UNIQUE KEY uniq_mobywork_mail_notifications_email_user (user_id, email_id),
+            INDEX idx_mobywork_mail_notifications_user (user_id, dismissed_at, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_expenses (
@@ -524,6 +538,7 @@ function mobywork_sql_translate(string $sql): string
         'crm_activities',
         'dismissed_carts',
         'dismissed_suggestions',
+        'mail_notifications',
         'expenses',
         'quotes',
         'marketing_campaigns',
