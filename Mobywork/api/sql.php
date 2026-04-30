@@ -253,6 +253,7 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             attachments LONGTEXT NULL,
             action_recommandee TEXT NULL,
             is_business INT NULL,
+            is_advertising INT NOT NULL DEFAULT 0,
             user_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
             mailbox_id VARCHAR(190) NULL,
             mailbox_address TEXT NULL,
@@ -268,6 +269,7 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'raw_imap_uid', 'VARCHAR(80) NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'direction', "VARCHAR(40) NOT NULL DEFAULT 'inbound'");
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'to_address', 'TEXT NULL');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'is_advertising', 'INT NOT NULL DEFAULT 0');
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_crm_activities (

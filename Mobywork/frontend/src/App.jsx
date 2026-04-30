@@ -123,6 +123,8 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
   const [mailboxes, setMailboxes] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedMailIds, setSelectedMailIds] = useState([]);
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
 
   const fetchMailboxes = useCallback(async () => {
     try {
@@ -150,6 +152,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
       ]);
       setEmails(emailsRes.data);
       setStats(statsRes.data);
+      setSelectedMailIds(prev => prev.filter(id => emailsRes.data.some(mail => mail.id === id)));
     } catch (err) {
       console.error('Backend non accessible:', err.message);
     }
@@ -226,15 +229,64 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
     finally { setIsSyncing(false); }
   };
 
+  const handleToggleMailSelection = (id, checked) => {
+    setSelectedMailIds(prev => {
+      if (checked) return prev.includes(id) ? prev : [...prev, id];
+      return prev.filter(item => item !== id);
+    });
+  };
+
+  const handleSelectAllVisible = () => {
+    const visibleIds = emails.map(mail => mail.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedMailIds.includes(id));
+    setSelectedMailIds(allSelected ? [] : visibleIds);
+  };
+
+  const refreshAfterBulk = async () => {
+    setSelectedMailIds([]);
+    if (selectedMail && selectedMailIds.includes(selectedMail.id)) setSelectedMail(null);
+    await fetchData();
+    await fetchMailboxes();
+  };
+
+  const handleBulkStatus = async (status) => {
+    if (selectedMailIds.length === 0) return;
+    setIsBulkBusy(true);
+    try {
+      await axios.patch(`${API_URL}/emails/bulk/status`, { ids: selectedMailIds, status });
+      await refreshAfterBulk();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Action groupee impossible.');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedMailIds.length === 0 || activeFilter !== 'archive') return;
+    const ok = window.confirm(`Supprimer definitivement ${selectedMailIds.length} mail(s) archive(s) ? Cette action est irreversible.`);
+    if (!ok) return;
+
+    setIsBulkBusy(true);
+    try {
+      await axios.delete(`${API_URL}/emails/bulk`, { data: { ids: selectedMailIds } });
+      await refreshAfterBulk();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Suppression definitive impossible.');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
   return (
     <div className={`app-content mail-layout ${selectedMail ? 'has-selection' : ''}`}>
       <Sidebar
         activeFilter={activeFilter}
-        onFilterChange={(f) => { setActiveFilter(f); setSelectedMail(null); }}
+        onFilterChange={(f) => { setActiveFilter(f); setSelectedMail(null); setSelectedMailIds([]); }}
         stats={stats}
         mailboxes={mailboxes}
         selectedMailbox={selectedMailbox}
-        onMailboxChange={(mailboxId) => { setSelectedMailbox(mailboxId); setSelectedMail(null); }}
+        onMailboxChange={(mailboxId) => { setSelectedMailbox(mailboxId); setSelectedMail(null); setSelectedMailIds([]); }}
         isSyncing={isSyncing}
         onSync={handleSync}
         onCompose={onCompose}
@@ -248,7 +300,14 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
             onSync={handleSync}
             isSyncing={isSyncing}
             searchTerm={searchTerm}
-            onSearch={setSearchTerm}
+            onSearch={(value) => { setSearchTerm(value); setSelectedMailIds([]); }}
+            activeFilter={activeFilter}
+            selectedIds={selectedMailIds}
+            isBulkBusy={isBulkBusy}
+            onToggleSelect={handleToggleMailSelection}
+            onSelectAll={handleSelectAllVisible}
+            onBulkStatus={handleBulkStatus}
+            onBulkDelete={handleBulkDelete}
           />
           <MailDetail
             mail={selectedMail}

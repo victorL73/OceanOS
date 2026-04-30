@@ -21,7 +21,8 @@ Ton rôle est ultra-proactif :
   - "Ignorer" : si c'est un mail purement informatif à garder mais sans y répondre.
   - "Répondre" : si le mail nécessite une réponse ou une attention humaine explicite.
 2) Détermine "is_business": true si le mail indique une intention d'achat, de devis, de commande ou de partenariat majeur. false sinon.
-3) Assigne "priorite" :
+3) Determine "is_advertising": true si le mail est une publicite, une promotion commerciale, une newsletter marketing ou une campagne automatisee. false sinon.
+4) Assigne "priorite" :
   - "urgent" (rouge) : alerte de sécurité, client fâché, transaction bloquée, deadline sous 2h.
   - "important" (orange) : opportunité commerciale, partenaire.
   - "normal" (bleu) : discussion classique.
@@ -33,6 +34,7 @@ JSON Attendu :
   "categorie": "facture" | "client" | "partenaire" | "newsletter" | "interne" | "autre",
   "action_recommandee": "Répondre" | "Ignorer" | "Archiver",
   "is_business": boolean,
+  "is_advertising": boolean,
   "priorite": "urgent" | "important" | "normal" | "faible",
   "resume": "Résumé rapide (1 phrase)",
   "reponse_formelle": "Votre réponse structurée pour ce contexte",
@@ -57,6 +59,12 @@ async function analyzeEmail(subject, content, from, userId = 1) {
 
         const responseText = completion.choices[0].message.content;
         const result = JSON.parse(responseText);
+        result.is_advertising = Boolean(
+            result.is_advertising ||
+            result.categorie === 'newsletter' ||
+            ['Archiver', 'Ignorer'].includes(result.action_recommandee) &&
+                /newsletter|promo|promotion|publicit|marketing|offre|soldes|unsubscribe|desabonn/i.test(`${subject} ${content}`)
+        );
 
         // Fallbacks
         if (result.action_recommandee === 'Répondre') {
@@ -73,6 +81,7 @@ async function analyzeEmail(subject, content, from, userId = 1) {
             categorie: "autre",
             action_recommandee: "Ignorer",
             is_business: false,
+            is_advertising: false,
             priorite: "normal",
             resume: "Erreur IA.",
             reponse_formelle: "",

@@ -40,6 +40,7 @@ function defaultEmailAnalysis(subject, fromAddr) {
         due_date: null,
         action_recommandee: 'Répondre',
         is_business: false,
+        is_advertising: false,
     };
 }
 
@@ -61,7 +62,8 @@ function scheduleEmailAnalysis(mailId, subject, content, fromAddr, userId) {
                      amount = ?,
                      due_date = ?,
                      action_recommandee = ?,
-                     is_business = ?
+                     is_business = ?,
+                     is_advertising = ?
                  WHERE id = ? AND user_id = ?`,
                 [
                     aiResult.categorie || 'autre',
@@ -74,6 +76,7 @@ function scheduleEmailAnalysis(mailId, subject, content, fromAddr, userId) {
                     aiResult.due_date || null,
                     aiResult.action_recommandee || 'Répondre',
                     aiResult.is_business ? 1 : 0,
+                    aiResult.is_advertising ? 1 : 0,
                     mailId,
                     userId,
                 ]
@@ -238,8 +241,8 @@ async function syncMailbox(userConfig, account) {
                             categorie, priorite, resume,
                             reponse_formelle, reponse_amicale, reponse_rapide,
                             amount, due_date, attachments, date_reception, action_recommandee, is_business,
-                            user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             uidInfo.internalUid,
                             fromAddr,
@@ -258,6 +261,7 @@ async function syncMailbox(userConfig, account) {
                             date,
                             aiResult.action_recommandee || 'Repondre',
                             aiResult.is_business ? 1 : 0,
+                            aiResult.is_advertising ? 1 : 0,
                             userConfig.user_id,
                             account.id,
                             account.email,

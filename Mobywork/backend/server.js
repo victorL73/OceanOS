@@ -111,6 +111,7 @@ app.get('/api/prestashop/products', async (req, res) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: 'uploads/' });
+const ATTACHMENTS_DIR = path.resolve(__dirname, 'attachments');
 
 function dbGet(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -197,6 +198,81 @@ async function recordSentMail({ userId, sender, to, subject, text, html, replyTo
             'sent',
         ]
     );
+}
+
+function normalizeThreadSubject(subject = '') {
+    return String(subject || '')
+        .replace(/^(\s*(re|fw|fwd|tr)\s*:\s*)+/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function extractEmails(value = '') {
+    const matches = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi);
+    return Array.from(new Set((matches || []).map(email => email.toLowerCase())));
+}
+
+function rowEmails(row = {}) {
+    return Array.from(new Set([
+        ...extractEmails(row.from_address),
+        ...extractEmails(row.to_address),
+        ...extractEmails(row.mailbox_address),
+    ]));
+}
+
+function sameThread(base, candidate, counterpartEmails) {
+    const baseSubject = normalizeThreadSubject(base.subject);
+    const candidateSubject = normalizeThreadSubject(candidate.subject);
+    if (!baseSubject || !candidateSubject || baseSubject !== candidateSubject) return false;
+    if (Number(base.id) === Number(candidate.id)) return true;
+
+    const candidateEmails = rowEmails(candidate);
+    return counterpartEmails.length === 0 || counterpartEmails.some(email => candidateEmails.includes(email));
+}
+
+function parseAttachments(value) {
+    try {
+        const parsed = JSON.parse(value || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function resolveAttachmentPath(att = {}) {
+    if (!att.path) return null;
+    const storedPath = path.isAbsolute(att.path) ? att.path : path.join(__dirname, att.path);
+    const resolved = path.resolve(storedPath);
+    const base = `${ATTACHMENTS_DIR}${path.sep}`;
+    return resolved.startsWith(base) ? resolved : null;
+}
+
+function cleanupEmailAttachments(rows = []) {
+    const touchedDirs = new Set();
+
+    rows.forEach(row => {
+        parseAttachments(row.attachments).forEach(att => {
+            const filePath = resolveAttachmentPath(att);
+            if (!filePath) return;
+            touchedDirs.add(path.dirname(filePath));
+            try {
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            } catch (error) {
+                console.warn('[attachments] Suppression fichier impossible:', error.message);
+            }
+        });
+    });
+
+    touchedDirs.forEach(dir => {
+        try {
+            if (dir.startsWith(`${ATTACHMENTS_DIR}${path.sep}`) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
+                fs.rmdirSync(dir);
+            }
+        } catch (error) {
+            console.warn('[attachments] Nettoyage dossier impossible:', error.message);
+        }
+    });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -301,6 +377,57 @@ app.get('/api/emails', async (req, res) => {
 });
 
 // Détail d'un email
+app.get('/api/emails/:id/thread', async (req, res) => {
+    try {
+        const base = await dbGet("SELECT * FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id]);
+        if (!base) return res.status(404).json({ error: "Non trouve" });
+
+        const threadSubject = normalizeThreadSubject(base.subject);
+        if (!threadSubject) {
+            return res.json({ subject: '', counterpartEmails: [], count: 1, thread: [base] });
+        }
+
+        const accounts = await getUserMailAccounts(req.user.id).catch(() => []);
+        const ownEmails = new Set(
+            accounts
+                .map(account => String(account.email || '').toLowerCase())
+                .filter(Boolean)
+        );
+        if (base.mailbox_address) ownEmails.add(String(base.mailbox_address).toLowerCase());
+
+        const baseEmails = rowEmails(base);
+        let counterpartEmails = baseEmails.filter(email => !ownEmails.has(email));
+        if (counterpartEmails.length === 0) counterpartEmails = baseEmails;
+
+        const candidates = await dbAll(
+            `SELECT *
+             FROM emails
+             WHERE user_id = ?
+               AND subject IS NOT NULL
+               AND LOWER(subject) LIKE ?
+             ORDER BY date_reception ASC
+             LIMIT 500`,
+            [req.user.id, `%${threadSubject.slice(0, 80).toLowerCase()}%`]
+        );
+
+        const thread = candidates.filter(candidate => sameThread(base, candidate, counterpartEmails));
+        if (!thread.some(candidate => Number(candidate.id) === Number(base.id))) {
+            thread.push(base);
+        }
+
+        thread.sort((a, b) => new Date(a.date_reception || 0) - new Date(b.date_reception || 0));
+
+        res.json({
+            subject: threadSubject,
+            counterpartEmails,
+            count: thread.length,
+            thread,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message || "Impossible de charger l'historique." });
+    }
+});
+
 app.get('/api/emails/:id', (req, res) => {
     db.get("SELECT * FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err, row) => {
         if (err || !row) return res.status(404).json({ error: "Non trouvé" });
@@ -309,9 +436,63 @@ app.get('/api/emails/:id', (req, res) => {
 });
 
 // Mise à jour du statut
+app.patch('/api/emails/bulk/status', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids.map(id => Number(id)).filter(Number.isFinite)
+        : [];
+    const status = String(req.body?.status || '').trim();
+    const allowedStatuses = new Set(['a_repondre', 'traite', 'archive']);
+
+    if (ids.length === 0 || !allowedStatuses.has(status)) {
+        return res.status(400).json({ error: 'Selection ou statut invalide.' });
+    }
+
+    try {
+        const placeholders = ids.map(() => '?').join(',');
+        const result = await dbRun(
+            `UPDATE emails SET status = ? WHERE user_id = ? AND id IN (${placeholders})`,
+            [status, req.user.id, ...ids]
+        );
+        res.json({ success: true, updated: result.changes || 0, status });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Mise a jour groupee impossible.' });
+    }
+});
+
+app.delete('/api/emails/bulk', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids.map(id => Number(id)).filter(Number.isFinite)
+        : [];
+
+    if (ids.length === 0) {
+        return res.status(400).json({ error: 'Selection invalide.' });
+    }
+
+    try {
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = await dbAll(
+            `SELECT id, attachments FROM emails WHERE user_id = ? AND status = 'archive' AND id IN (${placeholders})`,
+            [req.user.id, ...ids]
+        );
+
+        if (rows.length === 0) {
+            return res.status(400).json({ error: 'Aucun mail archive dans la selection.' });
+        }
+
+        cleanupEmailAttachments(rows);
+        const result = await dbRun(
+            `DELETE FROM emails WHERE user_id = ? AND status = 'archive' AND id IN (${placeholders})`,
+            [req.user.id, ...ids]
+        );
+        res.json({ success: true, deleted: result.changes || 0 });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Suppression definitive impossible.' });
+    }
+});
+
 app.patch('/api/emails/:id/status', (req, res) => {
     const { status } = req.body;
-    db.run("UPDATE emails SET status = ? WHERE id = ?", [status, req.params.id], function(err) {
+    db.run("UPDATE emails SET status = ? WHERE id = ? AND user_id = ?", [status, req.params.id, req.user.id], function(err) {
         if (err) return res.status(500).json({ error: err });
         res.json({ success: true, id: req.params.id, status });
     });
@@ -440,8 +621,8 @@ app.post('/api/ai/generate-reply/:id', async (req, res) => {
                     reponse_formelle = ?,
                     reponse_amicale = ?,
                     reponse_rapide = ?
-                WHERE id = ?`,
-                [result.resume, result.reponse_formelle, result.reponse_amicale, result.reponse_rapide, req.params.id],
+                WHERE id = ? AND user_id = ?`,
+                [result.resume, result.reponse_formelle, result.reponse_amicale, result.reponse_rapide, req.params.id, req.user.id],
                 function(updateErr) {
                     if (updateErr) return res.status(500).json({ error: updateErr.toString() });
                     res.json({
@@ -467,17 +648,17 @@ app.post('/api/ai/generate-reply/:id', async (req, res) => {
 // Télécharger une pièce jointe
 // GET /api/emails/:id/attachments/:filename
 app.get('/api/emails/:id/attachments/:filename', (req, res) => {
-    db.get("SELECT uid, attachments FROM emails WHERE id = ?", [req.params.id], (err, row) => {
+    db.get("SELECT uid, attachments FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err, row) => {
         if (err || !row) return res.status(404).json({ error: "Mail introuvable" });
 
-        let attachments = [];
-        try { attachments = JSON.parse(row.attachments || '[]'); } catch(e) {}
+        const attachments = parseAttachments(row.attachments);
 
         const att = attachments.find(a => a.filename === req.params.filename);
+        const filePath = resolveAttachmentPath(att || {});
         if (!att) return res.status(404).json({ error: "Pièce jointe introuvable" });
 
         // Vérifier que le fichier existe sur disque
-        if (!fs.existsSync(att.path)) {
+        if (!filePath || !fs.existsSync(filePath)) {
             return res.status(404).json({ error: "Fichier introuvable sur le serveur" });
         }
 
@@ -486,7 +667,7 @@ app.get('/api/emails/:id/attachments/:filename', (req, res) => {
         res.setHeader('Content-Type', att.contentType || 'application/octet-stream');
         
         // Streamer le fichier directement depuis le disque
-        const fileStream = fs.createReadStream(att.path);
+        const fileStream = fs.createReadStream(filePath);
         fileStream.on('error', () => res.status(500).json({ error: "Erreur lecture fichier" }));
         fileStream.pipe(res);
     });
@@ -495,14 +676,14 @@ app.get('/api/emails/:id/attachments/:filename', (req, res) => {
 // Prévisualiser une pièce jointe (inline pour images et PDFs)
 // GET /api/emails/:id/attachments/:filename/preview
 app.get('/api/emails/:id/attachments/:filename/preview', (req, res) => {
-    db.get("SELECT uid, attachments FROM emails WHERE id = ?", [req.params.id], (err, row) => {
+    db.get("SELECT uid, attachments FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], (err, row) => {
         if (err || !row) return res.status(404).json({ error: "Mail introuvable" });
 
-        let attachments = [];
-        try { attachments = JSON.parse(row.attachments || '[]'); } catch(e) {}
+        const attachments = parseAttachments(row.attachments);
 
         const att = attachments.find(a => a.filename === req.params.filename);
-        if (!att || !fs.existsSync(att.path)) {
+        const filePath = resolveAttachmentPath(att || {});
+        if (!att || !filePath || !fs.existsSync(filePath)) {
             return res.status(404).json({ error: "Fichier introuvable" });
         }
 
@@ -510,7 +691,7 @@ app.get('/api/emails/:id/attachments/:filename/preview', (req, res) => {
         res.setHeader('Content-Disposition', `inline; filename="${att.filename}"`);
         res.setHeader('Content-Type', att.contentType || 'application/octet-stream');
 
-        const fileStream = fs.createReadStream(att.path);
+        const fileStream = fs.createReadStream(filePath);
         fileStream.on('error', () => res.status(500).json({ error: "Erreur lecture fichier" }));
         fileStream.pipe(res);
     });

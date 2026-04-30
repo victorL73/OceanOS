@@ -2,6 +2,12 @@ import React, { useState } from 'react';
 import { Sparkles, CheckCircle, Archive, MessageSquare, AlertCircle, RefreshCw, CornerDownRight } from 'lucide-react';
 import axios from 'axios';
 
+function isAdvertisingMail(mail) {
+    if (Number(mail?.is_advertising) === 1) return true;
+    const haystack = `${mail?.categorie || ''} ${mail?.action_recommandee || ''} ${mail?.subject || ''} ${mail?.from_address || ''} ${mail?.resume || ''}`;
+    return /newsletter|promo|promotion|publicit|marketing|soldes|offre commerciale|unsubscribe|desabonn/i.test(haystack);
+}
+
 export default function AiPanel({ mail, onStatusChange, onReplyFilled }) {
     const [isRegen, setIsRegen] = useState(false);
     const [selectedStyle, setSelectedStyle] = useState('Professionnel');
@@ -9,6 +15,7 @@ export default function AiPanel({ mail, onStatusChange, onReplyFilled }) {
     if (!mail) return null;
 
     const isSpamOrNewsletter = mail.action_recommandee === 'Archiver' || mail.action_recommandee === 'Ignorer';
+    const isAdvertising = isAdvertisingMail(mail);
 
     const handleRegen = async () => {
         setIsRegen(true);
@@ -63,6 +70,23 @@ export default function AiPanel({ mail, onStatusChange, onReplyFilled }) {
             </div>
 
             {/* LE RÉSUMÉ IA */}
+            <div className={`ai-ad-card ${isAdvertising ? 'is-ad' : 'not-ad'}`}>
+                <div>
+                    <div className="ai-ad-label">Detection publicite</div>
+                    <div className="ai-ad-title">{isAdvertising ? 'Mail publicitaire probable' : 'Pas de publicite detectee'}</div>
+                    <div className="ai-ad-copy">
+                        {isAdvertising
+                            ? "L'IA classe ce message comme promotion, newsletter ou campagne commerciale."
+                            : "L'IA ne voit pas de signal marketing fort sur ce message."}
+                    </div>
+                </div>
+                {isAdvertising && (
+                    <button className="action-btn outline" onClick={() => onStatusChange('archive')}>
+                        <Archive size={14} /> Archiver
+                    </button>
+                )}
+            </div>
+
             <div className="ai-summary-card">
                 <div className="ai-summary-title">
                     <Sparkles size={14} /> Synthèse du contexte

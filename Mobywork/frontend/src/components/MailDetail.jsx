@@ -27,6 +27,23 @@ function calcReadTime(text) {
   return Math.max(1, Math.ceil(text.split(/\s+/).length / 200));
 }
 
+function formatThreadDate(dateString) {
+  if (!dateString) return '';
+  return new Date(dateString).toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function cleanPreview(text = '') {
+  return String(text || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated, onBack }) {
   const [activeTab, setActiveTab] = useState('ai');
   const [draftReply, setDraftReply] = useState('');
@@ -34,6 +51,9 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   const [replyAttachments, setReplyAttachments] = useState([]);
   const [senders, setSenders] = useState([]);
   const [senderId, setSenderId] = useState('');
+  const [thread, setThread] = useState([]);
+  const [isThreadLoading, setIsThreadLoading] = useState(false);
+  const autoOpenedThreadFor = useRef(null);
 
   useEffect(() => {
     const loadSenders = async () => {
@@ -54,6 +74,46 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   useEffect(() => {
     if (isSent) setActiveTab('full');
   }, [isSent, mail?.id]);
+
+  useEffect(() => {
+    if (mail?.id && !isSent) setActiveTab('ai');
+  }, [isSent, mail?.id]);
+
+  useEffect(() => {
+    if (!mail?.id) {
+      setThread([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadThread = async () => {
+      setIsThreadLoading(true);
+      try {
+        const res = await axios.get(`${import.meta.env.VITE_API_URL || '/api'}/emails/${mail.id}/thread`);
+        if (!cancelled) setThread(Array.isArray(res.data?.thread) ? res.data.thread : []);
+      } catch (err) {
+        console.error('Erreur chargement historique mail:', err);
+        if (!cancelled) setThread([]);
+      } finally {
+        if (!cancelled) setIsThreadLoading(false);
+      }
+    };
+
+    loadThread();
+    return () => { cancelled = true; };
+  }, [mail?.id]);
+
+  useEffect(() => {
+    if (!mail?.id || isSent || autoOpenedThreadFor.current === mail.id) return;
+    const hasPreviousSentMail = thread.some(item =>
+      Number(item.id) !== Number(mail.id) && (item.direction === 'sent' || item.status === 'sent')
+    );
+
+    if (hasPreviousSentMail) {
+      setActiveTab('history');
+      autoOpenedThreadFor.current = mail.id;
+    }
+  }, [isSent, mail?.id, thread]);
 
   if (!mail) {
     return (
@@ -166,6 +226,12 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
               }}>📎 {attachmentCount}</span>
             )}
           </div>
+          <div
+            className={`detail-tab ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >
+            Historique ({isThreadLoading ? '...' : thread.length || 1})
+          </div>
         </div>
       </div>
 
@@ -186,6 +252,42 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                   if (ta) ta.focus();
               }}
             />
+            {attachmentCount > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <EmailAttachments mailId={mail.id} attachmentsJson={mail.attachments} />
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'history' ? (
+          <div className="thread-history">
+            {isThreadLoading ? (
+              <div className="thread-empty">Chargement de l'historique...</div>
+            ) : thread.length <= 1 ? (
+              <div className="thread-empty">
+                Aucun autre mail lie trouve pour ce sujet. Les prochains envois et receptions seront ajoutes ici automatiquement.
+              </div>
+            ) : (
+              thread.map(item => {
+                const itemSent = item.direction === 'sent' || item.status === 'sent';
+                const itemCurrent = Number(item.id) === Number(mail.id);
+                return (
+                  <div key={item.id} className={`thread-card ${itemSent ? 'sent' : 'received'} ${itemCurrent ? 'current' : ''}`}>
+                    <div className="thread-card-header">
+                      <span className={`thread-badge ${itemSent ? 'sent' : 'received'}`}>{itemSent ? 'Envoye' : 'Recu'}</span>
+                      <strong>{itemSent ? `A : ${item.to_address || item.from_address || 'Destinataire inconnu'}` : `De : ${item.from_address || 'Expediteur inconnu'}`}</strong>
+                      <span>{formatThreadDate(item.date_reception)}</span>
+                    </div>
+                    <div className="thread-subject">
+                      {item.subject || 'Sans objet'} {itemCurrent && <span className="thread-current-label">mail ouvert</span>}
+                    </div>
+                    <div className="thread-preview">{cleanPreview(item.content || item.resume).slice(0, 700) || 'Aucun contenu texte.'}</div>
+                    {item.attachments && item.attachments !== '[]' && (
+                      <EmailAttachments mailId={item.id} attachmentsJson={item.attachments} />
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         ) : (
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

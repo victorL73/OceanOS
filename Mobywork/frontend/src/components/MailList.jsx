@@ -1,7 +1,20 @@
 import React from 'react';
-import { Search } from 'lucide-react';
+import { Archive, Check, CheckSquare, RotateCcw, Search, Square, Trash2, X } from 'lucide-react';
 
-export default function MailList({ mails, selectedMailId, onSelectMail, onSync, isSyncing, searchTerm, onSearch }) {
+export default function MailList({
+    mails,
+    selectedMailId,
+    onSelectMail,
+    searchTerm,
+    onSearch,
+    activeFilter,
+    selectedIds = [],
+    isBulkBusy = false,
+    onToggleSelect,
+    onSelectAll,
+    onBulkStatus,
+    onBulkDelete,
+}) {
 
     const formatDate = (dateString) => {
         if (!dateString) return '';
@@ -18,6 +31,16 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
         }
     };
 
+    const isAdvertising = (mail) => {
+        if (Number(mail.is_advertising) === 1) return true;
+        const haystack = `${mail.categorie || ''} ${mail.action_recommandee || ''} ${mail.subject || ''} ${mail.resume || ''}`;
+        return /newsletter|promo|promotion|publicit|marketing|soldes|unsubscribe|desabonn/i.test(haystack);
+    };
+
+    const selectedCount = selectedIds.length;
+    const allVisibleSelected = mails.length > 0 && mails.every(mail => selectedIds.includes(mail.id));
+    const canDeleteForever = activeFilter === 'archive';
+
     return (
         <div className="mail-list-panel">
             {/* SEARCH */}
@@ -31,7 +54,41 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
                     />
                     <Search className="search-icon" size={14} />
                 </div>
-                <div className="mail-list-count">{mails.length} messages</div>
+                <div className="mail-list-meta-row">
+                    <button
+                        className="mail-select-all"
+                        onClick={onSelectAll}
+                        disabled={mails.length === 0 || isBulkBusy}
+                        title={allVisibleSelected ? 'Deselectionner les mails visibles' : 'Selectionner les mails visibles'}
+                    >
+                        {allVisibleSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+                    </button>
+                    <div className="mail-list-count">{mails.length} messages</div>
+                </div>
+                {selectedCount > 0 && (
+                    <div className="mail-bulk-bar">
+                        <span>{selectedCount} selectionne{selectedCount > 1 ? 's' : ''}</span>
+                        <button className="mail-bulk-btn" onClick={() => onBulkStatus('traite')} disabled={isBulkBusy} title="Marquer comme traite">
+                            <Check size={13} /> Traites
+                        </button>
+                        <button className="mail-bulk-btn" onClick={() => onBulkStatus('archive')} disabled={isBulkBusy} title="Archiver">
+                            <Archive size={13} /> Archiver
+                        </button>
+                        {activeFilter === 'treated' && (
+                            <button className="mail-bulk-btn" onClick={() => onBulkStatus('a_repondre')} disabled={isBulkBusy} title="Remettre a traiter">
+                                <RotateCcw size={13} /> A traiter
+                            </button>
+                        )}
+                        {canDeleteForever && (
+                            <button className="mail-bulk-btn danger" onClick={onBulkDelete} disabled={isBulkBusy} title="Supprimer definitivement">
+                                <Trash2 size={13} /> Supprimer
+                            </button>
+                        )}
+                        <button className="mail-bulk-clear" onClick={() => selectedIds.forEach(id => onToggleSelect(id, false))} disabled={isBulkBusy} title="Annuler la selection">
+                            <X size={13} />
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* LIST */}
@@ -54,10 +111,20 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
                     return (
                         <div 
                             key={mail.id} 
-                            className={`mail-card ${selectedMailId === mail.id ? 'selected' : ''} ${mail.status === 'a_repondre' ? 'unread' : ''}`}
+                            className={`mail-card ${selectedMailId === mail.id ? 'selected' : ''} ${selectedIds.includes(mail.id) ? 'bulk-selected' : ''} ${mail.status === 'a_repondre' ? 'unread' : ''}`}
                             onClick={() => onSelectMail(mail)}
                             style={{ opacity: isIgnored ? 0.6 : 1 }}
                         >
+                            <button
+                                className="mail-card-checkbox"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleSelect(mail.id, !selectedIds.includes(mail.id));
+                                }}
+                                title={selectedIds.includes(mail.id) ? 'Retirer de la selection' : 'Selectionner ce mail'}
+                            >
+                                {selectedIds.includes(mail.id) ? <CheckSquare size={15} /> : <Square size={15} />}
+                            </button>
                             <div className="mail-card-top">
                                 <div className="mail-avatar">{initial}</div>
                                 <div className="mail-card-from">{isSent ? 'A : ' : ''}{displayAddress}</div>
@@ -89,7 +156,8 @@ export default function MailList({ mails, selectedMailId, onSelectMail, onSync, 
                                 {mail.action_recommandee === 'Répondre' && (
                                     <span className="badge badge-client">📝 À traiter</span>
                                 )}
-                                {mail.categorie === 'newsletters' && <span className="badge badge-normal">Newsletter</span>}
+                                {['newsletter', 'newsletters'].includes(mail.categorie) && <span className="badge badge-normal">Newsletter</span>}
+                                {isAdvertising(mail) && <span className="badge badge-ad">Pub</span>}
                                 {mail.categorie === 'facture' && <span className="badge badge-facture">Facture</span>}
                                 {mail.status === 'traite' && <span className="badge badge-traite">✓ Traité</span>}
                             </div>
