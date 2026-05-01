@@ -335,6 +335,30 @@ function visiocean_save_settings(PDO $pdo, array $input): array
         $serviceAccountCipher = oceanos_encrypt_secret($serviceAccountJson);
     }
 
+    $oauthClientId = trim((string) ($settings['oauthClientId'] ?? $existing['oauth_client_id'] ?? ''));
+    $oauthClientSecretInput = trim((string) ($settings['oauthClientSecret'] ?? ''));
+    $oauthClientSecretCipher = $existing['oauth_client_secret_cipher'] ?? null;
+    $oauthRefreshTokenCipher = $existing['oauth_refresh_token_cipher'] ?? null;
+    $oauthConnectedEmail = (string) ($existing['oauth_connected_email'] ?? '');
+    $oauthScopes = (string) ($existing['oauth_scopes'] ?? '');
+    $oauthConnectedAt = $existing['oauth_connected_at'] ?? null;
+    if (!empty($settings['clearOAuthConnection'])) {
+        $oauthRefreshTokenCipher = null;
+        $oauthConnectedEmail = '';
+        $oauthScopes = '';
+        $oauthConnectedAt = null;
+    }
+    if (!empty($settings['clearOAuthClientSecret'])) {
+        $oauthClientSecretCipher = null;
+        $oauthRefreshTokenCipher = null;
+        $oauthConnectedEmail = '';
+        $oauthScopes = '';
+        $oauthConnectedAt = null;
+    }
+    if ($oauthClientSecretInput !== '') {
+        $oauthClientSecretCipher = oceanos_encrypt_secret($oauthClientSecretInput);
+    }
+
     $statement = $pdo->prepare(
         'UPDATE visiocean_settings
          SET site_url = :site_url,
@@ -346,7 +370,13 @@ function visiocean_save_settings(PDO $pdo, array $input): array
              target_keywords_json = :target_keywords_json,
              competitors_json = :competitors_json,
              service_account_cipher = :service_account_cipher,
-             service_account_hint = :service_account_hint
+             service_account_hint = :service_account_hint,
+             oauth_client_id = :oauth_client_id,
+             oauth_client_secret_cipher = :oauth_client_secret_cipher,
+             oauth_refresh_token_cipher = :oauth_refresh_token_cipher,
+             oauth_connected_email = :oauth_connected_email,
+             oauth_scopes = :oauth_scopes,
+             oauth_connected_at = :oauth_connected_at
          WHERE id = 1'
     );
     $statement->execute([
@@ -360,6 +390,12 @@ function visiocean_save_settings(PDO $pdo, array $input): array
         'competitors_json' => json_encode($competitors, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'service_account_cipher' => $serviceAccountCipher,
         'service_account_hint' => $serviceAccountHint,
+        'oauth_client_id' => $oauthClientId !== '' ? $oauthClientId : null,
+        'oauth_client_secret_cipher' => $oauthClientSecretCipher,
+        'oauth_refresh_token_cipher' => $oauthRefreshTokenCipher,
+        'oauth_connected_email' => $oauthConnectedEmail !== '' ? $oauthConnectedEmail : null,
+        'oauth_scopes' => $oauthScopes !== '' ? $oauthScopes : null,
+        'oauth_connected_at' => $oauthConnectedAt,
     ]);
 
     return visiocean_public_settings($pdo, true);
@@ -435,11 +471,57 @@ function visiocean_base64url(string $data): string
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
+function visiocean_oauth_token_request(array $params): array
+{
+    $response = visiocean_http_request('POST', 'https://oauth2.googleapis.com/token', [
+        'Content-Type: application/x-www-form-urlencoded',
+        'Accept: application/json',
+    ], http_build_query($params, '', '&', PHP_QUERY_RFC3986), 35);
+
+    $decoded = json_decode($response['body'], true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('Reponse OAuth Google illisible.');
+    }
+    if (($response['status'] < 200 || $response['status'] >= 300) || isset($decoded['error'])) {
+        throw new RuntimeException((string) ($decoded['error_description'] ?? $decoded['error'] ?? 'Authentification Google refusee.'));
+    }
+
+    return $decoded;
+}
+
+function visiocean_oauth_access_token(array $settings): string
+{
+    $clientId = trim((string) ($settings['oauthClientId'] ?? ''));
+    $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
+    $refreshToken = trim((string) ($settings['oauthRefreshToken'] ?? ''));
+    if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
+        throw new RuntimeException('Connectez Google OAuth dans Visiocean.');
+    }
+
+    $decoded = visiocean_oauth_token_request([
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'refresh_token' => $refreshToken,
+        'grant_type' => 'refresh_token',
+    ]);
+
+    $accessToken = trim((string) ($decoded['access_token'] ?? ''));
+    if ($accessToken === '') {
+        throw new RuntimeException('Jeton OAuth Google non obtenu.');
+    }
+
+    return $accessToken;
+}
+
 function visiocean_google_access_token(array $settings, array $scopes): string
 {
+    if (trim((string) ($settings['oauthRefreshToken'] ?? '')) !== '') {
+        return visiocean_oauth_access_token($settings);
+    }
+
     $json = trim((string) ($settings['serviceAccountJson'] ?? ''));
     if ($json === '') {
-        throw new RuntimeException('Ajoutez un compte de service Google autorise.');
+        throw new RuntimeException('Connectez Google OAuth ou ajoutez un compte de service Google autorise.');
     }
     $service = json_decode($json, true);
     if (!is_array($service)) {
@@ -483,6 +565,94 @@ function visiocean_google_access_token(array $settings, array $scopes): string
     }
 
     return (string) $decoded['access_token'];
+}
+
+function visiocean_oauth_authorization_url(PDO $pdo): string
+{
+    $settings = visiocean_private_settings($pdo);
+    $clientId = trim((string) ($settings['oauthClientId'] ?? ''));
+    $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
+    if ($clientId === '' || $clientSecret === '') {
+        throw new RuntimeException('Renseignez le Client ID et le Client secret OAuth dans Visiocean avant de connecter Google.');
+    }
+
+    oceanos_start_session();
+    $state = bin2hex(random_bytes(24));
+    $_SESSION['visiocean_oauth_state'] = $state;
+
+    return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
+        'client_id' => $clientId,
+        'redirect_uri' => visiocean_oauth_redirect_uri(),
+        'response_type' => 'code',
+        'scope' => implode(' ', visiocean_google_scopes()),
+        'access_type' => 'offline',
+        'prompt' => 'consent',
+        'include_granted_scopes' => 'true',
+        'state' => $state,
+    ], '', '&', PHP_QUERY_RFC3986);
+}
+
+function visiocean_oauth_user_email(string $accessToken): string
+{
+    $response = visiocean_http_request('GET', 'https://openidconnect.googleapis.com/v1/userinfo', [
+        'Authorization: Bearer ' . $accessToken,
+        'Accept: application/json',
+    ], null, 25);
+    $decoded = json_decode($response['body'], true);
+    if (!is_array($decoded)) {
+        return '';
+    }
+
+    return trim((string) ($decoded['email'] ?? ''));
+}
+
+function visiocean_complete_oauth(PDO $pdo, string $code, string $state): array
+{
+    oceanos_start_session();
+    $expectedState = (string) ($_SESSION['visiocean_oauth_state'] ?? '');
+    unset($_SESSION['visiocean_oauth_state']);
+    if ($expectedState === '' || !hash_equals($expectedState, $state)) {
+        throw new RuntimeException('Connexion Google expiree ou invalide.');
+    }
+
+    $settings = visiocean_private_settings($pdo);
+    $clientId = trim((string) ($settings['oauthClientId'] ?? ''));
+    $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
+    if ($clientId === '' || $clientSecret === '') {
+        throw new RuntimeException('Client OAuth Visiocean incomplet.');
+    }
+
+    $token = visiocean_oauth_token_request([
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'code' => $code,
+        'redirect_uri' => visiocean_oauth_redirect_uri(),
+        'grant_type' => 'authorization_code',
+    ]);
+
+    $refreshToken = trim((string) ($token['refresh_token'] ?? ''));
+    if ($refreshToken === '') {
+        throw new RuntimeException('Google n a pas retourne de refresh token. Relancez la connexion avec prompt=consent ou revoquez l acces OAuth existant.');
+    }
+    $accessToken = trim((string) ($token['access_token'] ?? ''));
+    $email = $accessToken !== '' ? visiocean_oauth_user_email($accessToken) : '';
+    $scopes = trim((string) ($token['scope'] ?? implode(' ', visiocean_google_scopes())));
+
+    $statement = $pdo->prepare(
+        'UPDATE visiocean_settings
+         SET oauth_refresh_token_cipher = :refresh_token,
+             oauth_connected_email = :email,
+             oauth_scopes = :scopes,
+             oauth_connected_at = CURRENT_TIMESTAMP
+         WHERE id = 1'
+    );
+    $statement->execute([
+        'refresh_token' => oceanos_encrypt_secret($refreshToken),
+        'email' => $email !== '' ? $email : null,
+        'scopes' => $scopes !== '' ? $scopes : null,
+    ]);
+
+    return visiocean_public_settings($pdo, true);
 }
 
 function visiocean_date_range(int $days): array
@@ -531,8 +701,8 @@ function visiocean_google_analytics(array $settings, int $days): array
     if ($propertyId === '') {
         return visiocean_empty_analytics('Ajoutez l ID de propriete GA4 pour lire Google Analytics.');
     }
-    if (trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
-        return visiocean_empty_analytics('Ajoutez un compte de service Google autorise sur la propriete GA4.');
+    if (trim((string) ($settings['oauthRefreshToken'] ?? '')) === '' && trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
+        return visiocean_empty_analytics('Connectez Google OAuth dans Visiocean pour lire la propriete GA4.');
     }
 
     try {
@@ -628,8 +798,8 @@ function visiocean_search_console(array $settings, int $days): array
     if ($siteUrl === '') {
         return visiocean_empty_search('Ajoutez la propriete Search Console du site.');
     }
-    if (trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
-        return visiocean_empty_search('Ajoutez un compte de service Google autorise sur Search Console.');
+    if (trim((string) ($settings['oauthRefreshToken'] ?? '')) === '' && trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
+        return visiocean_empty_search('Connectez Google OAuth dans Visiocean pour lire Search Console.');
     }
 
     try {

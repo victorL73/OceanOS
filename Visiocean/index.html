@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/visiocean.svg?v=20260501">
   <meta name="description" content="Visiocean - pilotage Google Analytics, Search Console, SEO et amelioration de visibilite.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-visiocean">
+  <link rel="stylesheet" href="assets/style.css?v=20260501-visiocean-oauth">
   <script defer src="/OceanOS/assets/guard.js?v=20260501-visiocean"></script>
-  <script defer src="assets/app.js?v=20260501-visiocean"></script>
+  <script defer src="assets/app.js?v=20260501-visiocean-oauth"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -214,6 +214,36 @@
               <label class="field">
                 <span>Concurrents</span>
                 <textarea id="competitors" rows="7" placeholder="Un site concurrent par ligne"></textarea>
+              </label>
+            </section>
+
+            <section class="settings-section wide">
+              <div class="settings-section-head">
+                <h3>Google OAuth</h3>
+                <div class="settings-actions-inline">
+                  <label class="toggle-row">
+                    <input id="clear-oauth-connection" type="checkbox">
+                    <span>Deconnecter Google</span>
+                  </label>
+                  <a class="primary-button" id="connect-google-button" href="api/oauth-start.php">Connecter Google</a>
+                </div>
+              </div>
+              <p class="settings-note" id="oauth-status-note"></p>
+              <label class="field">
+                <span>URI de redirection autorisee</span>
+                <input id="oauth-redirect-uri" type="text" readonly>
+              </label>
+              <label class="field">
+                <span>Client ID OAuth</span>
+                <input id="oauth-client-id" type="text" spellcheck="false" placeholder="...apps.googleusercontent.com">
+              </label>
+              <label class="field">
+                <span>Client secret OAuth</span>
+                <input id="oauth-client-secret" type="password" spellcheck="false" placeholder="GOCSPX-...">
+              </label>
+              <label class="toggle-row">
+                <input id="clear-oauth-client-secret" type="checkbox">
+                <span>Supprimer le secret OAuth enregistre</span>
               </label>
             </section>
 

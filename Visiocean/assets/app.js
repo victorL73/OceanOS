@@ -43,6 +43,13 @@ const elements = {
   searchConsoleSiteUrl: $("search-console-site-url"),
   targetKeywords: $("target-keywords"),
   competitors: $("competitors"),
+  oauthStatusNote: $("oauth-status-note"),
+  oauthRedirectUri: $("oauth-redirect-uri"),
+  oauthClientId: $("oauth-client-id"),
+  oauthClientSecret: $("oauth-client-secret"),
+  clearOAuthConnection: $("clear-oauth-connection"),
+  clearOAuthClientSecret: $("clear-oauth-client-secret"),
+  connectGoogleButton: $("connect-google-button"),
   serviceAccountNote: $("service-account-note"),
   serviceAccountJson: $("service-account-json"),
   clearServiceAccount: $("clear-service-account"),
@@ -169,8 +176,8 @@ function renderMetrics(payload) {
 function sourceStatusMessage(payload) {
   const settings = payload.settings || {};
   const messages = [];
-  if (!settings.hasServiceAccount) {
-    messages.push("Compte de service Google manquant : ajoutez le JSON prive puis donnez son email en lecteur sur GA4 et Search Console.");
+  if (!settings.hasOAuthConnection && !settings.hasServiceAccount) {
+    messages.push("Google n'est pas connecte : renseignez Client ID/secret OAuth, enregistrez, puis cliquez sur Connecter Google.");
   } else {
     if (!payload.analytics?.available) {
       messages.push(`GA4 : ${payload.analytics?.message || "donnees indisponibles"}.`);
@@ -343,14 +350,27 @@ function renderSettings(payload) {
     elements.searchConsoleSiteUrl.value = settings.searchConsoleSiteUrl || "";
     elements.targetKeywords.value = (settings.targetKeywords || []).join("\n");
     elements.competitors.value = (settings.competitors || []).join("\n");
+    elements.oauthRedirectUri.value = settings.oauthRedirectUri || "";
+    elements.oauthClientId.value = settings.oauthClientId || "";
+    elements.oauthClientSecret.value = "";
+    elements.clearOAuthConnection.checked = false;
+    elements.clearOAuthClientSecret.checked = false;
     elements.serviceAccountJson.value = "";
     elements.clearServiceAccount.checked = false;
     state.settingsLoaded = true;
   }
 
+  if (settings.hasOAuthConnection) {
+    const connected = settings.oauthConnectedEmail ? `Connecte avec ${settings.oauthConnectedEmail}` : "Google OAuth connecte.";
+    elements.oauthStatusNote.textContent = settings.oauthConnectedAt ? `${connected} Derniere connexion : ${formatDate(settings.oauthConnectedAt)}.` : connected;
+  } else if (settings.hasOAuthClientSecret && settings.oauthClientId) {
+    elements.oauthStatusNote.textContent = "Client OAuth enregistre. Cliquez sur Connecter Google pour autoriser GA4 et Search Console.";
+  } else {
+    elements.oauthStatusNote.textContent = "Renseignez le Client ID et le Client secret, enregistrez, puis connectez votre compte Google autorise sur GA4/Search Console.";
+  }
   elements.serviceAccountNote.textContent = settings.hasServiceAccount
     ? `Compte enregistre : ${settings.serviceAccountHint || "cle chiffree"}`
-    : "Aucun compte de service enregistre. Collez le JSON prive Google, enregistrez, puis partagez GA4 et Search Console avec l email client_email du JSON.";
+    : "Option secondaire. OAuth est recommande pour ce compte GA4, car l'ajout du compte de service est refuse par Google Analytics.";
 
   const disabled = !payload.canManage;
   [
@@ -362,6 +382,10 @@ function renderSettings(payload) {
     elements.searchConsoleSiteUrl,
     elements.targetKeywords,
     elements.competitors,
+    elements.oauthClientId,
+    elements.oauthClientSecret,
+    elements.clearOAuthConnection,
+    elements.clearOAuthClientSecret,
     elements.serviceAccountJson,
     elements.clearServiceAccount,
     elements.saveSettingsButton,
@@ -369,6 +393,8 @@ function renderSettings(payload) {
   ].forEach((element) => {
     element.disabled = disabled;
   });
+  elements.connectGoogleButton.classList.toggle("is-disabled", disabled || !settings.oauthClientId || !settings.hasOAuthClientSecret);
+  elements.connectGoogleButton.setAttribute("aria-disabled", disabled || !settings.oauthClientId || !settings.hasOAuthClientSecret ? "true" : "false");
 }
 
 function render(payload) {
@@ -406,6 +432,10 @@ function collectSettings() {
     searchConsoleSiteUrl: elements.searchConsoleSiteUrl.value,
     targetKeywords: listFromTextarea(elements.targetKeywords.value),
     competitors: listFromTextarea(elements.competitors.value),
+    oauthClientId: elements.oauthClientId.value,
+    oauthClientSecret: elements.oauthClientSecret.value,
+    clearOAuthConnection: elements.clearOAuthConnection.checked,
+    clearOAuthClientSecret: elements.clearOAuthClientSecret.checked,
     serviceAccountJson: elements.serviceAccountJson.value,
     clearServiceAccount: elements.clearServiceAccount.checked,
   };
@@ -511,6 +541,12 @@ function bindEvents() {
   elements.auditButton.addEventListener("click", () => void runAudit());
   elements.saveSettingsButton.addEventListener("click", () => void saveSettings());
   elements.logoutButton.addEventListener("click", () => void logout());
+  elements.connectGoogleButton.addEventListener("click", (event) => {
+    if (elements.connectGoogleButton.getAttribute("aria-disabled") === "true") {
+      event.preventDefault();
+      setMessage("Enregistrez le Client ID et le Client secret OAuth avant de connecter Google.", "info");
+    }
+  });
   elements.copySnippetButton.addEventListener("click", async () => {
     const snippet = state.payload?.trackingSnippet || "";
     if (!snippet) return;
@@ -527,6 +563,13 @@ async function boot() {
   bindEvents();
   try {
     await loadDashboard();
+    const params = new URLSearchParams(window.location.search);
+    const googleStatus = params.get("google");
+    const googleMessage = params.get("message");
+    if (googleMessage) {
+      setMessage(googleMessage, googleStatus === "connected" ? "success" : "error");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   } catch (error) {
     setVisible(true);
     setMessage(error.message || "Visiocean indisponible.", "error");

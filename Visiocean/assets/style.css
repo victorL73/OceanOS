@@ -616,6 +616,14 @@ textarea:disabled {
   flex-wrap: wrap;
 }
 
+.settings-actions-inline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .settings-note {
   color: var(--muted);
   font-size: 0.9rem;
@@ -645,6 +653,11 @@ textarea:disabled {
   padding: 10px 12px;
 }
 
+.field input[readonly] {
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
 .field textarea {
   min-height: 130px;
   resize: vertical;
@@ -670,6 +683,11 @@ textarea:disabled {
   width: 17px;
   height: 17px;
   accent-color: var(--teal);
+}
+
+.is-disabled {
+  pointer-events: none;
+  opacity: 0.58;
 }
 
 .empty-state {
