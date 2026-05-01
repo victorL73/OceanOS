@@ -7,62 +7,119 @@ try {
     $pdo = visiocean_pdo();
     $user = visiocean_require_user($pdo);
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-    $days = (int) ($_GET['days'] ?? 30);
 
     if ($method === 'GET') {
-        oceanos_json_response(visiocean_dashboard($pdo, $user, $days));
+        oceanos_json_response(visiocean_dashboard($pdo, $user));
     }
 
-    if ($method === 'POST') {
-        $input = oceanos_read_json_request();
-        $action = strtolower(trim((string) ($input['action'] ?? 'dashboard')));
-
-        if ($action === 'refresh_google') {
-            oceanos_json_response([
-                ...visiocean_dashboard($pdo, $user, (int) ($input['days'] ?? $days)),
-                'message' => 'Donnees Google actualisees.',
-            ]);
-        }
-
-        if (!visiocean_is_admin($user)) {
-            oceanos_json_response([
-                'ok' => false,
-                'error' => 'forbidden',
-                'message' => 'Configuration Visiocean reservee aux administrateurs.',
-            ], 403);
-        }
-
-        if ($action === 'save_settings') {
-            $settings = visiocean_save_settings($pdo, $input);
-            oceanos_json_response([
-                ...visiocean_dashboard($pdo, $user, (int) ($input['days'] ?? $days)),
-                'settings' => $settings,
-                'message' => 'Configuration Visiocean enregistree.',
-            ]);
-        }
-
-        if ($action === 'audit_site') {
-            $settings = visiocean_private_settings($pdo);
-            $audit = visiocean_run_audit($pdo, $settings, (int) ($input['limit'] ?? 12));
-            oceanos_json_response([
-                ...visiocean_dashboard($pdo, $user, (int) ($input['days'] ?? $days)),
-                'audit' => $audit,
-                'message' => 'Audit SEO Visiocean termine.',
-            ]);
-        }
-
+    if ($method !== 'POST') {
         oceanos_json_response([
             'ok' => false,
-            'error' => 'unsupported_action',
-            'message' => 'Action Visiocean non supportee.',
-        ], 422);
+            'error' => 'method_not_allowed',
+            'message' => 'Methode non supportee.',
+        ], 405);
+    }
+
+    $input = oceanos_read_json_request();
+    $action = strtolower(trim((string) ($input['action'] ?? 'dashboard')));
+
+    if ($action === 'dashboard') {
+        oceanos_json_response(visiocean_dashboard($pdo, $user));
+    }
+
+    if ($action === 'create_room') {
+        $room = visiocean_create_room($pdo, $user, (string) ($input['title'] ?? 'Reunion Visiocean'));
+        $participant = visiocean_touch_participant($pdo, $room, $user, $input);
+        oceanos_json_response([
+            ...visiocean_room_state($pdo, $room, $user, $participant['clientId'], 0, 0, $participant['targetLanguage']),
+            'message' => 'Reunion creee.',
+        ]);
+    }
+
+    if ($action === 'join_room') {
+        $room = visiocean_find_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '');
+        $participant = visiocean_touch_participant($pdo, $room, $user, $input);
+        oceanos_json_response([
+            ...visiocean_room_state($pdo, $room, $user, $participant['clientId'], 0, 0, $participant['targetLanguage']),
+            'message' => 'Reunion rejointe.',
+        ]);
+    }
+
+    if ($action === 'touch') {
+        $room = visiocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        $participant = visiocean_touch_participant($pdo, $room, $user, $input);
+        oceanos_json_response([
+            ...visiocean_room_state(
+                $pdo,
+                $room,
+                $user,
+                $participant['clientId'],
+                (int) ($input['sinceSignalId'] ?? 0),
+                (int) ($input['sinceTranscriptId'] ?? 0),
+                $participant['targetLanguage']
+            ),
+            'message' => 'Presence mise a jour.',
+        ]);
+    }
+
+    if ($action === 'sync') {
+        $room = visiocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        $participant = visiocean_touch_participant($pdo, $room, $user, $input);
+        oceanos_json_response(visiocean_room_state(
+            $pdo,
+            $room,
+            $user,
+            $participant['clientId'],
+            (int) ($input['sinceSignalId'] ?? 0),
+            (int) ($input['sinceTranscriptId'] ?? 0),
+            $participant['targetLanguage']
+        ));
+    }
+
+    if ($action === 'leave_room') {
+        $room = visiocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        $clientId = visiocean_clean_client_id($input['clientId'] ?? '');
+        visiocean_leave_participant($pdo, (int) $room['id'], $clientId);
+        oceanos_json_response([
+            'ok' => true,
+            'managedBy' => 'OceanOS',
+            'message' => 'Vous avez quitte la reunion.',
+        ]);
+    }
+
+    if ($action === 'signal') {
+        $room = visiocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        $signal = visiocean_add_signal($pdo, $room, $input);
+        oceanos_json_response([
+            'ok' => true,
+            'managedBy' => 'OceanOS',
+            'signal' => $signal,
+        ]);
+    }
+
+    if ($action === 'add_transcript') {
+        $room = visiocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        $participant = visiocean_touch_participant($pdo, $room, $user, $input);
+        $transcript = visiocean_add_transcript($pdo, $room, $user, $input);
+        oceanos_json_response([
+            ...visiocean_room_state(
+                $pdo,
+                $room,
+                $user,
+                $participant['clientId'],
+                (int) ($input['sinceSignalId'] ?? 0),
+                max(0, $transcript['id'] - 1),
+                $participant['targetLanguage']
+            ),
+            'message' => 'Transcription ajoutee.',
+        ]);
     }
 
     oceanos_json_response([
         'ok' => false,
-        'error' => 'method_not_allowed',
-        'message' => 'Methode non supportee.',
-    ], 405);
+        'error' => 'unsupported_action',
+        'message' => 'Action Visiocean non supportee.',
+    ], 422);
 } catch (InvalidArgumentException $exception) {
     oceanos_json_response([
         'ok' => false,
