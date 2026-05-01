@@ -333,6 +333,10 @@ select:disabled {
   gap: 12px;
 }
 
+.language-row.single-language {
+  grid-template-columns: 1fr;
+}
+
 .field {
   display: grid;
   gap: 7px;

@@ -8,6 +8,7 @@ OceanOS est le portail principal du dossier `www`. Il centralise la connexion, l
 www/
   admin/                 Page de configuration initiale serveur
   OceanOS/               Portail CRM, session centrale, comptes, IA Groq
+  Agenda/                Agenda personnel, taches consolidees et reunions MeetOcean
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
@@ -36,6 +37,7 @@ OceanOS est la passerelle d'entrée du CRM.
 
 Les applications concernées actuellement sont :
 
+- Agenda
 - Flowcean
 - Invocean
 - Stockcean
@@ -150,6 +152,13 @@ oceanos_user_ai_settings
 oceanos_prestashop_settings
 oceanos_company_settings
 nautipost_history
+```
+
+Tables Agenda :
+
+```text
+agenda_events
+agenda_event_attendees
 ```
 
 Tables Flowcean :

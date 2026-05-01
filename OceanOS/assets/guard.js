@@ -12,6 +12,7 @@
     && (searchParams.has("invite") || searchParams.has("token"))
     && (searchParams.has("room") || searchParams.has("code"));
   const modulePaths = [
+    ["/agenda/", "agenda"],
     ["/flowcean/", "flowcean"],
     ["/invocean/", "invocean"],
     ["/stockcean/", "stockcean"],

@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/meetocean.svg?v=20260501">
   <meta name="description" content="MeetOcean - reunions video, transcription et traduction en temps reel.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-external-invite">
+  <link rel="stylesheet" href="assets/style.css?v=20260501-guest-entry-one-language">
   <script defer src="/OceanOS/assets/guard.js?v=20260501-external-invite"></script>
-  <script defer src="assets/app.js?v=20260501-external-invite"></script>
+  <script defer src="assets/app.js?v=20260501-guest-entry-one-language"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -50,12 +50,12 @@
             <span>Votre nom</span>
             <input id="guest-name" type="text" maxlength="120" placeholder="Nom affiche dans la reunion">
           </label>
-          <div class="language-row">
+          <div class="language-row single-language">
             <label class="field">
               <span>Langue parlee</span>
               <select id="guest-source-language"></select>
             </label>
-            <label class="field">
+            <label class="field hidden">
               <span>Langue souhaitee</span>
               <select id="guest-target-language"></select>
             </label>
@@ -81,12 +81,12 @@
                 <span>Titre</span>
                 <input id="room-title" type="text" maxlength="120" value="Reunion MeetOcean">
               </label>
-              <div class="language-row">
+              <div class="language-row single-language">
                 <label class="field">
                   <span>Langue parlee</span>
                   <select id="source-language"></select>
                 </label>
-                <label class="field">
+                <label class="field hidden">
                   <span>Langue souhaitee</span>
                   <select id="target-language"></select>
                 </label>
@@ -129,7 +129,7 @@
           <div class="live-caption hidden" id="live-caption"></div>
         </section>
 
-        <aside class="side-column">
+        <aside class="side-column" id="side-column">
           <section class="panel controls-panel">
             <div class="panel-header compact">
               <div>
@@ -150,7 +150,7 @@
                 <span>Langue parlee</span>
                 <select id="active-source-language"></select>
               </label>
-              <label class="field">
+              <label class="field hidden">
                 <span>Langue souhaitee</span>
                 <select id="active-target-language"></select>
               </label>

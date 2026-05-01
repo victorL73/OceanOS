@@ -8,6 +8,14 @@ const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-update-services";
 
 const apps = [
   {
+    id: "agenda",
+    title: "Agenda",
+    subtitle: "Calendrier personnel, taches modules et reunions MeetOcean.",
+    href: "/Agenda/",
+    mark: "AG",
+    color: "#2d8f7b",
+  },
+  {
     id: "flowcean",
     title: "Flowcean",
     subtitle: "Workspace, notes, espaces et collaboration.",

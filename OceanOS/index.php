@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, Visiocean et MeetOcean.">
+  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, Visiocean et MeetOcean.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
@@ -27,6 +27,7 @@
         </div>
         <p class="lead">Une seule connexion pour ouvrir vos applications internes et garder la session active sur tout le site.</p>
         <div class="mini-map" aria-hidden="true">
+          <span>Agenda</span>
           <span>Flowcean</span>
           <span>Invocean</span>
           <span>Stockcean</span>
@@ -349,7 +350,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260501-meetocean"></script>
-  <script src="assets/oceanos.js?v=20260501-meetocean"></script>
+  <script defer src="assets/guard.js?v=20260501-agenda"></script>
+  <script src="assets/oceanos.js?v=20260501-agenda"></script>
 </body>
 </html>

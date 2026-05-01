@@ -464,7 +464,7 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
 {
     $clientId = meetocean_clean_client_id($input['clientId'] ?? '');
     $sourceLanguage = meetocean_normalize_language($input['sourceLanguage'] ?? 'fr-FR');
-    $targetLanguage = meetocean_normalize_language($input['targetLanguage'] ?? $sourceLanguage, $sourceLanguage);
+    $targetLanguage = $sourceLanguage;
     $media = meetocean_media_state($input);
     $displayName = trim((string) ($user['display_name'] ?? $user['email'] ?? 'Utilisateur'));
     $displayName = mb_substr($displayName !== '' ? $displayName : 'Utilisateur', 0, 140);
@@ -558,7 +558,7 @@ function meetocean_list_participants(PDO $pdo, int $roomId): array
             'userId' => (int) ($row['user_id'] ?? 0),
             'displayName' => (string) $row['display_name'],
             'sourceLanguage' => meetocean_normalize_language($row['source_language'] ?? 'fr-FR'),
-            'targetLanguage' => meetocean_normalize_language($row['target_language'] ?? 'fr-FR'),
+            'targetLanguage' => meetocean_normalize_language($row['source_language'] ?? 'fr-FR'),
             'microphoneEnabled' => (int) $row['microphone_enabled'] === 1,
             'cameraEnabled' => (int) $row['camera_enabled'] === 1,
             'screenEnabled' => (int) $row['screen_enabled'] === 1,
@@ -823,7 +823,7 @@ function meetocean_room_state(PDO $pdo, array $room, array $user, string $client
         }
     }
 
-    $targetLanguage = meetocean_normalize_language($targetLanguage ?? ($participant['targetLanguage'] ?? 'fr-FR'));
+    $targetLanguage = meetocean_normalize_language($participant['sourceLanguage'] ?? $targetLanguage ?? 'fr-FR');
     $translationUserId = (int) ($user['id'] ?? 0);
     if ($translationUserId <= 0) {
         $translationUserId = (int) ($room['created_by'] ?? 0);

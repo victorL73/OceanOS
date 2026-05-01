@@ -13,6 +13,7 @@ const elements = {
   appMessage: $("app-message"),
   aiPill: $("ai-pill"),
   logoutButton: $("logout-button"),
+  sideColumn: $("side-column"),
   guestPanel: $("guest-panel"),
   guestRoomCode: $("guest-room-code"),
   guestName: $("guest-name"),
@@ -234,7 +235,13 @@ function initials(name) {
 }
 
 function effectiveTargetLanguage() {
-  return state.translationEnabled ? state.targetLanguage : state.sourceLanguage;
+  return state.sourceLanguage;
+}
+
+function setSpokenLanguage(language) {
+  const selected = language || state.sourceLanguage || "fr-FR";
+  state.sourceLanguage = selected;
+  state.targetLanguage = selected;
 }
 
 function mediaState(extra = {}) {
@@ -259,6 +266,7 @@ function populateLanguageSelect(select, selected) {
 }
 
 function syncLanguageControls() {
+  state.targetLanguage = state.sourceLanguage;
   populateLanguageSelect(elements.sourceLanguage, state.sourceLanguage);
   populateLanguageSelect(elements.targetLanguage, state.targetLanguage);
   populateLanguageSelect(elements.activeSourceLanguage, state.sourceLanguage);
@@ -325,8 +333,7 @@ function renderRecentRooms(rooms = []) {
 function renderDashboard(payload) {
   state.isGuest = Boolean(payload.isGuest);
   state.languages = payload.languages || { "fr-FR": "Francais", "en-US": "Anglais" };
-  state.sourceLanguage = payload.defaults?.sourceLanguage || "fr-FR";
-  state.targetLanguage = payload.defaults?.targetLanguage || state.sourceLanguage;
+  setSpokenLanguage(payload.defaults?.sourceLanguage || "fr-FR");
   state.inviteRoom = payload.room || state.inviteRoom;
   if (state.inviteRoom?.code) {
     state.inviteRoomCode = state.inviteRoom.code;
@@ -336,6 +343,7 @@ function renderDashboard(payload) {
   syncLanguageControls();
   elements.guestPanel.classList.toggle("hidden", !state.isGuest || Boolean(state.room));
   elements.startPanel.classList.toggle("hidden", state.isGuest || Boolean(state.room));
+  elements.sideColumn?.classList.toggle("hidden", state.isGuest && !state.room);
   renderRecentRooms(state.isGuest ? [] : payload.recentRooms || []);
 }
 
@@ -343,6 +351,7 @@ function setRoomActive(active) {
   elements.startPanel.classList.toggle("hidden", active || state.isGuest);
   elements.guestPanel.classList.toggle("hidden", active || !state.isGuest);
   elements.meetingStage.classList.toggle("hidden", !active);
+  elements.sideColumn?.classList.toggle("hidden", state.isGuest && !active);
   elements.connectionPill.textContent = active ? "En reunion" : "Hors reunion";
 }
 
@@ -1011,8 +1020,7 @@ async function createRoom() {
   elements.createRoomButton.disabled = true;
   setMessage("Preparation de la reunion...");
   try {
-    state.sourceLanguage = elements.sourceLanguage.value || state.sourceLanguage;
-    state.targetLanguage = elements.targetLanguage.value || state.targetLanguage;
+    setSpokenLanguage(elements.sourceLanguage.value);
     syncLanguageControls();
     await ensureLocalMedia();
     const payload = await postAction("create_room", {
@@ -1040,8 +1048,7 @@ async function joinRoom() {
   elements.joinRoomButton.disabled = true;
   setMessage("Connexion a la reunion...");
   try {
-    state.sourceLanguage = elements.sourceLanguage.value || state.sourceLanguage;
-    state.targetLanguage = elements.targetLanguage.value || state.targetLanguage;
+    setSpokenLanguage(elements.sourceLanguage.value);
     syncLanguageControls();
     await ensureLocalMedia();
     const payload = await postAction("join_room", {
@@ -1255,8 +1262,7 @@ async function addTranscript(text) {
 }
 
 function changeActiveLanguage() {
-  state.sourceLanguage = elements.activeSourceLanguage.value || state.sourceLanguage;
-  state.targetLanguage = elements.activeTargetLanguage.value || state.targetLanguage;
+  setSpokenLanguage(elements.activeSourceLanguage.value);
   syncLanguageControls();
   state.lastTranscriptId = 0;
   state.transcriptMap.clear();
@@ -1266,14 +1272,14 @@ function changeActiveLanguage() {
 }
 
 function changeStartLanguage() {
-  state.sourceLanguage = elements.sourceLanguage.value || state.sourceLanguage;
-  state.targetLanguage = elements.targetLanguage.value || state.targetLanguage;
+  setSpokenLanguage(elements.sourceLanguage.value);
   syncLanguageControls();
 }
 
 function toggleTranslation() {
   state.translationEnabled = elements.translationToggle.checked;
-  elements.activeTargetLanguage.disabled = !state.translationEnabled;
+  setSpokenLanguage(elements.activeSourceLanguage.value);
+  syncLanguageControls();
   state.lastTranscriptId = 0;
   state.transcriptMap.clear();
   renderTranscripts();
@@ -1371,8 +1377,7 @@ async function joinGuestRoom() {
   elements.guestJoinButton.disabled = true;
   setMessage("Connexion a la reunion...");
   try {
-    state.sourceLanguage = elements.guestSourceLanguage.value || state.sourceLanguage;
-    state.targetLanguage = elements.guestTargetLanguage.value || state.targetLanguage;
+    setSpokenLanguage(elements.guestSourceLanguage.value);
     state.currentUser = {
       displayName: guestName,
       isGuest: true,

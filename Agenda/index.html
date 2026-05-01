@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agenda</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/agenda.svg?v=20260501">
+  <meta name="description" content="Agenda OceanOS - calendrier personnel, taches consolidees et reunions MeetOcean.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260501-agenda">
+  <script defer src="/OceanOS/assets/guard.js?v=20260501-agenda"></script>
+  <script defer src="assets/app.js?v=20260501-agenda"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <span class="brand-mark">AG</span>
+      <p>Chargement Agenda...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-line">
+            <span class="brand-mark compact">AG</span>
+            <span class="status-pill" id="period-pill">Aujourd'hui</span>
+          </div>
+          <h1>Agenda</h1>
+          <p>Taches, evenements et reunions de vos modules OceanOS</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button class="ghost-button" id="today-button" type="button">Aujourd'hui</button>
+          <button class="ghost-button" id="export-button" type="button">Exporter ICS</button>
+          <button class="primary-button" id="new-event-button" type="button">Nouvel evenement</button>
+          <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+          <span class="user-chip" id="current-user"></span>
+        </div>
+      </header>
+
+      <p class="app-message hidden" id="app-message"></p>
+
+      <section class="metrics-grid" aria-label="Synthese Agenda">
+        <article class="metric-card">
+          <span>7 jours</span>
+          <strong id="metric-week">0</strong>
+        </article>
+        <article class="metric-card accent">
+          <span>Reunions</span>
+          <strong id="metric-meetings">0</strong>
+        </article>
+        <article class="metric-card warning">
+          <span>Taches modules</span>
+          <strong id="metric-modules">0</strong>
+        </article>
+        <article class="metric-card danger">
+          <span>Urgent</span>
+          <strong id="metric-urgent">0</strong>
+        </article>
+      </section>
+
+      <section class="control-panel">
+        <label class="search-field">
+          <span>Recherche</span>
+          <input id="search-input" type="search" placeholder="Client, facture, reunion, module...">
+        </label>
+        <label class="field">
+          <span>Source</span>
+          <select id="module-filter"></select>
+        </label>
+        <label class="field">
+          <span>Affichage</span>
+          <select id="status-filter">
+            <option value="open">A traiter</option>
+            <option value="all">Tout</option>
+            <option value="meetings">Reunions</option>
+            <option value="external">Modules</option>
+            <option value="done">Termines</option>
+          </select>
+        </label>
+      </section>
+
+      <nav class="view-tabs" aria-label="Vues Agenda">
+        <button class="view-tab is-active" data-view="list" type="button">Liste</button>
+        <button class="view-tab" data-view="calendar" type="button">Mois</button>
+      </nav>
+
+      <section class="workspace-grid">
+        <section class="main-column">
+          <section class="panel view-section" data-view-section="list">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Planning</p>
+                <h2 id="list-title">A traiter</h2>
+              </div>
+              <span class="count-pill" id="result-count">0 element</span>
+            </div>
+            <div class="agenda-list" id="agenda-list"></div>
+          </section>
+
+          <section class="panel view-section hidden" data-view-section="calendar">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Calendrier</p>
+                <h2 id="calendar-title">Mois</h2>
+              </div>
+              <div class="calendar-actions">
+                <button class="ghost-button icon-button" id="previous-month" type="button" aria-label="Mois precedent">&lt;</button>
+                <button class="ghost-button icon-button" id="next-month" type="button" aria-label="Mois suivant">&gt;</button>
+              </div>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+          </section>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel form-panel" id="event-form-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Agenda</p>
+                <h2 id="form-title">Nouvel element</h2>
+              </div>
+              <button class="ghost-button compact-button hidden" id="cancel-edit-button" type="button">Annuler</button>
+            </div>
+
+            <form class="event-form" id="event-form">
+              <label class="field">
+                <span>Titre</span>
+                <input id="event-title" type="text" maxlength="190" required placeholder="Appel client, livraison, point equipe...">
+              </label>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Type</span>
+                  <select id="event-category">
+                    <option value="task">Tache</option>
+                    <option value="event">Evenement</option>
+                    <option value="meeting">Reunion MeetOcean</option>
+                    <option value="reminder">Rappel</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Priorite</span>
+                  <select id="event-priority">
+                    <option value="normal">Normale</option>
+                    <option value="high">Haute</option>
+                    <option value="urgent">Urgente</option>
+                    <option value="low">Basse</option>
+                  </select>
+                </label>
+              </div>
+              <label class="toggle-row">
+                <input id="event-all-day" type="checkbox">
+                <span>Toute la journee</span>
+              </label>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Debut</span>
+                  <input id="event-start" type="datetime-local" required>
+                </label>
+                <label class="field">
+                  <span>Fin</span>
+                  <input id="event-end" type="datetime-local">
+                </label>
+              </div>
+              <label class="field">
+                <span>Lieu</span>
+                <input id="event-location" type="text" maxlength="190" placeholder="Bureau, telephone, client...">
+              </label>
+              <label class="field">
+                <span>Description</span>
+                <textarea id="event-description" rows="4" placeholder="Notes utiles pour les participants"></textarea>
+              </label>
+              <label class="toggle-row">
+                <input id="event-create-meeting" type="checkbox">
+                <span>Creer une salle MeetOcean</span>
+              </label>
+
+              <section class="attendees-box">
+                <div class="attendees-head">
+                  <span>Participants</span>
+                  <small id="attendee-count">0</small>
+                </div>
+                <div class="attendee-list" id="attendee-list"></div>
+              </section>
+
+              <button class="primary-button full-button" id="save-event-button" type="submit">Ajouter</button>
+            </form>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
