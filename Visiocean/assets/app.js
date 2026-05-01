@@ -153,13 +153,37 @@ function renderMetrics(payload) {
   const audit = payload.audit || {};
 
   elements.metricSessions.textContent = analytics.available ? formatNumber(analytics.summary.sessions) : "-";
-  elements.metricUsers.textContent = `${formatNumber(analytics.summary?.activeUsers || 0)} utilisateurs`;
+  elements.metricUsers.textContent = analytics.available
+    ? `${formatNumber(analytics.summary?.activeUsers || 0)} utilisateurs`
+    : (analytics.message || "GA4 non connecte");
   elements.metricConversions.textContent = analytics.available ? formatNumber(analytics.summary.conversions, 1) : "-";
   elements.metricEngagement.textContent = `${formatPercent(analytics.summary?.engagementRate || 0)} engagement`;
   elements.metricClicks.textContent = search.available ? formatNumber(search.summary.clicks) : "-";
-  elements.metricImpressions.textContent = `${formatNumber(search.summary?.impressions || 0)} impressions`;
+  elements.metricImpressions.textContent = search.available
+    ? `${formatNumber(search.summary?.impressions || 0)} impressions`
+    : (search.message || "Search Console non connectee");
   elements.metricScore.textContent = audit.available ? `${formatNumber(audit.summary.averageScore, 1)}/100` : "-";
   elements.metricPages.textContent = `${formatNumber(audit.summary?.pageCount || 0)} page${Number(audit.summary?.pageCount || 0) > 1 ? "s" : ""} auditee${Number(audit.summary?.pageCount || 0) > 1 ? "s" : ""}`;
+}
+
+function sourceStatusMessage(payload) {
+  const settings = payload.settings || {};
+  const messages = [];
+  if (!settings.hasServiceAccount) {
+    messages.push("Compte de service Google manquant : ajoutez le JSON prive puis donnez son email en lecteur sur GA4 et Search Console.");
+  } else {
+    if (!payload.analytics?.available) {
+      messages.push(`GA4 : ${payload.analytics?.message || "donnees indisponibles"}.`);
+    }
+    if (!payload.search?.available) {
+      messages.push(`Search Console : ${payload.search?.message || "donnees indisponibles"}.`);
+    }
+  }
+  if (!payload.audit?.available) {
+    messages.push("Pour le score SEO, cliquez sur Auditer : Actualiser ne relance que les donnees Google.");
+  }
+
+  return messages.join(" ");
 }
 
 function renderRecommendations(payload) {
@@ -326,7 +350,7 @@ function renderSettings(payload) {
 
   elements.serviceAccountNote.textContent = settings.hasServiceAccount
     ? `Compte enregistre : ${settings.serviceAccountHint || "cle chiffree"}`
-    : "Aucun compte de service enregistre.";
+    : "Aucun compte de service enregistre. Collez le JSON prive Google, enregistrez, puis partagez GA4 et Search Console avec l email client_email du JSON.";
 
   const disabled = !payload.canManage;
   [
@@ -364,10 +388,11 @@ async function loadDashboard(message = "") {
   const payload = await requestJson(`${API_URL}?days=${state.periodDays}`);
   render(payload);
   setVisible(true);
-  if (payload.analytics?.available || payload.search?.available) {
-    setMessage("");
+  const status = sourceStatusMessage(payload);
+  if (status !== "") {
+    setMessage(status, "info");
   } else if (!message) {
-    setMessage("Visiocean est pret. Configurez les sources Google pour activer les donnees live.", "info");
+    setMessage("");
   }
 }
 
@@ -400,7 +425,8 @@ async function saveSettings() {
       }),
     });
     render(payload);
-    setMessage(payload.message || "Configuration enregistree.", "success");
+    const status = sourceStatusMessage(payload);
+    setMessage(status !== "" ? `${payload.message || "Configuration enregistree."} ${status}` : (payload.message || "Configuration enregistree."), status !== "" ? "info" : "success");
   } catch (error) {
     setMessage(error.message || "Impossible d enregistrer la configuration.", "error");
   } finally {
@@ -441,7 +467,8 @@ async function refreshGoogle() {
       }),
     });
     render(payload);
-    setMessage(payload.message || "Donnees actualisees.", "success");
+    const status = sourceStatusMessage(payload);
+    setMessage(status !== "" ? status : (payload.message || "Donnees actualisees."), status !== "" ? "info" : "success");
   } catch (error) {
     setMessage(error.message || "Actualisation impossible.", "error");
   } finally {

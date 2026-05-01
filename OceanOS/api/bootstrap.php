@@ -63,7 +63,7 @@ function oceanos_send_security_headers(): void
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('X-Frame-Options: SAMEORIGIN');
-    header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+    header('Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()');
     if (oceanos_is_https_request()) {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }

@@ -418,38 +418,124 @@ function updateControlButtons() {
   elements.shareScreenButton.textContent = state.media.screen ? "Ecran actif" : "Ecran";
 }
 
-async function ensureLocalMedia() {
-  if (state.localStream) return state.localStream;
-
-  state.localStream = new MediaStream();
+function mediaAccessMessage(error) {
+  if (!window.isSecureContext) {
+    return "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec http://localhost/MeetOcean/ ou utilisez HTTPS.";
+  }
   if (!navigator.mediaDevices?.getUserMedia) {
-    setMessage("Camera et micro indisponibles dans ce navigateur.", "error");
+    return "Camera et micro indisponibles dans ce navigateur. Essayez Chrome, Edge ou Firefox.";
+  }
+
+  const name = error?.name || "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Autorisation camera/micro refusee ou bloquee. Cliquez sur le cadenas dans la barre d'adresse, autorisez camera et micro, puis rechargez la page.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "Aucun micro ou aucune camera compatible n'a ete detecte.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "Le micro ou la camera est deja utilise par une autre application.";
+  }
+  if (name === "SecurityError") {
+    return "Le navigateur bloque l'acces media pour cette page. Verifiez HTTPS et les permissions du site.";
+  }
+
+  return error?.message || "Acces micro/camera refuse ou indisponible.";
+}
+
+function pruneEndedTracks(stream) {
+  if (!stream) return;
+  stream.getTracks().forEach((track) => {
+    if (track.readyState !== "live") {
+      stream.removeTrack(track);
+    }
+  });
+}
+
+function hasLiveTrack(stream, kind) {
+  if (!stream) return false;
+  return stream.getTracks().some((track) => track.kind === kind && track.readyState === "live");
+}
+
+function addLocalTracks(stream) {
+  if (!state.localStream) {
+    state.localStream = new MediaStream();
+  }
+
+  stream.getTracks().forEach((track) => {
+    state.localStream
+      .getTracks()
+      .filter((existing) => existing.kind === track.kind && existing.id !== track.id)
+      .forEach((existing) => {
+        state.localStream.removeTrack(existing);
+        existing.stop();
+      });
+
+    if (!state.localStream.getTracks().some((existing) => existing.id === track.id)) {
+      state.localStream.addTrack(track);
+    }
+  });
+}
+
+function refreshMediaStateFromTracks() {
+  pruneEndedTracks(state.localStream);
+  state.media.microphone = hasLiveTrack(state.localStream, "audio")
+    && state.localStream.getAudioTracks().some((track) => track.enabled);
+  state.media.camera = hasLiveTrack(state.localStream, "video")
+    && !state.media.screen
+    && state.localStream.getVideoTracks().some((track) => track.enabled);
+}
+
+async function requestMediaTracks({ audio, video }) {
+  const constraints = {
+    audio: audio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
+    video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+  };
+  return navigator.mediaDevices.getUserMedia(constraints);
+}
+
+async function ensureLocalMedia(options = {}) {
+  const wantsAudio = options.audio !== false;
+  const wantsVideo = options.video !== false;
+
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    const error = new Error(mediaAccessMessage());
+    setMessage(error.message, "error");
+    throw error;
+  }
+
+  if (!state.localStream) {
+    state.localStream = new MediaStream();
+  }
+  pruneEndedTracks(state.localStream);
+
+  const needsAudio = wantsAudio && !hasLiveTrack(state.localStream, "audio");
+  const needsVideo = wantsVideo && !state.media.screen && !hasLiveTrack(state.localStream, "video");
+  if (!needsAudio && !needsVideo) {
+    refreshMediaStateFromTracks();
     updateControlButtons();
     return state.localStream;
   }
 
+  setMessage("Demande d'autorisation camera/micro...", "info");
   try {
-    state.cameraStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-    });
+    state.cameraStream = await requestMediaTracks({ audio: needsAudio, video: needsVideo });
+    addLocalTracks(state.cameraStream);
   } catch (error) {
-    try {
-      state.cameraStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
-      setMessage("Camera indisponible, audio active.", "info");
-    } catch (audioError) {
-      state.cameraStream = new MediaStream();
-      setMessage("Acces micro/camera refuse ou indisponible.", "error");
+    if (needsAudio && needsVideo) {
+      try {
+        state.cameraStream = await requestMediaTracks({ audio: true, video: false });
+        addLocalTracks(state.cameraStream);
+        setMessage("Camera indisponible, audio active.", "info");
+      } catch (audioError) {
+        throw new Error(mediaAccessMessage(audioError));
+      }
+    } else {
+      throw new Error(mediaAccessMessage(error));
     }
   }
 
-  state.cameraStream.getAudioTracks().forEach((track) => state.localStream.addTrack(track));
-  state.cameraStream.getVideoTracks().forEach((track) => state.localStream.addTrack(track));
-  state.media.microphone = state.localStream.getAudioTracks().some((track) => track.enabled && track.readyState === "live");
-  state.media.camera = state.localStream.getVideoTracks().some((track) => track.enabled && track.readyState === "live");
+  refreshMediaStateFromTracks();
   attachLocalTracksToPeers();
   renderVideos();
   updateControlButtons();
@@ -492,15 +578,23 @@ function replaceLocalVideoTrack(track) {
 }
 
 async function toggleMicrophone() {
-  await ensureLocalMedia();
   const enabled = !state.media.microphone;
-  state.localStream.getAudioTracks().forEach((track) => {
+  if (enabled) {
+    try {
+      await ensureLocalMedia({ audio: true, video: false });
+    } catch (error) {
+      setMessage(error.message || mediaAccessMessage(error), "error");
+      return;
+    }
+  }
+
+  state.localStream?.getAudioTracks().forEach((track) => {
     track.enabled = enabled;
   });
-  state.media.microphone = enabled;
+  refreshMediaStateFromTracks();
   updateControlButtons();
   renderVideos();
-  if (enabled) {
+  if (state.media.microphone) {
     startRecognitionIfNeeded();
   } else {
     stopRecognition();
@@ -509,24 +603,34 @@ async function toggleMicrophone() {
 }
 
 async function toggleCamera() {
-  await ensureLocalMedia();
   const enabled = !state.media.camera;
+  if (enabled) {
+    try {
+      await ensureLocalMedia({ audio: false, video: true });
+    } catch (error) {
+      setMessage(error.message || mediaAccessMessage(error), "error");
+      return;
+    }
+  }
+
   state.cameraStream?.getVideoTracks().forEach((track) => {
     track.enabled = enabled;
   });
   if (!state.media.screen) {
-    state.localStream.getVideoTracks().forEach((track) => {
+    state.localStream?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
   }
-  state.media.camera = enabled;
+  refreshMediaStateFromTracks();
   updateControlButtons();
   renderVideos();
   void syncNow();
 }
 
 async function shareScreen() {
-  await ensureLocalMedia();
+  try {
+    await ensureLocalMedia({ audio: true, video: false });
+  } catch (error) {}
   if (state.media.screen) {
     stopScreenShare();
     return;

@@ -155,7 +155,7 @@ function visiocean_normalize_list(mixed $value, int $limit = 50): array
     return array_keys($items);
 }
 
-function visiocean_normalize_url(string $url, bool $allowSearchConsoleDomain = false): string
+function visiocean_normalize_url(string $url, bool $allowSearchConsoleDomain = false, bool $preserveTrailingSlash = false): string
 {
     $url = trim($url);
     if ($url === '') {
@@ -173,6 +173,15 @@ function visiocean_normalize_url(string $url, bool $allowSearchConsoleDomain = f
     }
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
         throw new InvalidArgumentException('URL de site invalide.');
+    }
+
+    if ($preserveTrailingSlash) {
+        $parts = parse_url($url);
+        if (is_array($parts) && empty($parts['path'])) {
+            return $url . '/';
+        }
+
+        return $url;
     }
 
     return rtrim($url, '/');
@@ -252,7 +261,7 @@ function visiocean_save_settings(PDO $pdo, array $input): array
     $existing = visiocean_settings_row($pdo);
 
     $siteUrl = visiocean_normalize_url((string) ($settings['siteUrl'] ?? ''));
-    $searchConsoleUrl = visiocean_normalize_url((string) ($settings['searchConsoleSiteUrl'] ?? $siteUrl), true);
+    $searchConsoleUrl = visiocean_normalize_url((string) ($settings['searchConsoleSiteUrl'] ?? $siteUrl), true, true);
     $measurementId = visiocean_validate_measurement_id((string) ($settings['gaMeasurementId'] ?? ''));
     $propertyId = visiocean_normalize_property_id((string) ($settings['gaPropertyId'] ?? ''));
     $targetCountry = strtoupper(substr(preg_replace('/[^a-z]/i', '', (string) ($settings['targetCountry'] ?? 'FR')) ?? 'FR', 0, 2));
@@ -482,7 +491,7 @@ function visiocean_google_analytics(array $settings, int $days): array
             'metrics' => [
                 ['name' => 'sessions'],
                 ['name' => 'activeUsers'],
-                ['name' => 'conversions'],
+                ['name' => 'keyEvents'],
                 ['name' => 'eventCount'],
                 ['name' => 'engagementRate'],
                 ['name' => 'averageSessionDuration'],
@@ -494,7 +503,7 @@ function visiocean_google_analytics(array $settings, int $days): array
             'metrics' => [
                 ['name' => 'sessions'],
                 ['name' => 'activeUsers'],
-                ['name' => 'conversions'],
+                ['name' => 'keyEvents'],
             ],
             'limit' => 8,
             'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
@@ -505,7 +514,7 @@ function visiocean_google_analytics(array $settings, int $days): array
             'metrics' => [
                 ['name' => 'sessions'],
                 ['name' => 'activeUsers'],
-                ['name' => 'conversions'],
+                ['name' => 'keyEvents'],
                 ['name' => 'engagementRate'],
             ],
             'limit' => 12,

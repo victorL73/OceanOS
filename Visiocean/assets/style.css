@@ -276,6 +276,8 @@ textarea:disabled {
 .metric-card small {
   color: var(--muted);
   font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .metric-card.score strong {
