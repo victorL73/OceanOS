@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Visiocean</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/visiocean.svg?v=20260501">
-  <meta name="description" content="Visiocean - reunions video, transcription et traduction en temps reel.">
+  <meta name="description" content="Visiocean - pilotage Google Analytics, Search Console, SEO et amelioration de visibilite.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-meetings">
+  <link rel="stylesheet" href="assets/style.css?v=20260501-visiocean">
   <script defer src="/OceanOS/assets/guard.js?v=20260501-visiocean"></script>
-  <script defer src="assets/app.js?v=20260501-meetings"></script>
+  <script defer src="assets/app.js?v=20260501-visiocean"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -23,133 +23,216 @@
         <div class="brand-block">
           <div class="brand-line">
             <span class="brand-mark compact">VI</span>
-            <span class="status-pill" id="connection-pill">Hors reunion</span>
+            <span class="status-pill" id="connection-pill">Visibilite</span>
           </div>
           <h1>Visiocean</h1>
-          <p>Reunions video, transcription et traduction live</p>
+          <p>Pilotage analytics, SEO et croissance du site</p>
         </div>
 
         <div class="topbar-actions">
-          <span class="user-chip" id="current-user"></span>
+          <div class="period-toggle" aria-label="Periode">
+            <button class="period-button" data-period="7" type="button">7 j</button>
+            <button class="period-button is-active" data-period="30" type="button">30 j</button>
+            <button class="period-button" data-period="90" type="button">90 j</button>
+          </div>
+          <button class="ghost-button" id="refresh-button" type="button">Actualiser</button>
+          <button class="primary-button" id="audit-button" type="button">Auditer</button>
           <button class="ghost-button danger-text" id="logout-button" type="button">Deconnexion</button>
+          <span class="user-chip" id="current-user"></span>
         </div>
       </header>
 
       <p class="app-message hidden" id="app-message"></p>
 
-      <section class="meeting-layout">
-        <section class="panel start-panel" id="start-panel">
+      <section class="metrics-grid" aria-label="Synthese Visiocean">
+        <article class="metric-card">
+          <span>Sessions</span>
+          <strong id="metric-sessions">-</strong>
+          <small id="metric-users">0 utilisateurs</small>
+        </article>
+        <article class="metric-card">
+          <span>Evenements cles</span>
+          <strong id="metric-conversions">-</strong>
+          <small id="metric-engagement">0% engagement</small>
+        </article>
+        <article class="metric-card">
+          <span>Clics Google</span>
+          <strong id="metric-clicks">-</strong>
+          <small id="metric-impressions">0 impressions</small>
+        </article>
+        <article class="metric-card score">
+          <span>Score SEO</span>
+          <strong id="metric-score">-</strong>
+          <small id="metric-pages">0 page auditee</small>
+        </article>
+      </section>
+
+      <nav class="view-tabs" aria-label="Vues Visiocean">
+        <button class="view-tab is-active" data-view="overview" type="button">Vue d'ensemble</button>
+        <button class="view-tab" data-view="pages" type="button">Pages SEO</button>
+        <button class="view-tab" data-view="queries" type="button">Recherches</button>
+        <button class="view-tab" data-view="settings" type="button">Configuration</button>
+      </nav>
+
+      <section class="view-section overview-layout" data-view-section="overview">
+        <section class="panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Reunion</p>
-              <h2>Demarrer ou rejoindre</h2>
+              <p class="eyebrow">Actions</p>
+              <h2>Plan priorise</h2>
             </div>
-            <span class="count-pill" id="ai-pill">Traduction</span>
+            <span class="count-pill" id="recommendation-count">0 action</span>
           </div>
-
-          <div class="join-grid">
-            <section class="join-section">
-              <h3>Nouvelle reunion</h3>
-              <label class="field">
-                <span>Titre</span>
-                <input id="room-title" type="text" maxlength="120" value="Reunion Visiocean">
-              </label>
-              <div class="language-row">
-                <label class="field">
-                  <span>Langue parlee</span>
-                  <select id="source-language"></select>
-                </label>
-                <label class="field">
-                  <span>Langue souhaitee</span>
-                  <select id="target-language"></select>
-                </label>
-              </div>
-              <button class="primary-button full-button" id="create-room-button" type="button">Creer la reunion</button>
-            </section>
-
-            <section class="join-section">
-              <h3>Rejoindre</h3>
-              <label class="field">
-                <span>Code reunion</span>
-                <input id="room-code" type="text" maxlength="24" placeholder="VIS-ABC123">
-              </label>
-              <button class="ghost-button full-button" id="join-room-button" type="button">Rejoindre</button>
-              <div class="recent-rooms" id="recent-rooms"></div>
-            </section>
-          </div>
-        </section>
-
-        <section class="meeting-stage hidden" id="meeting-stage" aria-label="Reunion Visiocean">
-          <div class="stage-head">
-            <div class="room-identity">
-              <p class="eyebrow">En cours</p>
-              <h2 id="active-room-title">Reunion</h2>
-              <button class="room-code" id="copy-room-button" type="button" title="Copier le code">
-                <span id="active-room-code">---</span>
-              </button>
-            </div>
-            <div class="stage-actions">
-              <button class="tool-button" id="toggle-mic-button" type="button" title="Micro">Micro</button>
-              <button class="tool-button" id="toggle-camera-button" type="button" title="Camera">Camera</button>
-              <button class="tool-button" id="share-screen-button" type="button" title="Partage d'ecran">Ecran</button>
-              <button class="ghost-button danger-text" id="leave-room-button" type="button">Quitter</button>
-            </div>
-          </div>
-
-          <div class="video-grid" id="video-grid"></div>
-          <div class="live-caption hidden" id="live-caption"></div>
+          <div class="recommendation-list" id="recommendation-list"></div>
         </section>
 
         <aside class="side-column">
-          <section class="panel controls-panel">
+          <section class="panel">
             <div class="panel-header compact">
               <div>
-                <p class="eyebrow">Live</p>
-                <h2>Parametres</h2>
+                <p class="eyebrow">Acquisition</p>
+                <h2>Canaux GA4</h2>
               </div>
             </div>
-            <div class="settings-stack">
-              <label class="toggle-row">
-                <input id="transcription-toggle" type="checkbox" checked>
-                <span>Transcription</span>
-              </label>
-              <label class="toggle-row">
-                <input id="translation-toggle" type="checkbox" checked>
-                <span>Traduction</span>
-              </label>
-              <label class="field">
-                <span>Langue parlee</span>
-                <select id="active-source-language"></select>
-              </label>
-              <label class="field">
-                <span>Langue souhaitee</span>
-                <select id="active-target-language"></select>
-              </label>
-            </div>
+            <div class="channel-list" id="channel-list"></div>
           </section>
 
           <section class="panel">
             <div class="panel-header compact">
               <div>
-                <p class="eyebrow">Participants</p>
-                <h2>Equipe</h2>
+                <p class="eyebrow">Installation</p>
+                <h2>Balise GA4</h2>
               </div>
-              <span class="count-pill" id="participant-count">0</span>
+              <button class="ghost-button compact-button" id="copy-snippet-button" type="button">Copier</button>
             </div>
-            <div class="participant-list" id="participant-list"></div>
-          </section>
-
-          <section class="panel transcript-panel">
-            <div class="panel-header compact">
-              <div>
-                <p class="eyebrow">Paroles</p>
-                <h2>Transcription</h2>
-              </div>
-              <button class="ghost-button compact-button" id="clear-transcript-button" type="button">Effacer</button>
-            </div>
-            <div class="transcript-list" id="transcript-list"></div>
+            <pre class="snippet-box" id="tracking-snippet"></pre>
           </section>
         </aside>
+      </section>
+
+      <section class="view-section hidden" data-view-section="pages">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Audit</p>
+              <h2>Pages a optimiser</h2>
+            </div>
+            <span class="count-pill" id="audit-summary">0 page</span>
+          </div>
+          <div class="table-shell">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Score</th>
+                  <th>Title</th>
+                  <th>Meta</th>
+                  <th>Technique</th>
+                </tr>
+              </thead>
+              <tbody id="pages-table"></tbody>
+            </table>
+            <div class="empty-state hidden" id="pages-empty">
+              <strong>Aucun audit disponible</strong>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view-section hidden" data-view-section="queries">
+        <section class="panel split-panel">
+          <div class="panel-column">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Search Console</p>
+                <h2>Requetes</h2>
+              </div>
+            </div>
+            <div class="query-list" id="query-list"></div>
+          </div>
+          <div class="panel-column">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Search Console</p>
+                <h2>Pages organiques</h2>
+              </div>
+            </div>
+            <div class="query-list" id="search-page-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view-section hidden" data-view-section="settings">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Sources</p>
+              <h2>Configuration Visiocean</h2>
+            </div>
+            <button class="primary-button" id="save-settings-button" type="button">Enregistrer</button>
+          </div>
+
+          <div class="settings-grid">
+            <section class="settings-section">
+              <h3>Site</h3>
+              <label class="field">
+                <span>URL du site</span>
+                <input id="site-url" type="url" placeholder="https://www.exemple.fr">
+              </label>
+              <label class="field">
+                <span>Pays cible</span>
+                <input id="target-country" type="text" maxlength="2" placeholder="FR">
+              </label>
+              <label class="field">
+                <span>Langue cible</span>
+                <input id="target-language" type="text" maxlength="8" placeholder="fr">
+              </label>
+            </section>
+
+            <section class="settings-section">
+              <h3>Google</h3>
+              <label class="field">
+                <span>ID de mesure GA4</span>
+                <input id="ga-measurement-id" type="text" placeholder="G-XXXXXXXXXX">
+              </label>
+              <label class="field">
+                <span>ID propriete GA4</span>
+                <input id="ga-property-id" type="text" placeholder="123456789">
+              </label>
+              <label class="field">
+                <span>Propriete Search Console</span>
+                <input id="search-console-site-url" type="text" placeholder="https://www.exemple.fr/ ou sc-domain:exemple.fr">
+              </label>
+            </section>
+
+            <section class="settings-section wide">
+              <h3>Cibles</h3>
+              <label class="field">
+                <span>Mots-cles suivis</span>
+                <textarea id="target-keywords" rows="7" placeholder="Un mot-cle par ligne"></textarea>
+              </label>
+              <label class="field">
+                <span>Concurrents</span>
+                <textarea id="competitors" rows="7" placeholder="Un site concurrent par ligne"></textarea>
+              </label>
+            </section>
+
+            <section class="settings-section wide">
+              <div class="settings-section-head">
+                <h3>Compte de service Google</h3>
+                <label class="toggle-row">
+                  <input id="clear-service-account" type="checkbox">
+                  <span>Supprimer la cle enregistree</span>
+                </label>
+              </div>
+              <p class="settings-note" id="service-account-note"></p>
+              <label class="field">
+                <span>JSON prive</span>
+                <textarea id="service-account-json" rows="8" spellcheck="false" placeholder="{ &quot;type&quot;: &quot;service_account&quot;, ... }"></textarea>
+              </label>
+            </section>
+          </div>
+        </section>
       </section>
     </section>
   </main>

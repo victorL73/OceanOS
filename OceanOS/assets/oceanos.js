@@ -88,6 +88,14 @@ const apps = [
     color: "#168f83",
   },
   {
+    id: "meetocean",
+    title: "MeetOcean",
+    subtitle: "Visioconference, transcription et traduction temps reel.",
+    href: "/MeetOcean/",
+    mark: "ME",
+    color: "#2f6fb3",
+  },
+  {
     id: "admin",
     title: "Admin serveur",
     subtitle: "Configuration initiale, BDD et super-utilisateurs.",

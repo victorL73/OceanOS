@@ -17,6 +17,7 @@ www/
   Formcean/              Formulaires publics, collecte de reponses et exports
   Naviplan/              Agenda administratif, fiscal, social et juridique
   Visiocean/             Google Analytics, Search Console, audit SEO et recommandations
+  MeetOcean/             Visioconference, transcription et traduction temps reel
   _backups/              Sauvegardes SQL locales
   index.php              Redirection vers OceanOS
   Lancer_Serveurs.bat    Lanceur local des serveurs applicatifs
@@ -44,6 +45,7 @@ Les applications concernées actuellement sont :
 - Formcean
 - Naviplan
 - Visiocean
+- MeetOcean
 
 ## Page de configuration serveur
 
@@ -206,6 +208,15 @@ visiocean_settings
 visiocean_page_audits
 ```
 
+Tables MeetOcean :
+
+```text
+meetocean_rooms
+meetocean_participants
+meetocean_signals
+meetocean_transcripts
+```
+
 Des tables historiques comme `users` ou `user_ai_settings` peuvent exister après migration. Elles servent à la compatibilité ou à la migration depuis l'ancienne structure. Les comptes utilisés par OceanOS sont dans `oceanos_users`.
 
 NautiCloud stocke les fichiers sur disque dans :
@@ -255,6 +266,7 @@ Elle est partagée avec les modules qui en ont besoin, notamment :
 - Flowcean
 - Mobywork
 - NautiPost
+- MeetOcean
 
 La clé n'est pas stockée en clair dans l'interface. Elle est chiffrée côté serveur avant stockage.
 
@@ -377,6 +389,23 @@ Il utilise OceanOS pour :
 - auditer les pages du site : title, meta description, H1, canonical, alt images, HTTPS et temps de chargement
 - proposer un plan d'action SEO et acquisition priorise
 
+## MeetOcean
+
+MeetOcean se trouve au meme niveau que les autres applications :
+
+```text
+www/MeetOcean/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- creer et rejoindre des salles de visioconference
+- diffuser audio/video via WebRTC entre les navigateurs
+- synchroniser la presence et les signaux WebRTC via MySQL
+- transcrire les paroles en temps reel avec SpeechRecognition cote navigateur
+- traduire les transcriptions via la cle Groq configuree dans OceanOS quand les interlocuteurs n'ont pas la meme langue
+
 ## Lanceur local
 
 Le lanceur local est à la racine :
@@ -425,7 +454,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan et Visiocean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan, Visiocean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -497,4 +526,5 @@ http://localhost/NautiCloud/
 http://localhost/Formcean/
 http://localhost/Naviplan/
 http://localhost/Visiocean/
+http://localhost/MeetOcean/
 ```

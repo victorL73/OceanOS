@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan et Visiocean.">
+  <meta name="description" content="OceanOS - Portail CRM central pour Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, Visiocean et MeetOcean.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
@@ -36,6 +36,7 @@
           <span>Nautisign</span>
           <span>Naviplan</span>
           <span>Visiocean</span>
+          <span>MeetOcean</span>
         </div>
       </div>
 
@@ -141,7 +142,7 @@
                   <button class="user-control-action" data-user-jump="ai" type="button">
                     <span>
                       <strong>Configuration IA Groq</strong>
-                      <small>Gerer la cle utilisee par Flowcean, Mobywork et NautiPost.</small>
+                      <small>Gerer la cle utilisee par Flowcean, Mobywork, NautiPost et MeetOcean.</small>
                     </span>
                     <em>Onglet</em>
                   </button>
@@ -186,7 +187,7 @@
               <section class="user-menu-section" data-user-section="ai">
                 <div class="user-control-heading">
                   <h3>Configuration IA Groq</h3>
-                  <p>Cette cle est utilisee par Flowcean, Mobywork, NautiPost et les futurs modules OceanOS.</p>
+                  <p>Cette cle est utilisee par Flowcean, Mobywork, NautiPost, MeetOcean et les futurs modules OceanOS.</p>
                 </div>
 
                 <form class="ai-form" id="ai-form">
@@ -340,7 +341,7 @@
           <p class="eyebrow">Applications</p>
           <h2>Passerelle principale</h2>
         </div>
-        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan et Visiocean.</p>
+        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, Visiocean et MeetOcean.</p>
       </section>
 
       <section class="app-grid" id="app-grid"></section>
@@ -348,7 +349,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260501-visiocean"></script>
-  <script src="assets/oceanos.js?v=20260501-visiocean"></script>
+  <script defer src="assets/guard.js?v=20260501-meetocean"></script>
+  <script src="assets/oceanos.js?v=20260501-meetocean"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@
     ["/nautisign/", "nautisign"],
     ["/naviplan/", "naviplan"],
     ["/visiocean/", "visiocean"],
+    ["/meetocean/", "meetocean"],
   ];
   let portalAuthRetryTimer = null;
   const notificationState = {
