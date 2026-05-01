@@ -1183,36 +1183,250 @@ function visiocean_tracking_snippet(array $settings): string
         . '</script>';
 }
 
+function visiocean_format_metric(float $value, int $digits = 0): string
+{
+    $formatted = number_format($value, $digits, ',', ' ');
+    if ($digits > 0) {
+        $formatted = rtrim(rtrim($formatted, '0'), ',');
+    }
+
+    return $formatted;
+}
+
+function visiocean_channel_sessions(array $analytics, array $names): int
+{
+    $needle = array_map(static fn(string $name): string => mb_strtolower($name), $names);
+    foreach (($analytics['channels'] ?? []) as $channel) {
+        $name = mb_strtolower((string) ($channel['name'] ?? ''));
+        if (in_array($name, $needle, true)) {
+            return (int) round((float) ($channel['sessions'] ?? 0));
+        }
+    }
+
+    return 0;
+}
+
+function visiocean_action_item(string $priority, string $area, string $title, string $body, array $steps = [], string $impact = ''): array
+{
+    $cleanSteps = [];
+    foreach ($steps as $step) {
+        $step = trim((string) $step);
+        if ($step !== '') {
+            $cleanSteps[] = $step;
+        }
+    }
+
+    return [
+        'priority' => $priority,
+        'area' => $area,
+        'title' => $title,
+        'body' => $body,
+        'steps' => $cleanSteps,
+        'impact' => $impact,
+    ];
+}
+
+function visiocean_novice_summary(array $analytics, array $search, array $audit, int $days): array
+{
+    $sessions = (int) round((float) ($analytics['summary']['sessions'] ?? 0));
+    $activeUsers = (int) round((float) ($analytics['summary']['activeUsers'] ?? 0));
+    $keyEvents = (float) ($analytics['summary']['conversions'] ?? 0);
+    $clicks = (int) round((float) ($search['summary']['clicks'] ?? 0));
+    $impressions = (int) round((float) ($search['summary']['impressions'] ?? 0));
+    $ctr = (float) ($search['summary']['ctr'] ?? 0);
+    $score = (float) ($audit['summary']['averageScore'] ?? 0);
+    $pageCount = (int) ($audit['summary']['pageCount'] ?? 0);
+    $conversionRate = $sessions > 0 ? $keyEvents / $sessions : 0;
+
+    if (!$analytics['available'] && !$search['available']) {
+        $status = 'setup';
+        $headline = 'Les sources Google doivent encore etre reliees.';
+        $body = 'Visiocean peut deja auditer le site, mais il manque les donnees de trafic pour expliquer d ou viennent les visiteurs et ce qu ils font.';
+        $nextFocus = 'Priorite: terminer la connexion GA4 et Search Console.';
+    } elseif ($sessions > 0 && $score >= 90) {
+        $status = 'good';
+        $headline = 'Bonne base: le site est visible et les mesures fonctionnent.';
+        $body = 'Sur les ' . $days . ' derniers jours, le site a recu ' . visiocean_format_metric((float) $sessions) . ' visites et ' . visiocean_format_metric((float) $clicks) . ' clics depuis Google. Le socle SEO audite est sain avec ' . visiocean_format_metric($score, 1) . '/100.';
+        $nextFocus = $conversionRate < 0.03
+            ? 'Priorite: transformer davantage ces visites en demandes de contact.'
+            : 'Priorite: amplifier les pages et recherches qui generent deja du trafic.';
+    } else {
+        $status = 'watch';
+        $headline = 'Les donnees arrivent, il reste des leviers simples.';
+        $body = 'Visiocean mesure maintenant le trafic, la recherche Google et l audit SEO. Les actions ci-dessous indiquent quoi faire en premier.';
+        $nextFocus = 'Priorite: traiter les recommandations dans l ordre.';
+    }
+
+    return [
+        'status' => $status,
+        'headline' => $headline,
+        'body' => $body,
+        'nextFocus' => $nextFocus,
+        'highlights' => [
+            [
+                'label' => 'Visites',
+                'value' => $analytics['available'] ? visiocean_format_metric((float) $sessions) : '-',
+                'meaning' => $analytics['available']
+                    ? 'Nombre de passages sur le site pendant la periode.'
+                    : 'GA4 doit etre connecte pour lire les visites.',
+            ],
+            [
+                'label' => 'Visiteurs',
+                'value' => $analytics['available'] ? visiocean_format_metric((float) $activeUsers) : '-',
+                'meaning' => 'Estimation des personnes differentes qui ont visite le site.',
+            ],
+            [
+                'label' => 'Actions',
+                'value' => $analytics['available'] ? visiocean_format_metric($keyEvents, 1) : '-',
+                'meaning' => 'Actions importantes mesurees par GA4: contact, appel, achat ou autre objectif.',
+            ],
+            [
+                'label' => 'Google',
+                'value' => $search['available'] ? visiocean_format_metric((float) $clicks) . ' clics' : '-',
+                'meaning' => $search['available']
+                    ? visiocean_format_metric((float) $impressions) . ' affichages dans les resultats, CTR ' . visiocean_format_metric($ctr * 100, 1) . '%.'
+                    : 'Search Console doit etre connecte pour lire Google.',
+            ],
+            [
+                'label' => 'SEO',
+                'value' => $audit['available'] ? visiocean_format_metric($score, 1) . '/100' : '-',
+                'meaning' => $audit['available']
+                    ? visiocean_format_metric((float) $pageCount) . ' pages verifiees techniquement.'
+                    : 'Lancez un audit pour obtenir le score technique.',
+            ],
+        ],
+    ];
+}
+
 function visiocean_recommendations(array $settings, array $analytics, array $search, array $audit): array
 {
     $items = [];
-    $push = static function (string $priority, string $area, string $title, string $body) use (&$items): void {
-        $items[] = compact('priority', 'area', 'title', 'body');
+    $push = static function (string $priority, string $area, string $title, string $body, array $steps = [], string $impact = '') use (&$items): void {
+        $items[] = visiocean_action_item($priority, $area, $title, $body, $steps, $impact);
     };
 
     if (trim((string) ($settings['siteUrl'] ?? '')) === '') {
-        $push('high', 'Configuration', 'Renseigner l URL du site', 'Elle sert a generer la balise GA4 et a lancer les audits techniques.');
+        $push('high', 'Configuration', 'Renseigner l URL du site', 'Sans l adresse du site, Visiocean ne sait pas quelle presence en ligne analyser.', [
+            'Ouvrez Configuration.',
+            'Ajoutez l URL publique du site, par exemple https://renovboat.com.',
+            'Enregistrez puis relancez un audit.',
+        ], 'Permet de controler les pages et de relier les donnees au bon site.');
     }
     if (trim((string) ($settings['gaMeasurementId'] ?? '')) === '') {
-        $push('medium', 'Analytics', 'Installer la balise GA4', 'Ajoutez l ID de mesure pour suivre les sessions et evenements cles.');
+        $push('medium', 'Analytics', 'Installer la balise GA4', 'La balise sert a compter les visites et les actions importantes.', [
+            'Copiez la balise GA4 depuis Visiocean.',
+            'Ajoutez-la dans le head du site public.',
+            'Actualisez Visiocean apres quelques visites de test.',
+        ], 'Sans balise, les decisions reposent sur trop peu de donnees.');
     }
     if (!$analytics['available']) {
-        $push('medium', 'Analytics', 'Connecter Google Analytics', (string) ($analytics['message'] ?? 'GA4 non disponible.'));
+        $push('medium', 'Analytics', 'Connecter Google Analytics', (string) ($analytics['message'] ?? 'GA4 non disponible.'), [
+            'Verifiez que l ID de propriete GA4 est le bon numero de propriete.',
+            'Connectez Google avec le compte qui a acces a cette propriete.',
+            'Cliquez sur Actualiser.',
+        ], 'GA4 explique combien de personnes viennent et si elles passent a l action.');
     } elseif ((int) ($analytics['summary']['sessions'] ?? 0) === 0) {
-        $push('medium', 'Acquisition', 'Verifier le tracking', 'Aucune session GA4 detectee sur la periode selectionnee.');
+        $push('medium', 'Acquisition', 'Verifier le tracking', 'GA4 est connecte, mais aucune visite n apparait sur la periode.', [
+            'Ouvrez le site public dans un autre onglet.',
+            'Naviguez sur deux ou trois pages.',
+            'Revenez ici et actualisez.',
+        ], 'Confirme que la mesure fonctionne avant d analyser les chiffres.');
     }
     if (!$search['available']) {
-        $push('medium', 'SEO', 'Connecter Search Console', (string) ($search['message'] ?? 'Search Console non disponible.'));
+        $push('medium', 'SEO', 'Connecter Search Console', (string) ($search['message'] ?? 'Search Console non disponible.'), [
+            'Dans Configuration, utilisez la propriete Search Console exacte.',
+            'Pour une propriete domaine, utilisez le format sc-domain:renovboat.com.',
+            'Connectez Google avec un compte proprietaire ou utilisateur de cette propriete.',
+        ], 'Search Console montre les mots recherches et les pages vues dans Google.');
     } elseif ((int) ($search['summary']['impressions'] ?? 0) > 0 && (float) ($search['summary']['ctr'] ?? 0) < 0.02) {
-        $push('high', 'SEO', 'Ameliorer les titres dans Google', 'Le CTR organique est faible par rapport aux impressions.');
+        $push('high', 'SEO', 'Rendre le resultat Google plus attirant', 'Google affiche deja le site, mais trop peu de personnes cliquent.', [
+            'Ouvrez l onglet Recherches.',
+            'Reperez les requetes avec beaucoup d impressions et peu de clics.',
+            'Reecrivez le title et la meta description des pages concernees avec une promesse claire.',
+        ], 'Un meilleur CTR peut apporter plus de visites sans creer de nouvelle page.');
     }
     if (!$audit['available']) {
-        $push('medium', 'Technique', 'Lancer le premier audit SEO', 'Le crawler Visiocean verifiera title, meta description, H1, canonical, images alt, HTTPS et temps de chargement.');
+        $push('medium', 'Technique', 'Lancer le premier audit SEO', 'L audit verifie les bases visibles par Google: title, meta description, H1, canonical, images alt, HTTPS et temps de chargement.', [
+            'Cliquez sur Auditer.',
+            'Ouvrez Pages SEO.',
+            'Corrigez d abord les pages avec le score le plus bas.',
+        ], 'Donne une liste simple de corrections page par page.');
     } elseif ((float) ($audit['summary']['averageScore'] ?? 0) < 80) {
-        $push('high', 'Technique', 'Corriger les pages a faible score', 'Priorisez les pages avec title, meta description, H1 ou canonical manquants.');
+        $push('high', 'Technique', 'Corriger les pages a faible score', 'Certaines bases SEO manquent encore sur les pages auditees.', [
+            'Ouvrez Pages SEO.',
+            'Commencez par les pages sous 80/100.',
+            'Corrigez title, meta description, H1, canonical et images sans texte alternatif.',
+        ], 'Ameliore la comprehension des pages par Google et les visiteurs.');
     }
 
-    return array_slice($items, 0, 8);
+    if ($analytics['available']) {
+        $sessions = (int) round((float) ($analytics['summary']['sessions'] ?? 0));
+        $keyEvents = (float) ($analytics['summary']['conversions'] ?? 0);
+        $conversionRate = $sessions > 0 ? $keyEvents / $sessions : 0;
+        if ($sessions > 0 && $keyEvents <= 0) {
+            $push('high', 'Conversion', 'Definir ce qu est une bonne visite', 'Le site recoit des visites, mais aucune action importante n est mesuree.', [
+                'Choisissez les objectifs utiles: formulaire, clic telephone, demande de devis, achat.',
+                'Marquez ces actions comme evenements cles dans GA4.',
+                'Ajoutez un bouton de contact visible sur les pages importantes.',
+            ], 'Permet de savoir si le trafic apporte des prospects reels.');
+        } elseif ($sessions > 0 && $conversionRate < 0.03) {
+            $push('medium', 'Conversion', 'Transformer plus de visiteurs en contacts', 'Les visites existent, mais la part d actions importantes reste a surveiller.', [
+                'Ajoutez un appel a l action clair en haut des pages fortes.',
+                'Simplifiez le formulaire de contact.',
+                'Mettez le telephone ou la demande de devis en evidence sur mobile.',
+            ], 'Augmente les demandes sans dependre uniquement de plus de trafic.');
+        }
+
+        $direct = visiocean_channel_sessions($analytics, ['Direct']);
+        $organic = visiocean_channel_sessions($analytics, ['Organic Search']);
+        if ($direct > 0 && $direct >= $organic) {
+            $push('low', 'Mesure', 'Mieux reconnaitre les sources des visiteurs', 'Une grande partie des visites arrive en direct. Cela peut inclure de vrais acces directs, mais aussi des liens non etiquetes.', [
+                'Ajoutez des liens UTM dans les posts sociaux, emails et campagnes.',
+                'Gardez le meme format de lien pour chaque source.',
+                'Comparez ensuite Direct avec les autres canaux.',
+            ], 'Aide a savoir quelles actions marketing apportent vraiment des visites.');
+        }
+    }
+
+    if ($search['available']) {
+        $queries = is_array($search['queries'] ?? null) ? $search['queries'] : [];
+        $topQuery = $queries[0]['key'] ?? '';
+        if (is_string($topQuery) && trim($topQuery) !== '') {
+            $push('medium', 'SEO', 'Renforcer la recherche qui marche deja', 'La requete "' . trim($topQuery) . '" apporte deja des signaux Google.', [
+                'Ouvrez la page qui ressort pour cette requete.',
+                'Ajoutez un paragraphe utile qui repond mieux a l intention du visiteur.',
+                'Ajoutez des liens internes depuis les pages proches du sujet.',
+            ], 'Consolide les positions existantes avant de viser de nouveaux mots-cles.');
+        }
+
+        $summaryPosition = (float) ($search['summary']['position'] ?? 0);
+        if ($summaryPosition > 8) {
+            $push('medium', 'SEO', 'Gagner quelques places sur Google', 'La position moyenne indique que plusieurs resultats sont encore en bas de premiere page ou en page suivante.', [
+                'Ciblez une requete avec impressions mais peu de clics.',
+                'Ameliorez le contenu de la page correspondante.',
+                'Ajoutez deux ou trois liens internes vers cette page.',
+            ], 'Quelques places gagnees peuvent fortement augmenter les clics.');
+        }
+    }
+
+    if ($audit['available'] && (float) ($audit['summary']['averageScore'] ?? 0) >= 90) {
+        $issueCount = (int) ($audit['summary']['issueCount'] ?? 0);
+        if ($issueCount > 0) {
+            $push('low', 'SEO', 'Nettoyer les derniers points techniques', 'Le score global est bon, mais il reste des petites corrections page par page.', [
+                'Ouvrez Pages SEO.',
+                'Corrigez les titres trop courts ou trop longs.',
+                'Ajoutez les textes alternatifs manquants sur les images importantes.',
+            ], 'Protège les bons resultats et evite que les petites erreurs s accumulent.');
+        } else {
+            $push('low', 'Routine', 'Garder le rythme de suivi', 'Le socle audite est propre. Le plus utile est maintenant de suivre l evolution.', [
+                'Lancez un audit apres chaque grosse modification du site.',
+                'Comparez les donnees sur 30 jours puis 90 jours.',
+                'Ajoutez de nouvelles pages seulement quand elles repondent a une recherche claire.',
+            ], 'Maintient la qualite sans creer de travail inutile.');
+        }
+    }
+
+    return array_slice($items, 0, 6);
 }
 
 function visiocean_dashboard(PDO $pdo, array $user, int $days): array
@@ -1234,6 +1448,7 @@ function visiocean_dashboard(PDO $pdo, array $user, int $days): array
         'analytics' => $analytics,
         'search' => $search,
         'audit' => $audit,
+        'noviceSummary' => visiocean_novice_summary($analytics, $search, $audit, max(1, min(180, $days))),
         'recommendations' => visiocean_recommendations($publicSettings, $analytics, $search, $audit),
         'trackingSnippet' => visiocean_tracking_snippet($publicSettings),
     ];

@@ -1678,13 +1678,13 @@ function oceanos_ai_post_json(string $url, string $apiKey, array $payload): arra
     return $decoded;
 }
 
-function oceanos_groq_chat_completion(string $apiKey, string $model, array $messages, float $temperature = 0.2): string
+function oceanos_groq_chat_completion(string $apiKey, string $model, array $messages, float $temperature = 0.2, int $maxTokens = 128): string
 {
     $result = oceanos_ai_post_json('https://api.groq.com/openai/v1/chat/completions', $apiKey, [
         'model' => $model,
         'messages' => $messages,
         'temperature' => $temperature,
-        'max_tokens' => 128,
+        'max_tokens' => max(32, min(2048, $maxTokens)),
     ]);
 
     return (string) ($result['choices'][0]['message']['content'] ?? '');

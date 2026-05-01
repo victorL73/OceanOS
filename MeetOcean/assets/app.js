@@ -90,6 +90,8 @@ const state = {
   recognitionActive: false,
   recognitionShouldRun: false,
   speechNoticeShown: false,
+  pendingTranscriptText: "",
+  pendingTranscriptTimer: null,
   transcriptFingerprints: [],
   autoJoinAttempted: false,
 };
@@ -204,7 +206,10 @@ async function requestJson(url, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.message || payload.error || "Erreur MeetOcean.");
+    const error = new Error(payload.message || payload.error || "Erreur MeetOcean.");
+    error.code = payload.error || "";
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -1001,6 +1006,7 @@ async function syncNow() {
     });
     await applySyncPayload(payload);
   } catch (error) {
+    if (error.code === "database_busy") return;
     setMessage(error.message || "Synchronisation indisponible.", "error");
   } finally {
     state.pendingSync = false;
@@ -1011,7 +1017,7 @@ function startSyncLoop() {
   window.clearInterval(state.syncTimer);
   state.syncTimer = window.setInterval(() => {
     void syncNow();
-  }, 1200);
+  }, 1600);
 }
 
 function stopSyncLoop() {
@@ -1107,6 +1113,7 @@ function cleanupMeeting() {
   stopSyncLoop();
   stopRecognition();
   state.recognitionShouldRun = false;
+  clearPendingTranscript();
   state.peers.forEach((peer) => peer.pc.close());
   state.peers.clear();
   state.videoTiles.forEach((entry) => entry.tile.remove());
@@ -1150,6 +1157,36 @@ function recognitionErrorMessage(errorCode = "") {
   return messages[errorCode] || "Transcription interrompue par le navigateur.";
 }
 
+function cleanTranscriptText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function clearPendingTranscript() {
+  window.clearTimeout(state.pendingTranscriptTimer);
+  state.pendingTranscriptTimer = null;
+  state.pendingTranscriptText = "";
+}
+
+async function flushPendingTranscript() {
+  const text = cleanTranscriptText(state.pendingTranscriptText);
+  clearPendingTranscript();
+  if (text) {
+    await addTranscript(text);
+  }
+}
+
+function queueTranscript(text) {
+  const cleaned = cleanTranscriptText(text);
+  if (!cleaned) return;
+  state.pendingTranscriptText = cleanTranscriptText(`${state.pendingTranscriptText} ${cleaned}`);
+  showLiveCaption(state.pendingTranscriptText);
+  window.clearTimeout(state.pendingTranscriptTimer);
+  const delay = state.pendingTranscriptText.length > 220 ? 120 : 850;
+  state.pendingTranscriptTimer = window.setTimeout(() => {
+    void flushPendingTranscript();
+  }, delay);
+}
+
 function startRecognitionIfNeeded() {
   state.transcriptionEnabled = elements.transcriptionToggle.checked;
   if (!state.room || !state.transcriptionEnabled || !state.media.microphone) {
@@ -1184,12 +1221,19 @@ function startRecognitionIfNeeded() {
       const text = result[0]?.transcript?.trim() || "";
       if (!text) continue;
       if (result.isFinal) {
-        void addTranscript(text);
+        queueTranscript(text);
       } else {
         interim += `${text} `;
       }
     }
-    showLiveCaption(interim.trim());
+    const interimText = interim.trim();
+    if (interimText) {
+      showLiveCaption(interimText);
+    } else if (state.pendingTranscriptText) {
+      showLiveCaption(state.pendingTranscriptText);
+    } else {
+      showLiveCaption("");
+    }
   };
   recognition.onerror = (event) => {
     if (!["no-speech", "aborted"].includes(event.error || "")) {
@@ -1198,6 +1242,7 @@ function startRecognitionIfNeeded() {
   };
   recognition.onend = () => {
     state.recognitionActive = false;
+    void flushPendingTranscript();
     if (state.recognitionShouldRun && state.room && state.transcriptionEnabled && state.media.microphone) {
       window.setTimeout(() => startRecognitionIfNeeded(), 450);
     }
@@ -1211,6 +1256,7 @@ function startRecognitionIfNeeded() {
 
 function stopRecognition() {
   state.recognitionShouldRun = false;
+  clearPendingTranscript();
   if (!state.recognition) return;
   try {
     state.recognition.stop();
@@ -1233,8 +1279,12 @@ function showLiveCaption(text) {
   elements.liveCaption.classList.toggle("hidden", text === "");
 }
 
+function transcriptFingerprint(text) {
+  return `${state.sourceLanguage}:${cleanTranscriptText(text).toLowerCase()}`;
+}
+
 function rememberTranscript(text) {
-  const fingerprint = `${state.sourceLanguage}:${text.toLowerCase()}`;
+  const fingerprint = transcriptFingerprint(text);
   if (state.transcriptFingerprints.includes(fingerprint)) {
     return false;
   }
@@ -1243,6 +1293,11 @@ function rememberTranscript(text) {
     state.transcriptFingerprints.shift();
   }
   return true;
+}
+
+function forgetTranscript(text) {
+  const fingerprint = transcriptFingerprint(text);
+  state.transcriptFingerprints = state.transcriptFingerprints.filter((item) => item !== fingerprint);
 }
 
 async function addTranscript(text) {
@@ -1261,6 +1316,16 @@ async function addTranscript(text) {
     });
     await applySyncPayload(payload);
   } catch (error) {
+    if (error.code === "database_busy") {
+      forgetTranscript(text);
+      state.pendingTranscriptText = cleanTranscriptText(`${text} ${state.pendingTranscriptText}`);
+      window.clearTimeout(state.pendingTranscriptTimer);
+      state.pendingTranscriptTimer = window.setTimeout(() => {
+        void flushPendingTranscript();
+      }, 1200);
+      return;
+    }
+    forgetTranscript(text);
     setMessage(error.message || "Transcription non enregistree.", "error");
   }
 }

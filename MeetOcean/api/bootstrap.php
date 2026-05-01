@@ -5,7 +5,9 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_S
 
 const MEETOCEAN_MODULE_ID = 'meetocean';
 const MEETOCEAN_PRESENCE_TTL_SECONDS = 45;
+const MEETOCEAN_PRESENCE_TOUCH_SECONDS = 5;
 const MEETOCEAN_SIGNAL_TTL_MINUTES = 10;
+const MEETOCEAN_DB_RETRY_ATTEMPTS = 4;
 
 function meetocean_pdo(): PDO
 {
@@ -14,9 +16,62 @@ function meetocean_pdo(): PDO
     return $pdo;
 }
 
+function meetocean_is_retryable_database_error(Throwable $exception): bool
+{
+    if (!$exception instanceof PDOException) {
+        return false;
+    }
+
+    $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+    $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+    $message = strtolower($exception->getMessage());
+
+    return in_array($driverCode, [1205, 1213], true)
+        || $sqlState === '40001'
+        || str_contains($message, 'deadlock')
+        || str_contains($message, 'lock wait timeout');
+}
+
+function meetocean_retry_delay(int $attempt): void
+{
+    usleep((45000 * $attempt) + random_int(10000, 60000));
+}
+
+function meetocean_execute(PDOStatement $statement, array $params = []): bool
+{
+    for ($attempt = 1; $attempt <= MEETOCEAN_DB_RETRY_ATTEMPTS; $attempt++) {
+        try {
+            return $statement->execute($params);
+        } catch (PDOException $exception) {
+            if (!meetocean_is_retryable_database_error($exception) || $attempt >= MEETOCEAN_DB_RETRY_ATTEMPTS) {
+                throw $exception;
+            }
+            meetocean_retry_delay($attempt);
+        }
+    }
+
+    return false;
+}
+
+function meetocean_exec(PDO $pdo, string $sql): int|false
+{
+    for ($attempt = 1; $attempt <= MEETOCEAN_DB_RETRY_ATTEMPTS; $attempt++) {
+        try {
+            return $pdo->exec($sql);
+        } catch (PDOException $exception) {
+            if (!meetocean_is_retryable_database_error($exception) || $attempt >= MEETOCEAN_DB_RETRY_ATTEMPTS) {
+                throw $exception;
+            }
+            meetocean_retry_delay($attempt);
+        }
+    }
+
+    return false;
+}
+
 function meetocean_ensure_schema(PDO $pdo): void
 {
-    $pdo->exec(
+    meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_rooms (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             slug VARCHAR(24) NOT NULL UNIQUE,
@@ -32,10 +87,10 @@ function meetocean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
     if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'invite_token')) {
-        $pdo->exec('ALTER TABLE meetocean_rooms ADD COLUMN invite_token VARCHAR(80) NULL UNIQUE AFTER slug');
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN invite_token VARCHAR(80) NULL UNIQUE AFTER slug');
     }
 
-    $pdo->exec(
+    meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_participants (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             room_id BIGINT UNSIGNED NOT NULL,
@@ -57,7 +112,7 @@ function meetocean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
-    $pdo->exec(
+    meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_signals (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             room_id BIGINT UNSIGNED NOT NULL,
@@ -72,7 +127,7 @@ function meetocean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
-    $pdo->exec(
+    meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_transcripts (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             room_id BIGINT UNSIGNED NOT NULL,
@@ -277,7 +332,7 @@ function meetocean_ensure_invite(PDO $pdo, array $room): array
 
     $token = meetocean_random_invite_token($pdo);
     $statement = $pdo->prepare('UPDATE meetocean_rooms SET invite_token = :token WHERE id = :id');
-    $statement->execute([
+    meetocean_execute($statement, [
         'token' => $token,
         'id' => (int) $room['id'],
     ]);
@@ -319,7 +374,7 @@ function meetocean_create_room(PDO $pdo, array $user, string $title): array
         'INSERT INTO meetocean_rooms (slug, invite_token, title, created_by)
          VALUES (:slug, :invite_token, :title, :created_by)'
     );
-    $statement->execute([
+    meetocean_execute($statement, [
         'slug' => $slug,
         'invite_token' => $token,
         'title' => meetocean_room_title($title),
@@ -384,25 +439,38 @@ function meetocean_find_invited_room(PDO $pdo, mixed $room, mixed $token): array
 
 function meetocean_cleanup_room(PDO $pdo, int $roomId): void
 {
-    $participantStatement = $pdo->prepare(
-        'DELETE FROM meetocean_participants
-         WHERE room_id = :room_id
-           AND updated_at < DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_PRESENCE_TTL_SECONDS . ' SECOND)'
-    );
-    $participantStatement->execute(['room_id' => $roomId]);
+    try {
+        $participantStatement = $pdo->prepare(
+            'DELETE FROM meetocean_participants
+             WHERE room_id = :room_id
+               AND updated_at < DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_PRESENCE_TTL_SECONDS . ' SECOND)'
+        );
+        meetocean_execute($participantStatement, ['room_id' => $roomId]);
 
-    $signalStatement = $pdo->prepare(
-        'DELETE FROM meetocean_signals
-         WHERE room_id = :room_id
-           AND created_at < DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_SIGNAL_TTL_MINUTES . ' MINUTE)'
-    );
-    $signalStatement->execute(['room_id' => $roomId]);
+        $signalStatement = $pdo->prepare(
+            'DELETE FROM meetocean_signals
+             WHERE room_id = :room_id
+               AND created_at < DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_SIGNAL_TTL_MINUTES . ' MINUTE)'
+        );
+        meetocean_execute($signalStatement, ['room_id' => $roomId]);
+    } catch (PDOException $exception) {
+        if (!meetocean_is_retryable_database_error($exception)) {
+            throw $exception;
+        }
+    }
+}
+
+function meetocean_maybe_cleanup_room(PDO $pdo, int $roomId): void
+{
+    if (random_int(1, 30) === 1) {
+        meetocean_cleanup_room($pdo, $roomId);
+    }
 }
 
 function meetocean_touch_room(PDO $pdo, int $roomId): void
 {
     $statement = $pdo->prepare('UPDATE meetocean_rooms SET last_activity_at = CURRENT_TIMESTAMP WHERE id = :room_id');
-    $statement->execute(['room_id' => $roomId]);
+    meetocean_execute($statement, ['room_id' => $roomId]);
 }
 
 function meetocean_public_room(PDO $pdo, array $room, ?array $viewer = null): array
@@ -413,7 +481,7 @@ function meetocean_public_room(PDO $pdo, array $room, ?array $viewer = null): ar
          WHERE room_id = :room_id
            AND updated_at >= DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_PRESENCE_TTL_SECONDS . ' SECOND)'
     );
-    $statement->execute(['room_id' => (int) $room['id']]);
+    meetocean_execute($statement, ['room_id' => (int) $room['id']]);
 
     $viewerId = (int) ($viewer['id'] ?? 0);
     $canDelete = $viewer !== null
@@ -469,6 +537,53 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
     $displayName = trim((string) ($user['display_name'] ?? $user['email'] ?? 'Utilisateur'));
     $displayName = mb_substr($displayName !== '' ? $displayName : 'Utilisateur', 0, 140);
     $userId = (int) ($user['id'] ?? 0);
+    $roomId = (int) $room['id'];
+    $values = [
+        'room_id' => $roomId,
+        'user_id' => $userId > 0 ? $userId : null,
+        'client_id' => $clientId,
+        'display_name' => $displayName,
+        'source_language' => $sourceLanguage,
+        'target_language' => $targetLanguage,
+        'microphone_enabled' => $media['microphone'] ? 1 : 0,
+        'camera_enabled' => $media['camera'] ? 1 : 0,
+        'screen_enabled' => $media['screen'] ? 1 : 0,
+        'connection_state' => mb_substr($media['connectionState'], 0, 36),
+    ];
+
+    $existingStatement = $pdo->prepare(
+        'SELECT user_id, display_name, source_language, target_language,
+                microphone_enabled, camera_enabled, screen_enabled, connection_state, updated_at
+         FROM meetocean_participants
+         WHERE room_id = :room_id AND client_id = :client_id
+         LIMIT 1'
+    );
+    meetocean_execute($existingStatement, [
+        'room_id' => $roomId,
+        'client_id' => $clientId,
+    ]);
+    $existing = $existingStatement->fetch();
+    if (is_array($existing)) {
+        $existingUserId = (int) ($existing['user_id'] ?? 0);
+        $expectedUserId = $userId > 0 ? $userId : 0;
+        $updatedAt = strtotime((string) ($existing['updated_at'] ?? '')) ?: 0;
+        $changed = $existingUserId !== $expectedUserId
+            || (string) $existing['display_name'] !== $displayName
+            || meetocean_normalize_language($existing['source_language'] ?? 'fr-FR') !== $sourceLanguage
+            || (int) $existing['microphone_enabled'] !== $values['microphone_enabled']
+            || (int) $existing['camera_enabled'] !== $values['camera_enabled']
+            || (int) $existing['screen_enabled'] !== $values['screen_enabled']
+            || (string) $existing['connection_state'] !== $values['connection_state'];
+        $stale = $updatedAt <= time() - MEETOCEAN_PRESENCE_TOUCH_SECONDS;
+
+        if (!$changed && !$stale) {
+            return [
+                'clientId' => $clientId,
+                'sourceLanguage' => $sourceLanguage,
+                'targetLanguage' => $targetLanguage,
+            ];
+        }
+    }
 
     $statement = $pdo->prepare(
         'INSERT INTO meetocean_participants
@@ -486,19 +601,8 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
             connection_state = VALUES(connection_state),
             updated_at = CURRENT_TIMESTAMP'
     );
-    $statement->execute([
-        'room_id' => (int) $room['id'],
-        'user_id' => $userId > 0 ? $userId : null,
-        'client_id' => $clientId,
-        'display_name' => $displayName,
-        'source_language' => $sourceLanguage,
-        'target_language' => $targetLanguage,
-        'microphone_enabled' => $media['microphone'] ? 1 : 0,
-        'camera_enabled' => $media['camera'] ? 1 : 0,
-        'screen_enabled' => $media['screen'] ? 1 : 0,
-        'connection_state' => mb_substr($media['connectionState'], 0, 36),
-    ]);
-    meetocean_touch_room($pdo, (int) $room['id']);
+    meetocean_execute($statement, $values);
+    meetocean_touch_room($pdo, $roomId);
 
     return [
         'clientId' => $clientId,
@@ -510,7 +614,7 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
 function meetocean_leave_participant(PDO $pdo, int $roomId, string $clientId): void
 {
     $statement = $pdo->prepare('DELETE FROM meetocean_participants WHERE room_id = :room_id AND client_id = :client_id');
-    $statement->execute([
+    meetocean_execute($statement, [
         'room_id' => $roomId,
         'client_id' => $clientId,
     ]);
@@ -520,7 +624,7 @@ function meetocean_leave_participant(PDO $pdo, int $roomId, string $clientId): v
          WHERE room_id = :room_id
            AND (sender_client_id = :client_id OR recipient_client_id = :client_id)'
     );
-    $signalStatement->execute([
+    meetocean_execute($signalStatement, [
         'room_id' => $roomId,
         'client_id' => $clientId,
     ]);
@@ -535,7 +639,7 @@ function meetocean_delete_room(PDO $pdo, array $room, array $user): void
     }
 
     $statement = $pdo->prepare('DELETE FROM meetocean_rooms WHERE id = :id');
-    $statement->execute(['id' => (int) $room['id']]);
+    meetocean_execute($statement, ['id' => (int) $room['id']]);
 }
 
 function meetocean_list_participants(PDO $pdo, int $roomId): array
@@ -549,7 +653,7 @@ function meetocean_list_participants(PDO $pdo, int $roomId): array
            AND updated_at >= DATE_SUB(NOW(), INTERVAL ' . MEETOCEAN_PRESENCE_TTL_SECONDS . ' SECOND)
          ORDER BY joined_at ASC, id ASC'
     );
-    $statement->execute(['room_id' => $roomId]);
+    meetocean_execute($statement, ['room_id' => $roomId]);
 
     $participants = [];
     foreach ($statement->fetchAll() ?: [] as $row) {
@@ -605,7 +709,7 @@ function meetocean_add_signal(PDO $pdo, array $room, array $input): array
         'INSERT INTO meetocean_signals (room_id, sender_client_id, recipient_client_id, signal_type, payload_json)
          VALUES (:room_id, :sender_client_id, :recipient_client_id, :signal_type, :payload_json)'
     );
-    $statement->execute([
+    meetocean_execute($statement, [
         'room_id' => (int) $room['id'],
         'sender_client_id' => $sender,
         'recipient_client_id' => $recipient,
@@ -634,7 +738,7 @@ function meetocean_signals_since(PDO $pdo, int $roomId, string $clientId, int $s
     $statement->bindValue('room_id', $roomId, PDO::PARAM_INT);
     $statement->bindValue('since_id', max(0, $sinceId), PDO::PARAM_INT);
     $statement->bindValue('client_id', $clientId, PDO::PARAM_STR);
-    $statement->execute();
+    meetocean_execute($statement);
 
     $signals = [];
     foreach ($statement->fetchAll() ?: [] as $row) {
@@ -672,7 +776,7 @@ function meetocean_add_transcript(PDO $pdo, array $room, array $user, array $inp
          VALUES
             (:room_id, :user_id, :client_id, :speaker_name, :source_language, :text, :translations_json, 1)'
     );
-    $statement->execute([
+    meetocean_execute($statement, [
         'room_id' => (int) $room['id'],
         'user_id' => $userId > 0 ? $userId : null,
         'client_id' => $clientId,
@@ -706,14 +810,15 @@ function meetocean_translate_text(PDO $pdo, int $userId, string $text, string $s
         [
             [
                 'role' => 'system',
-                'content' => 'Tu es un moteur de traduction de visioconference. Traduis fidelement le sens, conserve les noms propres et reponds uniquement avec le texte traduit.',
+                'content' => 'Tu es un moteur de traduction de visioconference. Traduis fidelement le sens, conserve les noms propres, ne rajoute aucune explication et reponds uniquement avec le texte traduit.',
             ],
             [
                 'role' => 'user',
                 'content' => "Langue source: {$sourceLabel}\nLangue cible: {$targetLabel}\nTexte:\n{$text}",
             ],
         ],
-        0
+        0,
+        512
     ));
 }
 
@@ -749,7 +854,7 @@ function meetocean_ensure_translation(PDO $pdo, int $userId, array $row, string 
              SET translations_json = :translations_json
              WHERE id = :id'
         );
-        $statement->execute([
+        meetocean_execute($statement, [
             'id' => (int) $row['id'],
             'translations_json' => meetocean_json_encode($translations),
         ]);
@@ -798,7 +903,7 @@ function meetocean_transcripts_since(PDO $pdo, int $roomId, int $sinceId, string
     );
     $statement->bindValue('room_id', $roomId, PDO::PARAM_INT);
     $statement->bindValue('since_id', max(0, $sinceId), PDO::PARAM_INT);
-    $statement->execute();
+    meetocean_execute($statement);
 
     $items = [];
     foreach ($statement->fetchAll() ?: [] as $row) {
@@ -809,14 +914,34 @@ function meetocean_transcripts_since(PDO $pdo, int $roomId, int $sinceId, string
     return $items;
 }
 
+function meetocean_translation_user_id(PDO $pdo, array $room, array $user): int
+{
+    $candidates = [];
+    foreach ([(int) ($user['id'] ?? 0), (int) ($room['created_by'] ?? 0)] as $candidate) {
+        if ($candidate > 0 && !in_array($candidate, $candidates, true)) {
+            $candidates[] = $candidate;
+        }
+    }
+
+    foreach ($candidates as $candidate) {
+        $settings = oceanos_ai_public_settings($pdo, $candidate);
+        if ((bool) ($settings['hasApiKey'] ?? false)) {
+            return $candidate;
+        }
+    }
+
+    return $candidates[0] ?? 0;
+}
+
 function meetocean_room_state(PDO $pdo, array $room, array $user, string $clientId, int $sinceSignalId = 0, int $sinceTranscriptId = 0, ?string $targetLanguage = null): array
 {
     $clientId = meetocean_clean_client_id($clientId);
     $room = meetocean_ensure_invite($pdo, $room);
-    meetocean_cleanup_room($pdo, (int) $room['id']);
+    meetocean_maybe_cleanup_room($pdo, (int) $room['id']);
 
+    $participants = meetocean_list_participants($pdo, (int) $room['id']);
     $participant = null;
-    foreach (meetocean_list_participants($pdo, (int) $room['id']) as $item) {
+    foreach ($participants as $item) {
         if ($item['clientId'] === $clientId) {
             $participant = $item;
             break;
@@ -824,17 +949,14 @@ function meetocean_room_state(PDO $pdo, array $room, array $user, string $client
     }
 
     $targetLanguage = meetocean_normalize_language($participant['sourceLanguage'] ?? $targetLanguage ?? 'fr-FR');
-    $translationUserId = (int) ($user['id'] ?? 0);
-    if ($translationUserId <= 0) {
-        $translationUserId = (int) ($room['created_by'] ?? 0);
-    }
+    $translationUserId = meetocean_translation_user_id($pdo, $room, $user);
 
     return [
         'ok' => true,
         'managedBy' => 'OceanOS',
         'isGuest' => (bool) ($user['is_guest'] ?? false),
         'room' => meetocean_public_room($pdo, $room, $user),
-        'participants' => meetocean_list_participants($pdo, (int) $room['id']),
+        'participants' => $participants,
         'signals' => meetocean_signals_since($pdo, (int) $room['id'], $clientId, $sinceSignalId),
         'transcripts' => meetocean_transcripts_since($pdo, (int) $room['id'], $sinceTranscriptId, $targetLanguage, $translationUserId),
     ];

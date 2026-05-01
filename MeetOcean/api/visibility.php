@@ -202,6 +202,20 @@ try {
         'error' => 'validation_error',
         'message' => $exception->getMessage(),
     ], 422);
+} catch (PDOException $exception) {
+    if (meetocean_is_retryable_database_error($exception)) {
+        oceanos_json_response([
+            'ok' => false,
+            'error' => 'database_busy',
+            'message' => 'La reunion est tres active, synchronisation relancee automatiquement.',
+        ], 503);
+    }
+
+    oceanos_json_response([
+        'ok' => false,
+        'error' => 'database_error',
+        'message' => 'Erreur base de donnees MeetOcean.',
+    ], 500);
 } catch (Throwable $exception) {
     oceanos_json_response([
         'ok' => false,

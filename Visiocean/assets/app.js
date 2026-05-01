@@ -24,6 +24,10 @@ const elements = {
   metricImpressions: $("metric-impressions"),
   metricScore: $("metric-score"),
   metricPages: $("metric-pages"),
+  advisorHeadline: $("advisor-headline"),
+  advisorBody: $("advisor-body"),
+  advisorNextFocus: $("advisor-next-focus"),
+  advisorHighlights: $("advisor-highlights"),
   recommendationCount: $("recommendation-count"),
   recommendationList: $("recommendation-list"),
   channelList: $("channel-list"),
@@ -141,6 +145,50 @@ function priorityLabel(priority) {
   return "Suivi";
 }
 
+function channelDetails(name) {
+  const normalized = String(name || "").toLowerCase();
+  if (normalized === "organic search") {
+    return {
+      label: "Google naturel",
+      help: "Personnes venues des resultats Google gratuits.",
+    };
+  }
+  if (normalized === "direct") {
+    return {
+      label: "Acces direct",
+      help: "Adresse tapee, favori, ou source non reconnue par GA4.",
+    };
+  }
+  if (normalized === "referral") {
+    return {
+      label: "Liens externes",
+      help: "Visites depuis un autre site qui fait un lien vers vous.",
+    };
+  }
+  if (normalized === "organic social") {
+    return {
+      label: "Reseaux sociaux gratuits",
+      help: "Visites depuis des publications non payantes.",
+    };
+  }
+  if (normalized === "paid search") {
+    return {
+      label: "Publicite Google",
+      help: "Visites issues de campagnes payantes.",
+    };
+  }
+  if (normalized === "unassigned" || normalized === "(not set)" || normalized === "non defini") {
+    return {
+      label: "Source non reconnue",
+      help: "GA4 n a pas reussi a classer l origine de ces visites.",
+    };
+  }
+  return {
+    label: name || "Non defini",
+    help: "Canal detecte par Google Analytics.",
+  };
+}
+
 function renderIdentity(payload) {
   const user = payload.currentUser || {};
   const label = user.displayName || user.email || "Utilisateur";
@@ -152,6 +200,32 @@ function renderIdentity(payload) {
     payload.audit?.available ? "Audit" : "",
   ].filter(Boolean);
   elements.connectionPill.textContent = integrations.length > 0 ? integrations.join(" + ") : "A configurer";
+}
+
+function renderAdvisor(payload) {
+  const summary = payload.noviceSummary || {};
+  elements.advisorHeadline.textContent = summary.headline || "Lecture simple des donnees";
+  elements.advisorBody.textContent = summary.body || "Visiocean traduit les chiffres en actions simples.";
+  elements.advisorNextFocus.textContent = summary.nextFocus || "Priorite: regarder les actions recommandees.";
+  elements.advisorHighlights.innerHTML = "";
+
+  const highlights = Array.isArray(summary.highlights) ? summary.highlights : [];
+  highlights.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "advisor-highlight";
+
+    const label = document.createElement("span");
+    label.textContent = item.label || "Indicateur";
+
+    const value = document.createElement("strong");
+    value.textContent = item.value || "-";
+
+    const meaning = document.createElement("p");
+    meaning.textContent = item.meaning || "";
+
+    card.append(label, value, meaning);
+    elements.advisorHighlights.appendChild(card);
+  });
 }
 
 function renderMetrics(payload) {
@@ -199,7 +273,7 @@ function renderRecommendations(payload) {
   elements.recommendationList.innerHTML = "";
 
   if (recommendations.length === 0) {
-    elements.recommendationList.appendChild(createEmpty("Aucune action prioritaire"));
+    elements.recommendationList.appendChild(createEmpty("Les connexions fonctionnent. Surveillez les donnees 30 jours et relancez un audit apres chaque modification importante."));
     return;
   }
 
@@ -218,6 +292,26 @@ function renderRecommendations(payload) {
     body.textContent = item.body || "";
 
     article.append(meta, title, body);
+
+    const steps = Array.isArray(item.steps) ? item.steps.filter(Boolean) : [];
+    if (steps.length > 0) {
+      const list = document.createElement("ol");
+      list.className = "action-steps";
+      steps.slice(0, 4).forEach((step) => {
+        const li = document.createElement("li");
+        li.textContent = step;
+        list.appendChild(li);
+      });
+      article.appendChild(list);
+    }
+
+    if (item.impact) {
+      const impact = document.createElement("small");
+      impact.className = "recommendation-impact";
+      impact.textContent = item.impact;
+      article.appendChild(impact);
+    }
+
     elements.recommendationList.appendChild(article);
   });
 }
@@ -237,11 +331,16 @@ function renderChannels(payload) {
 
   const maxSessions = Math.max(...channels.map((channel) => Number(channel.sessions || 0)), 1);
   channels.forEach((channel) => {
+    const details = channelDetails(channel.name);
     const row = document.createElement("div");
     row.className = "channel-row";
 
-    const label = document.createElement("span");
-    label.textContent = channel.name || "Non defini";
+    const labelWrap = document.createElement("span");
+    const label = document.createElement("b");
+    label.textContent = details.label;
+    const help = document.createElement("small");
+    help.textContent = details.help;
+    labelWrap.append(label, help);
 
     const value = document.createElement("strong");
     value.textContent = formatNumber(channel.sessions);
@@ -249,7 +348,7 @@ function renderChannels(payload) {
     const bar = document.createElement("i");
     bar.style.setProperty("--bar-width", `${Math.max(6, (Number(channel.sessions || 0) / maxSessions) * 100)}%`);
 
-    row.append(label, value, bar);
+    row.append(labelWrap, value, bar);
     elements.channelList.appendChild(row);
   });
 }
@@ -400,6 +499,7 @@ function renderSettings(payload) {
 function render(payload) {
   state.payload = payload;
   renderIdentity(payload);
+  renderAdvisor(payload);
   renderMetrics(payload);
   renderRecommendations(payload);
   renderChannels(payload);

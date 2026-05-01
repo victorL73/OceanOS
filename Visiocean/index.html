@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/visiocean.svg?v=20260501">
   <meta name="description" content="Visiocean - pilotage Google Analytics, Search Console, SEO et amelioration de visibilite.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-visiocean-oauth">
+  <link rel="stylesheet" href="assets/style.css?v=20260501-visiocean-novice">
   <script defer src="/OceanOS/assets/guard.js?v=20260501-visiocean"></script>
-  <script defer src="assets/app.js?v=20260501-visiocean-oauth"></script>
+  <script defer src="assets/app.js?v=20260501-visiocean-novice"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -44,26 +44,40 @@
 
       <p class="app-message hidden" id="app-message"></p>
 
+      <section class="advisor-panel" id="advisor-panel" aria-label="Diagnostic simple">
+        <div class="advisor-copy">
+          <p class="eyebrow">Conseiller Visiocean</p>
+          <h2 id="advisor-headline">Lecture simple des donnees</h2>
+          <p id="advisor-body">Visiocean traduit les chiffres en actions simples.</p>
+          <strong id="advisor-next-focus">Priorite: charger les donnees.</strong>
+        </div>
+        <div class="advisor-highlights" id="advisor-highlights"></div>
+      </section>
+
       <section class="metrics-grid" aria-label="Synthese Visiocean">
         <article class="metric-card">
           <span>Sessions</span>
           <strong id="metric-sessions">-</strong>
           <small id="metric-users">0 utilisateurs</small>
+          <em>Une session = une visite du site.</em>
         </article>
         <article class="metric-card">
-          <span>Evenements cles</span>
+          <span>Actions importantes</span>
           <strong id="metric-conversions">-</strong>
           <small id="metric-engagement">0% engagement</small>
+          <em>Contact, appel, achat ou autre objectif suivi.</em>
         </article>
         <article class="metric-card">
           <span>Clics Google</span>
           <strong id="metric-clicks">-</strong>
           <small id="metric-impressions">0 impressions</small>
+          <em>Visites gratuites venues des resultats Google.</em>
         </article>
         <article class="metric-card score">
           <span>Score SEO</span>
           <strong id="metric-score">-</strong>
           <small id="metric-pages">0 page auditee</small>
+          <em>Plus il est proche de 100, plus la base technique est saine.</em>
         </article>
       </section>
 
@@ -78,8 +92,8 @@
         <section class="panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Actions</p>
-              <h2>Plan priorise</h2>
+              <p class="eyebrow">Priorite</p>
+              <h2>Ce qu'il faut faire maintenant</h2>
             </div>
             <span class="count-pill" id="recommendation-count">0 action</span>
           </div>
@@ -91,7 +105,7 @@
             <div class="panel-header compact">
               <div>
                 <p class="eyebrow">Acquisition</p>
-                <h2>Canaux GA4</h2>
+                <h2>D'ou viennent les visiteurs</h2>
               </div>
             </div>
             <div class="channel-list" id="channel-list"></div>
