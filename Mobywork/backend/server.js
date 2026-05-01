@@ -239,6 +239,21 @@ function normalizeMailboxAddress(value = '') {
     return String(value || '').trim().toLowerCase();
 }
 
+function rawImapUidForDeletion(row = {}) {
+    const rawUid = String(row.raw_imap_uid || '').trim();
+    if (rawUid) return rawUid;
+
+    const storedUid = String(row.uid || '').trim();
+    if (!storedUid) return '';
+
+    if (/^\d+$/.test(storedUid) && storedUid.length > 10) {
+        const suffix = storedUid.slice(-10).replace(/^0+/, '');
+        return suffix || '0';
+    }
+
+    return storedUid;
+}
+
 async function getAllowedMailboxAddresses(userId) {
     const accounts = await getUserMailAccounts(userId);
     return accounts
@@ -689,12 +704,32 @@ app.delete('/api/emails/bulk', async (req, res) => {
     try {
         const placeholders = ids.map(() => '?').join(',');
         const rows = await dbAll(
-            `SELECT id, attachments FROM emails WHERE user_id = ? AND status = 'archive' AND id IN (${placeholders})`,
+            `SELECT id, CAST(uid AS CHAR) AS uid, mailbox_address, CAST(raw_imap_uid AS CHAR) AS raw_imap_uid, attachments
+             FROM emails
+             WHERE user_id = ? AND status = 'archive' AND id IN (${placeholders})`,
             [req.user.id, ...ids]
         );
 
         if (rows.length === 0) {
             return res.status(400).json({ error: 'Aucun mail archive dans la selection.' });
+        }
+
+        const deletedAt = new Date().toISOString();
+        for (const row of rows) {
+            const mailboxAddress = normalizeMailboxAddress(row.mailbox_address);
+            const rawUid = rawImapUidForDeletion(row);
+            if (!mailboxAddress || !rawUid) continue;
+
+            await dbRun(
+                `INSERT OR IGNORE INTO mail_deleted_messages (
+                    mailbox_address, raw_imap_uid, deleted_by, deleted_at
+                ) VALUES (?, ?, ?, ?)`,
+                [mailboxAddress, rawUid, req.user.id, deletedAt]
+            );
+            await dbRun(
+                'DELETE FROM mail_folder_assignments WHERE LOWER(mailbox_address) = ? AND raw_imap_uid = ?',
+                [mailboxAddress, rawUid]
+            );
         }
 
         cleanupEmailAttachments(rows);

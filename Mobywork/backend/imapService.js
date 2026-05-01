@@ -129,6 +129,27 @@ function getMailboxMessageKey(mailboxAddress, rawUid) {
     return mailbox && uid ? `${mailbox}:${uid}` : '';
 }
 
+async function getDeletedMessageKeysForMailbox(mailboxAddress) {
+    const mailbox = normalizeMailboxAddress(mailboxAddress);
+    if (!mailbox) return new Set();
+
+    const rows = await dbAll(
+        `SELECT mailbox_address, CAST(raw_imap_uid AS CHAR) AS raw_imap_uid
+         FROM mail_deleted_messages
+         WHERE mailbox_address = ?`,
+        [mailbox]
+    ).catch(error => {
+        console.warn(`[IMAP] Liste des mails supprimes indisponible pour ${mailbox}:`, error.message);
+        return [];
+    });
+
+    return new Set(
+        rows
+            .map(row => getMailboxMessageKey(row.mailbox_address || mailbox, row.raw_imap_uid))
+            .filter(Boolean)
+    );
+}
+
 function accountMatchesEmailRow(account, row) {
     const mailboxAddress = normalizeMailboxAddress(row.mailbox_address);
     return String(account.id || '') === String(row.mailbox_id || '')
@@ -420,12 +441,17 @@ async function syncMailbox(userConfig, account, options = {}) {
                     .filter(([key]) => key)
             );
             const existingMessageKeys = new Set(existingByMessageKey.keys());
+            const deletedMessageKeys = await getDeletedMessageKeysForMailbox(account.email);
 
             const uidsToProcess = [];
             const attachmentsToBackfill = [];
             for await (const msg of client.fetch('1:*', { uid: true })) {
                 const internalUid = storedImapUid(account, msg.uid);
                 const mailboxKey = getMailboxMessageKey(account.email, msg.uid);
+                if (deletedMessageKeys.has(mailboxKey)) {
+                    continue;
+                }
+
                 const existingRow = existingByMessageKey.get(mailboxKey)
                     || existingByUid.get(String(internalUid || ''));
 

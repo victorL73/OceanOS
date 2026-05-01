@@ -306,6 +306,18 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     );
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS mobywork_mail_deleted_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            mailbox_address VARCHAR(190) NOT NULL,
+            raw_imap_uid VARCHAR(80) NOT NULL,
+            deleted_by BIGINT UNSIGNED NULL,
+            deleted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_mobywork_mail_deleted_msg (mailbox_address, raw_imap_uid),
+            INDEX idx_mobywork_mail_deleted_box (mailbox_address)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS mobywork_crm_activities (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             clientId BIGINT NULL,
@@ -550,6 +562,7 @@ function mobywork_sql_translate(string $sql): string
         'prospects',
         'mail_folders',
         'mail_folder_assignments',
+        'mail_deleted_messages',
     ];
 
     foreach ($tables as $table) {

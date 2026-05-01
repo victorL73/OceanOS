@@ -79,6 +79,15 @@ db.serialize(() => {
         UNIQUE(mailbox_address, raw_imap_uid)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS mail_deleted_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mailbox_address TEXT NOT NULL,
+        raw_imap_uid TEXT NOT NULL,
+        deleted_by INTEGER,
+        deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(mailbox_address, raw_imap_uid)
+    )`);
+
     // Table pour l'historique des actions CRM
     db.run(`CREATE TABLE IF NOT EXISTS crm_activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
