@@ -409,11 +409,11 @@ function createSearchRow(item) {
   const title = document.createElement("strong");
   title.textContent = item.key || "Non defini";
   const position = document.createElement("span");
-  position.textContent = `Pos. ${formatNumber(item.position || 0, 1)}`;
+  position.textContent = `Position Google ${formatNumber(item.position || 0, 1)}`;
   head.append(title, position);
 
   const stats = document.createElement("p");
-  stats.textContent = `${formatNumber(item.clicks)} clics - ${formatNumber(item.impressions)} impressions - CTR ${formatPercent(item.ctr || 0)}`;
+  stats.textContent = `${formatNumber(item.clicks)} clics depuis Google - ${formatNumber(item.impressions)} affichages - taux de clic ${formatPercent(item.ctr || 0)}`;
 
   row.append(head, stats);
   return row;
