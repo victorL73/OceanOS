@@ -305,6 +305,16 @@ select:disabled {
   padding: 16px;
 }
 
+.guest-panel {
+  max-width: 860px;
+}
+
+.guest-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
 .join-section {
   display: grid;
   gap: 14px;
@@ -360,13 +370,15 @@ select:disabled {
 .room-row {
   width: 100%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 4px;
   min-height: 58px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfdfc;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 8px;
   text-align: left;
 }
 
@@ -376,16 +388,38 @@ select:disabled {
   outline: none;
 }
 
-.room-row strong {
+.room-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 2px 4px;
+  text-align: left;
+}
+
+.room-row-main strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.room-row span {
+.room-row-main span {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.room-row-delete {
+  min-height: 34px;
+  border: 1px solid rgba(201, 76, 76, 0.28);
+  border-radius: 8px;
+  background: rgba(201, 76, 76, 0.08);
+  color: var(--red);
+  padding: 0 10px;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .meeting-stage {
@@ -787,6 +821,14 @@ select:disabled {
 
   .language-row {
     grid-template-columns: 1fr;
+  }
+
+  .room-row {
+    grid-template-columns: 1fr;
+  }
+
+  .room-row-delete {
+    width: 100%;
   }
 
   .tile-meta {

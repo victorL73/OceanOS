@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/meetocean.svg?v=20260501">
   <meta name="description" content="MeetOcean - reunions video, transcription et traduction en temps reel.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-secure-context">
-  <script defer src="/OceanOS/assets/guard.js?v=20260501-meetocean"></script>
-  <script defer src="assets/app.js?v=20260501-mixed-content-speech"></script>
+  <link rel="stylesheet" href="assets/style.css?v=20260501-external-invite">
+  <script defer src="/OceanOS/assets/guard.js?v=20260501-external-invite"></script>
+  <script defer src="assets/app.js?v=20260501-external-invite"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -36,6 +36,33 @@
       </header>
 
       <p class="app-message hidden" id="app-message"></p>
+
+      <section class="panel guest-panel hidden" id="guest-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Invitation</p>
+            <h2>Rejoindre la reunion</h2>
+          </div>
+          <span class="count-pill" id="guest-room-code">Invite externe</span>
+        </div>
+        <div class="guest-form">
+          <label class="field">
+            <span>Votre nom</span>
+            <input id="guest-name" type="text" maxlength="120" placeholder="Nom affiche dans la reunion">
+          </label>
+          <div class="language-row">
+            <label class="field">
+              <span>Langue parlee</span>
+              <select id="guest-source-language"></select>
+            </label>
+            <label class="field">
+              <span>Langue souhaitee</span>
+              <select id="guest-target-language"></select>
+            </label>
+          </div>
+          <button class="primary-button full-button" id="guest-join-button" type="button">Rejoindre comme invite</button>
+        </div>
+      </section>
 
       <section class="meeting-layout">
         <section class="panel start-panel" id="start-panel">
@@ -89,9 +116,11 @@
               </button>
             </div>
             <div class="stage-actions">
+              <button class="tool-button" id="copy-invite-button" type="button" title="Copier le lien invite">Inviter</button>
               <button class="tool-button" id="toggle-mic-button" type="button" title="Micro">Micro</button>
               <button class="tool-button" id="toggle-camera-button" type="button" title="Camera">Camera</button>
               <button class="tool-button" id="share-screen-button" type="button" title="Partage d'ecran">Ecran</button>
+              <button class="tool-button danger-text" id="delete-room-button" type="button" title="Supprimer la reunion">Supprimer</button>
               <button class="ghost-button danger-text" id="leave-room-button" type="button">Quitter</button>
             </div>
           </div>

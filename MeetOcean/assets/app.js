@@ -1,6 +1,7 @@
 const API_URL = "api/visibility.php";
 const AUTH_URL = "/OceanOS/api/auth.php";
 const OCEANOS_URL = "/OceanOS/";
+const URL_PARAMS = new URLSearchParams(window.location.search);
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,6 +13,12 @@ const elements = {
   appMessage: $("app-message"),
   aiPill: $("ai-pill"),
   logoutButton: $("logout-button"),
+  guestPanel: $("guest-panel"),
+  guestRoomCode: $("guest-room-code"),
+  guestName: $("guest-name"),
+  guestSourceLanguage: $("guest-source-language"),
+  guestTargetLanguage: $("guest-target-language"),
+  guestJoinButton: $("guest-join-button"),
   startPanel: $("start-panel"),
   meetingStage: $("meeting-stage"),
   roomTitle: $("room-title"),
@@ -26,9 +33,11 @@ const elements = {
   activeRoomTitle: $("active-room-title"),
   activeRoomCode: $("active-room-code"),
   copyRoomButton: $("copy-room-button"),
+  copyInviteButton: $("copy-invite-button"),
   toggleMicButton: $("toggle-mic-button"),
   toggleCameraButton: $("toggle-camera-button"),
   shareScreenButton: $("share-screen-button"),
+  deleteRoomButton: $("delete-room-button"),
   leaveRoomButton: $("leave-room-button"),
   videoGrid: $("video-grid"),
   liveCaption: $("live-caption"),
@@ -48,6 +57,10 @@ const ICE_SERVERS = [
 const state = {
   clientId: clientId(),
   currentUser: null,
+  isGuest: false,
+  inviteToken: URL_PARAMS.get("invite") || URL_PARAMS.get("token") || "",
+  inviteRoomCode: (URL_PARAMS.get("room") || URL_PARAMS.get("code") || "").trim().toUpperCase(),
+  inviteRoom: null,
   languages: {},
   ai: null,
   room: null,
@@ -156,6 +169,31 @@ function showMediaSecurityMessage() {
   setMessage(mediaAccessMessage(), "error", insecureMediaAction());
 }
 
+function hasInviteAccess() {
+  return state.inviteToken !== "" && state.inviteRoomCode !== "";
+}
+
+function dashboardUrl() {
+  if (!hasInviteAccess()) return API_URL;
+  const params = new URLSearchParams({
+    room: state.inviteRoomCode,
+    invite: state.inviteToken,
+  });
+  const guestName = elements.guestName?.value?.trim() || "";
+  if (guestName) params.set("name", guestName);
+  return `${API_URL}?${params.toString()}`;
+}
+
+function guestPayload(data = {}) {
+  if (!hasInviteAccess()) return data;
+  return {
+    roomCode: state.inviteRoomCode,
+    inviteToken: state.inviteToken,
+    guestName: elements.guestName?.value?.trim() || state.currentUser?.displayName || "",
+    ...data,
+  };
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
     credentials: "include",
@@ -172,7 +210,7 @@ async function requestJson(url, options = {}) {
 function postAction(action, data = {}) {
   return requestJson(API_URL, {
     method: "POST",
-    body: JSON.stringify({ action, ...data }),
+    body: JSON.stringify(guestPayload({ action, ...data })),
   });
 }
 
@@ -225,6 +263,8 @@ function syncLanguageControls() {
   populateLanguageSelect(elements.targetLanguage, state.targetLanguage);
   populateLanguageSelect(elements.activeSourceLanguage, state.sourceLanguage);
   populateLanguageSelect(elements.activeTargetLanguage, state.targetLanguage);
+  populateLanguageSelect(elements.guestSourceLanguage, state.sourceLanguage);
+  populateLanguageSelect(elements.guestTargetLanguage, state.targetLanguage);
   elements.activeTargetLanguage.disabled = !state.translationEnabled;
 }
 
@@ -233,6 +273,10 @@ function renderIdentity(payload) {
   state.currentUser = user;
   state.ai = payload.ai || {};
   elements.currentUser.textContent = user.displayName || user.email || "Utilisateur";
+  if (state.isGuest && user.displayName && user.displayName !== "Invite" && !elements.guestName.value) {
+    elements.guestName.value = user.displayName;
+  }
+  elements.logoutButton.classList.toggle("hidden", state.isGuest);
   elements.aiPill.textContent = state.ai.hasApiKey ? "Traduction IA active" : "IA a configurer";
   elements.connectionPill.textContent = state.room ? "En reunion" : "Hors reunion";
 }
@@ -248,36 +292,56 @@ function renderRecentRooms(rooms = []) {
   }
 
   rooms.forEach((room) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "room-row";
-    button.dataset.code = room.code || "";
+    const row = document.createElement("article");
+    row.className = "room-row";
+    row.dataset.code = room.code || "";
 
+    const body = document.createElement("button");
+    body.type = "button";
+    body.className = "room-row-main";
     const title = document.createElement("strong");
     title.textContent = room.title || "Reunion MeetOcean";
     const meta = document.createElement("span");
     meta.textContent = `${room.code || ""} - ${room.participantCount || 0} participant${Number(room.participantCount || 0) > 1 ? "s" : ""}`;
 
-    button.append(title, meta);
-    button.addEventListener("click", () => {
+    body.append(title, meta);
+    body.addEventListener("click", () => {
       elements.roomCode.value = room.code || "";
       void joinRoom();
     });
-    elements.recentRooms.appendChild(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "room-row-delete";
+    deleteButton.textContent = "Supprimer";
+    deleteButton.hidden = !room.canDelete;
+    deleteButton.addEventListener("click", () => void deleteRoom(room));
+
+    row.append(body, deleteButton);
+    elements.recentRooms.appendChild(row);
   });
 }
 
 function renderDashboard(payload) {
+  state.isGuest = Boolean(payload.isGuest);
   state.languages = payload.languages || { "fr-FR": "Francais", "en-US": "Anglais" };
   state.sourceLanguage = payload.defaults?.sourceLanguage || "fr-FR";
   state.targetLanguage = payload.defaults?.targetLanguage || state.sourceLanguage;
+  state.inviteRoom = payload.room || state.inviteRoom;
+  if (state.inviteRoom?.code) {
+    state.inviteRoomCode = state.inviteRoom.code;
+    elements.guestRoomCode.textContent = state.inviteRoom.code;
+  }
   renderIdentity(payload);
   syncLanguageControls();
-  renderRecentRooms(payload.recentRooms || []);
+  elements.guestPanel.classList.toggle("hidden", !state.isGuest || Boolean(state.room));
+  elements.startPanel.classList.toggle("hidden", state.isGuest || Boolean(state.room));
+  renderRecentRooms(state.isGuest ? [] : payload.recentRooms || []);
 }
 
 function setRoomActive(active) {
-  elements.startPanel.classList.toggle("hidden", active);
+  elements.startPanel.classList.toggle("hidden", active || state.isGuest);
+  elements.guestPanel.classList.toggle("hidden", active || !state.isGuest);
   elements.meetingStage.classList.toggle("hidden", !active);
   elements.connectionPill.textContent = active ? "En reunion" : "Hors reunion";
 }
@@ -286,6 +350,8 @@ function updateRoomHeader() {
   if (!state.room) return;
   elements.activeRoomTitle.textContent = state.room.title || "Reunion MeetOcean";
   elements.activeRoomCode.textContent = state.room.code || "---";
+  elements.copyInviteButton.classList.toggle("hidden", !state.room.inviteUrl);
+  elements.deleteRoomButton.classList.toggle("hidden", state.isGuest || !state.room.canDelete);
 }
 
 function participantByClient(clientIdValue) {
@@ -994,6 +1060,7 @@ async function joinRoom() {
 }
 
 async function enterRoom(payload) {
+  state.isGuest = Boolean(payload.isGuest);
   state.room = payload.room;
   state.lastSignalId = 0;
   state.lastTranscriptId = 0;
@@ -1234,9 +1301,110 @@ async function copyRoomCode() {
   }
 }
 
+async function ensureInviteLink() {
+  if (!state.room?.id) return "";
+  if (state.room.inviteUrl) return state.room.inviteUrl;
+  const payload = await postAction("ensure_invite", {
+    roomId: state.room.id,
+  });
+  state.room = payload.room || state.room;
+  updateRoomHeader();
+  return payload.inviteUrl || state.room.inviteUrl || "";
+}
+
+async function copyInviteLink() {
+  if (!state.room?.id) return;
+  try {
+    const inviteUrl = await ensureInviteLink();
+    if (!inviteUrl) {
+      setMessage("Lien invite indisponible.", "error");
+      return;
+    }
+    await navigator.clipboard.writeText(inviteUrl);
+    setMessage("Lien invite copie.", "success");
+  } catch (error) {
+    setMessage(error.message || "Lien invite impossible.", "error");
+  }
+}
+
+async function deleteRoom(room) {
+  if (!room?.id || state.isGuest) return;
+  const label = room.code || room.title || "cette reunion";
+  if (!window.confirm(`Supprimer ${label} ?`)) return;
+  try {
+    const payload = await postAction("delete_room", {
+      roomId: room.id,
+    });
+    renderRecentRooms(payload.recentRooms || []);
+    setMessage(payload.message || "Reunion supprimee.", "success");
+  } catch (error) {
+    setMessage(error.message || "Suppression impossible.", "error");
+  }
+}
+
+async function deleteCurrentRoom() {
+  if (!state.room?.id || state.isGuest) return;
+  if (!window.confirm(`Supprimer ${state.room.code || "cette reunion"} ?`)) return;
+  try {
+    await postAction("delete_room", {
+      roomId: state.room.id,
+    });
+    cleanupMeeting();
+    setMessage("Reunion supprimee.", "success");
+    void loadDashboard(false);
+  } catch (error) {
+    setMessage(error.message || "Suppression impossible.", "error");
+  }
+}
+
+async function joinGuestRoom() {
+  if (!hasInviteAccess()) {
+    setMessage("Lien invite invalide.", "error");
+    return;
+  }
+  const guestName = elements.guestName.value.trim();
+  if (!guestName) {
+    setMessage("Indiquez votre nom pour rejoindre la reunion.", "error");
+    elements.guestName.focus();
+    return;
+  }
+  elements.guestJoinButton.disabled = true;
+  setMessage("Connexion a la reunion...");
+  try {
+    state.sourceLanguage = elements.guestSourceLanguage.value || state.sourceLanguage;
+    state.targetLanguage = elements.guestTargetLanguage.value || state.targetLanguage;
+    state.currentUser = {
+      displayName: guestName,
+      isGuest: true,
+    };
+    syncLanguageControls();
+    await ensureLocalMedia();
+    const payload = await postAction("join_room", {
+      roomCode: state.inviteRoomCode,
+      clientId: state.clientId,
+      guestName,
+      sourceLanguage: state.sourceLanguage,
+      targetLanguage: effectiveTargetLanguage(),
+      mediaState: mediaState(),
+    });
+    await enterRoom(payload);
+  } catch (error) {
+    setMessage(error.message || "Connexion invite impossible.", "error", insecureMediaAction());
+  } finally {
+    elements.guestJoinButton.disabled = false;
+  }
+}
+
 function bindEvents() {
   elements.createRoomButton.addEventListener("click", () => void createRoom());
   elements.joinRoomButton.addEventListener("click", () => void joinRoom());
+  elements.guestJoinButton.addEventListener("click", () => void joinGuestRoom());
+  elements.guestName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void joinGuestRoom();
+    }
+  });
   elements.roomCode.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -1245,6 +1413,8 @@ function bindEvents() {
   });
   elements.logoutButton.addEventListener("click", () => void logout());
   elements.copyRoomButton.addEventListener("click", () => void copyRoomCode());
+  elements.copyInviteButton.addEventListener("click", () => void copyInviteLink());
+  elements.deleteRoomButton.addEventListener("click", () => void deleteCurrentRoom());
   elements.leaveRoomButton.addEventListener("click", () => void leaveRoom());
   elements.toggleMicButton.addEventListener("click", () => void toggleMicrophone());
   elements.toggleCameraButton.addEventListener("click", () => void toggleCamera());
@@ -1273,6 +1443,9 @@ function bindEvents() {
     const body = JSON.stringify({
       action: "leave_room",
       roomId: state.room.id,
+      roomCode: state.room.code || state.inviteRoomCode,
+      inviteToken: state.inviteToken,
+      guestName: elements.guestName?.value?.trim() || state.currentUser?.displayName || "",
       clientId: state.clientId,
     });
     navigator.sendBeacon?.(API_URL, new Blob([body], { type: "application/json" }));
@@ -1280,7 +1453,7 @@ function bindEvents() {
 }
 
 async function loadDashboard(showReadyMessage = true) {
-  const payload = await requestJson(API_URL);
+  const payload = await requestJson(dashboardUrl());
   renderDashboard(payload);
   setVisible(true);
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -1288,7 +1461,11 @@ async function loadDashboard(showReadyMessage = true) {
     return;
   }
   if (showReadyMessage) {
-    setMessage(payload.ai?.hasApiKey ? "" : "Ajoutez la cle Groq dans OceanOS pour activer la traduction.", "info");
+    if (state.isGuest) {
+      setMessage("");
+    } else {
+      setMessage(payload.ai?.hasApiKey ? "" : "Ajoutez la cle Groq dans OceanOS pour activer la traduction.", "info");
+    }
   }
 }
 
@@ -1301,6 +1478,14 @@ async function boot() {
     await loadDashboard();
   } catch (error) {
     setVisible(true);
+    if (hasInviteAccess()) {
+      state.isGuest = true;
+      elements.currentUser.textContent = "Invite externe";
+      elements.logoutButton.classList.add("hidden");
+      elements.startPanel.classList.add("hidden");
+      elements.guestPanel.classList.remove("hidden");
+      elements.guestRoomCode.textContent = state.inviteRoomCode || "Invitation";
+    }
     setMessage(error.message || "MeetOcean indisponible.", "error");
   }
 }

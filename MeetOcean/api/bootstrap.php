@@ -20,6 +20,7 @@ function meetocean_ensure_schema(PDO $pdo): void
         "CREATE TABLE IF NOT EXISTS meetocean_rooms (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             slug VARCHAR(24) NOT NULL UNIQUE,
+            invite_token VARCHAR(80) NULL UNIQUE,
             title VARCHAR(190) NOT NULL,
             created_by BIGINT UNSIGNED NULL,
             is_locked TINYINT(1) NOT NULL DEFAULT 0,
@@ -30,6 +31,9 @@ function meetocean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_meetocean_rooms_creator FOREIGN KEY (created_by) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'invite_token')) {
+        $pdo->exec('ALTER TABLE meetocean_rooms ADD COLUMN invite_token VARCHAR(80) NULL UNIQUE AFTER slug');
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS meetocean_participants (
@@ -90,8 +94,7 @@ function meetocean_ensure_schema(PDO $pdo): void
 function meetocean_require_user(PDO $pdo): array
 {
     $user = oceanos_require_auth($pdo);
-    $visibleModules = oceanos_decode_visible_modules($user['visible_modules_json'] ?? null);
-    if (!in_array(MEETOCEAN_MODULE_ID, $visibleModules, true)) {
+    if (!meetocean_user_can_access($user)) {
         oceanos_json_response([
             'ok' => false,
             'error' => 'forbidden',
@@ -100,6 +103,13 @@ function meetocean_require_user(PDO $pdo): array
     }
 
     return $user;
+}
+
+function meetocean_user_can_access(array $user): bool
+{
+    $visibleModules = oceanos_decode_visible_modules($user['visible_modules_json'] ?? null);
+
+    return in_array(MEETOCEAN_MODULE_ID, $visibleModules, true);
 }
 
 function meetocean_is_admin(array $user): bool
@@ -114,6 +124,23 @@ function meetocean_public_user(array $user): array
         'email' => (string) ($user['email'] ?? ''),
         'displayName' => (string) ($user['display_name'] ?? $user['email'] ?? 'Utilisateur'),
         'role' => (string) ($user['role'] ?? 'member'),
+        'isGuest' => (bool) ($user['is_guest'] ?? false),
+    ];
+}
+
+function meetocean_guest_user(mixed $displayName): array
+{
+    $name = trim(preg_replace('/\s+/', ' ', (string) $displayName) ?? '');
+    if ($name === '') {
+        $name = 'Invite';
+    }
+
+    return [
+        'id' => 0,
+        'email' => '',
+        'display_name' => mb_substr($name, 0, 140),
+        'role' => 'guest',
+        'is_guest' => true,
     ];
 }
 
@@ -222,15 +249,79 @@ function meetocean_random_room_slug(PDO $pdo): string
     throw new RuntimeException('Impossible de generer un code reunion.');
 }
 
+function meetocean_random_invite_token(PDO $pdo): string
+{
+    for ($attempt = 0; $attempt < 20; $attempt++) {
+        $token = bin2hex(random_bytes(24));
+        $statement = $pdo->prepare('SELECT COUNT(*) FROM meetocean_rooms WHERE invite_token = :token');
+        $statement->execute(['token' => $token]);
+        if ((int) $statement->fetchColumn() === 0) {
+            return $token;
+        }
+    }
+
+    throw new RuntimeException('Impossible de generer un lien invite.');
+}
+
+function meetocean_clean_invite_token(mixed $token): string
+{
+    $token = strtolower(trim((string) $token));
+    return substr(preg_replace('/[^a-f0-9]/', '', $token) ?: '', 0, 80);
+}
+
+function meetocean_ensure_invite(PDO $pdo, array $room): array
+{
+    if (trim((string) ($room['invite_token'] ?? '')) !== '') {
+        return $room;
+    }
+
+    $token = meetocean_random_invite_token($pdo);
+    $statement = $pdo->prepare('UPDATE meetocean_rooms SET invite_token = :token WHERE id = :id');
+    $statement->execute([
+        'token' => $token,
+        'id' => (int) $room['id'],
+    ]);
+    $room['invite_token'] = $token;
+
+    return $room;
+}
+
+function meetocean_base_url(): string
+{
+    $https = oceanos_is_https_request();
+    $scheme = $https ? 'https' : 'http';
+    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        $host = 'localhost';
+    }
+
+    return $scheme . '://' . $host . '/MeetOcean/';
+}
+
+function meetocean_invite_url(array $room): string
+{
+    $token = trim((string) ($room['invite_token'] ?? ''));
+    if ($token === '') {
+        return '';
+    }
+
+    return meetocean_base_url() . '?' . http_build_query([
+        'room' => (string) $room['slug'],
+        'invite' => $token,
+    ]);
+}
+
 function meetocean_create_room(PDO $pdo, array $user, string $title): array
 {
     $slug = meetocean_random_room_slug($pdo);
+    $token = meetocean_random_invite_token($pdo);
     $statement = $pdo->prepare(
-        'INSERT INTO meetocean_rooms (slug, title, created_by)
-         VALUES (:slug, :title, :created_by)'
+        'INSERT INTO meetocean_rooms (slug, invite_token, title, created_by)
+         VALUES (:slug, :invite_token, :title, :created_by)'
     );
     $statement->execute([
         'slug' => $slug,
+        'invite_token' => $token,
         'title' => meetocean_room_title($title),
         'created_by' => (int) $user['id'],
     ]);
@@ -251,6 +342,38 @@ function meetocean_find_room(PDO $pdo, mixed $room): array
     $row = $statement->fetch();
     if (!is_array($row)) {
         throw new InvalidArgumentException('Reunion introuvable.');
+    }
+    if ((int) ($row['is_locked'] ?? 0) === 1) {
+        throw new InvalidArgumentException('Cette reunion est verrouillee.');
+    }
+
+    return $row;
+}
+
+function meetocean_find_invited_room(PDO $pdo, mixed $room, mixed $token): array
+{
+    $inviteToken = meetocean_clean_invite_token($token);
+    if ($inviteToken === '') {
+        throw new InvalidArgumentException('Invitation invalide.');
+    }
+
+    if (is_numeric($room)) {
+        $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE id = :id AND invite_token = :token LIMIT 1');
+        $statement->execute([
+            'id' => (int) $room,
+            'token' => $inviteToken,
+        ]);
+    } else {
+        $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE slug = :slug AND invite_token = :token LIMIT 1');
+        $statement->execute([
+            'slug' => meetocean_clean_room_code($room),
+            'token' => $inviteToken,
+        ]);
+    }
+
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        throw new InvalidArgumentException('Lien invite invalide ou expire.');
     }
     if ((int) ($row['is_locked'] ?? 0) === 1) {
         throw new InvalidArgumentException('Cette reunion est verrouillee.');
@@ -282,7 +405,7 @@ function meetocean_touch_room(PDO $pdo, int $roomId): void
     $statement->execute(['room_id' => $roomId]);
 }
 
-function meetocean_public_room(PDO $pdo, array $room): array
+function meetocean_public_room(PDO $pdo, array $room, ?array $viewer = null): array
 {
     $statement = $pdo->prepare(
         'SELECT COUNT(*)
@@ -292,10 +415,17 @@ function meetocean_public_room(PDO $pdo, array $room): array
     );
     $statement->execute(['room_id' => (int) $room['id']]);
 
+    $viewerId = (int) ($viewer['id'] ?? 0);
+    $canDelete = $viewer !== null
+        && !(bool) ($viewer['is_guest'] ?? false)
+        && (meetocean_is_admin($viewer) || ($viewerId > 0 && (int) ($room['created_by'] ?? 0) === $viewerId));
+
     return [
         'id' => (int) $room['id'],
         'code' => (string) $room['slug'],
         'title' => (string) $room['title'],
+        'inviteUrl' => meetocean_invite_url($room),
+        'canDelete' => $canDelete,
         'participantCount' => (int) $statement->fetchColumn(),
         'createdAt' => (string) ($room['created_at'] ?? ''),
         'updatedAt' => (string) ($room['updated_at'] ?? ''),
@@ -303,7 +433,7 @@ function meetocean_public_room(PDO $pdo, array $room): array
     ];
 }
 
-function meetocean_recent_rooms(PDO $pdo): array
+function meetocean_recent_rooms(PDO $pdo, ?array $viewer = null): array
 {
     $statement = $pdo->query(
         'SELECT *
@@ -313,7 +443,7 @@ function meetocean_recent_rooms(PDO $pdo): array
     );
     $rooms = [];
     foreach ($statement->fetchAll() ?: [] as $room) {
-        $rooms[] = meetocean_public_room($pdo, $room);
+        $rooms[] = meetocean_public_room($pdo, $room, $viewer);
     }
 
     return $rooms;
@@ -338,6 +468,7 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
     $media = meetocean_media_state($input);
     $displayName = trim((string) ($user['display_name'] ?? $user['email'] ?? 'Utilisateur'));
     $displayName = mb_substr($displayName !== '' ? $displayName : 'Utilisateur', 0, 140);
+    $userId = (int) ($user['id'] ?? 0);
 
     $statement = $pdo->prepare(
         'INSERT INTO meetocean_participants
@@ -357,7 +488,7 @@ function meetocean_touch_participant(PDO $pdo, array $room, array $user, array $
     );
     $statement->execute([
         'room_id' => (int) $room['id'],
-        'user_id' => (int) $user['id'],
+        'user_id' => $userId > 0 ? $userId : null,
         'client_id' => $clientId,
         'display_name' => $displayName,
         'source_language' => $sourceLanguage,
@@ -393,6 +524,18 @@ function meetocean_leave_participant(PDO $pdo, int $roomId, string $clientId): v
         'room_id' => $roomId,
         'client_id' => $clientId,
     ]);
+}
+
+function meetocean_delete_room(PDO $pdo, array $room, array $user): void
+{
+    $userId = (int) ($user['id'] ?? 0);
+    $isOwner = $userId > 0 && (int) ($room['created_by'] ?? 0) === $userId;
+    if (!meetocean_is_admin($user) && !$isOwner) {
+        throw new InvalidArgumentException('Suppression reservee au createur ou a un administrateur.');
+    }
+
+    $statement = $pdo->prepare('DELETE FROM meetocean_rooms WHERE id = :id');
+    $statement->execute(['id' => (int) $room['id']]);
 }
 
 function meetocean_list_participants(PDO $pdo, int $roomId): array
@@ -521,6 +664,7 @@ function meetocean_add_transcript(PDO $pdo, array $room, array $user, array $inp
 
     $sourceLanguage = meetocean_normalize_language($input['sourceLanguage'] ?? 'fr-FR');
     $speakerName = trim((string) ($user['display_name'] ?? $user['email'] ?? 'Utilisateur')) ?: 'Utilisateur';
+    $userId = (int) ($user['id'] ?? 0);
 
     $statement = $pdo->prepare(
         'INSERT INTO meetocean_transcripts
@@ -530,7 +674,7 @@ function meetocean_add_transcript(PDO $pdo, array $room, array $user, array $inp
     );
     $statement->execute([
         'room_id' => (int) $room['id'],
-        'user_id' => (int) $user['id'],
+        'user_id' => $userId > 0 ? $userId : null,
         'client_id' => $clientId,
         'speaker_name' => mb_substr($speakerName, 0, 140),
         'source_language' => $sourceLanguage,
@@ -668,6 +812,7 @@ function meetocean_transcripts_since(PDO $pdo, int $roomId, int $sinceId, string
 function meetocean_room_state(PDO $pdo, array $room, array $user, string $clientId, int $sinceSignalId = 0, int $sinceTranscriptId = 0, ?string $targetLanguage = null): array
 {
     $clientId = meetocean_clean_client_id($clientId);
+    $room = meetocean_ensure_invite($pdo, $room);
     meetocean_cleanup_room($pdo, (int) $room['id']);
 
     $participant = null;
@@ -679,14 +824,50 @@ function meetocean_room_state(PDO $pdo, array $room, array $user, string $client
     }
 
     $targetLanguage = meetocean_normalize_language($targetLanguage ?? ($participant['targetLanguage'] ?? 'fr-FR'));
+    $translationUserId = (int) ($user['id'] ?? 0);
+    if ($translationUserId <= 0) {
+        $translationUserId = (int) ($room['created_by'] ?? 0);
+    }
 
     return [
         'ok' => true,
         'managedBy' => 'OceanOS',
-        'room' => meetocean_public_room($pdo, $room),
+        'isGuest' => (bool) ($user['is_guest'] ?? false),
+        'room' => meetocean_public_room($pdo, $room, $user),
         'participants' => meetocean_list_participants($pdo, (int) $room['id']),
         'signals' => meetocean_signals_since($pdo, (int) $room['id'], $clientId, $sinceSignalId),
-        'transcripts' => meetocean_transcripts_since($pdo, (int) $room['id'], $sinceTranscriptId, $targetLanguage, (int) $user['id']),
+        'transcripts' => meetocean_transcripts_since($pdo, (int) $room['id'], $sinceTranscriptId, $targetLanguage, $translationUserId),
+    ];
+}
+
+function meetocean_guest_dashboard(PDO $pdo, array $room, mixed $guestName = ''): array
+{
+    $room = meetocean_ensure_invite($pdo, $room);
+    $translationUserId = (int) ($room['created_by'] ?? 0);
+    $ai = $translationUserId > 0 ? oceanos_ai_public_settings($pdo, $translationUserId) : [
+        'provider' => 'groq',
+        'model' => 'llama-3.3-70b-versatile',
+        'hasApiKey' => false,
+    ];
+
+    return [
+        'ok' => true,
+        'managedBy' => 'OceanOS',
+        'isGuest' => true,
+        'currentUser' => meetocean_public_user(meetocean_guest_user($guestName)),
+        'canManage' => false,
+        'languages' => meetocean_languages(),
+        'defaults' => [
+            'sourceLanguage' => 'fr-FR',
+            'targetLanguage' => 'fr-FR',
+        ],
+        'ai' => [
+            'provider' => (string) ($ai['provider'] ?? 'groq'),
+            'model' => (string) ($ai['model'] ?? 'llama-3.3-70b-versatile'),
+            'hasApiKey' => (bool) ($ai['hasApiKey'] ?? false),
+        ],
+        'room' => meetocean_public_room($pdo, $room, meetocean_guest_user($guestName)),
+        'recentRooms' => [],
     ];
 }
 
@@ -709,7 +890,7 @@ function meetocean_dashboard(PDO $pdo, array $user): array
             'model' => (string) ($ai['model'] ?? 'llama-3.3-70b-versatile'),
             'hasApiKey' => (bool) ($ai['hasApiKey'] ?? false),
         ],
-        'recentRooms' => meetocean_recent_rooms($pdo),
+        'recentRooms' => meetocean_recent_rooms($pdo, $user),
     ];
 }
 

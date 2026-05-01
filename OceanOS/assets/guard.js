@@ -6,6 +6,11 @@
   const path = window.location.pathname;
   const isPortal = path.toLowerCase().startsWith("/oceanos/");
   const isMobywork = path.toLowerCase().startsWith("/mobywork/");
+  const isMeetOcean = path.toLowerCase().startsWith("/meetocean/");
+  const searchParams = new URLSearchParams(window.location.search);
+  const isMeetOceanInvite = isMeetOcean
+    && (searchParams.has("invite") || searchParams.has("token"))
+    && (searchParams.has("room") || searchParams.has("code"));
   const modulePaths = [
     ["/flowcean/", "flowcean"],
     ["/invocean/", "invocean"],
@@ -384,6 +389,8 @@
   }
 
   async function boot() {
+    if (isMeetOceanInvite) return;
+
     onReady(() => {
       installButton();
       installLogoutBridge();
