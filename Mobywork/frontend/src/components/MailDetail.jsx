@@ -44,10 +44,20 @@ function cleanPreview(text = '') {
     .trim();
 }
 
+function countAttachments(attachmentsJson) {
+  try {
+    const attachments = JSON.parse(attachmentsJson || '[]');
+    return Array.isArray(attachments) ? attachments.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated, onBack }) {
   const [activeTab, setActiveTab] = useState('ai');
   const [draftReply, setDraftReply] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isAttachmentSyncing, setIsAttachmentSyncing] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState([]);
   const [senders, setSenders] = useState([]);
   const [senderId, setSenderId] = useState('');
@@ -56,6 +66,8 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   const [thread, setThread] = useState([]);
   const [isThreadLoading, setIsThreadLoading] = useState(false);
   const autoOpenedThreadFor = useRef(null);
+  const attachmentSyncAttemptedFor = useRef(null);
+  const attachmentCount = countAttachments(mail?.attachments);
 
   useEffect(() => {
     const loadSenders = async () => {
@@ -122,6 +134,37 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
     }
   }, [isSent, mail?.id, thread]);
 
+  useEffect(() => {
+    if (
+      !mail?.id ||
+      isSent ||
+      attachmentCount > 0 ||
+      mail.attachments_checked_at ||
+      attachmentSyncAttemptedFor.current === mail.id
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    attachmentSyncAttemptedFor.current = mail.id;
+    setIsAttachmentSyncing(true);
+
+    axios.post(`${import.meta.env.VITE_API_URL || '/api'}/emails/${mail.id}/attachments/sync`)
+      .then((res) => {
+        if (!cancelled && res.data?.mail) {
+          onMailUpdated?.(res.data.mail);
+        }
+      })
+      .catch((err) => {
+        console.warn('Verification pieces jointes impossible:', err.response?.data?.error || err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsAttachmentSyncing(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [attachmentCount, isSent, mail?.attachments_checked_at, mail?.id, onMailUpdated]);
+
   if (!mail) {
     return (
       <div className="mail-detail-panel">
@@ -138,9 +181,6 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   }
 
   // Compter les pièces jointes
-  let attachmentCount = 0;
-  try { attachmentCount = JSON.parse(mail.attachments || '[]').length; } catch(e) {}
-
   const handleSend = async () => {
       if(!draftReply.trim() && replyAttachments.length === 0) return;
       setIsSending(true);
@@ -275,6 +315,11 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                 <EmailAttachments mailId={mail.id} attachmentsJson={mail.attachments} />
               </div>
             )}
+            {attachmentCount === 0 && isAttachmentSyncing && (
+              <div style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem', display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <Paperclip size={14} /> Verification des pieces jointes...
+              </div>
+            )}
           </div>
         ) : activeTab === 'history' ? (
           <div className="thread-history">
@@ -319,6 +364,11 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
             {attachmentCount > 0 && (
               <div style={{ padding: '1rem 1.5rem 0', flexShrink: 0 }}>
                 <EmailAttachments mailId={mail.id} attachmentsJson={mail.attachments} />
+              </div>
+            )}
+            {attachmentCount === 0 && isAttachmentSyncing && (
+              <div style={{ padding: '1rem 1.5rem 0', flexShrink: 0, color: 'var(--text-muted)', fontSize: '0.8rem', display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <Paperclip size={14} /> Verification des pieces jointes...
               </div>
             )}
             {mail.html_content ? (

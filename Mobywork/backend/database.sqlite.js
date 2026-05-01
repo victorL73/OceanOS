@@ -165,6 +165,7 @@ db.serialize(() => {
         { name: "reponse_rapide",  type: "TEXT" },
         { name: "html_content",    type: "TEXT" },
         { name: "attachments",     type: "TEXT" },  // JSON: [{filename, contentType, size, path}]
+        { name: "attachments_checked_at", type: "DATETIME" },
         { name: "action_recommandee", type: "TEXT" },
         { name: "is_business",     type: "INTEGER" },
         { name: "is_advertising",  type: "INTEGER DEFAULT 0" },

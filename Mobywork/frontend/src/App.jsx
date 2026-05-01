@@ -449,7 +449,7 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
                 await fetchFolders();
               } catch { alert('Erreur lors de l\'envoi.'); }
             }}
-            onMailUpdated={() => handleMailUpdated(selectedMail)}
+            onMailUpdated={(updatedMail) => handleMailUpdated(updatedMail || selectedMail)}
           />
         </div>
       </div>

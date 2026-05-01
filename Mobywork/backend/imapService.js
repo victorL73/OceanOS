@@ -9,6 +9,7 @@ const path = require('path');
 require('dotenv').config();
 
 const IMAP_SOCKET_TIMEOUT_MS = Number(process.env.IMAP_SOCKET_TIMEOUT_MS || 30000);
+const ATTACHMENT_BACKFILL_LIMIT = Math.max(0, Number(process.env.MOBYWORK_ATTACHMENT_BACKFILL_LIMIT || 5));
 let syncInProgress = false;
 let scheduledSyncCursor = 0;
 
@@ -70,6 +71,12 @@ function getMailboxMessageKey(mailboxAddress, rawUid) {
     const mailbox = normalizeMailboxAddress(mailboxAddress);
     const uid = String(rawUid || '').trim();
     return mailbox && uid ? `${mailbox}:${uid}` : '';
+}
+
+function accountMatchesEmailRow(account, row) {
+    const mailboxAddress = normalizeMailboxAddress(row.mailbox_address);
+    return String(account.id || '') === String(row.mailbox_id || '')
+        || (!!mailboxAddress && normalizeMailboxAddress(account.email) === mailboxAddress);
 }
 
 function isDuplicateEmailError(error) {
@@ -230,12 +237,83 @@ async function saveAttachments(parsed, account, rawUid) {
     return attachmentsMeta;
 }
 
-async function syncMailbox(userConfig, account) {
+function parseAttachmentsMeta(value) {
+    try {
+        const parsed = JSON.parse(value || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function shouldBackfillAttachments(row) {
+    return !!row && !row.attachments_checked_at;
+}
+
+function attachmentsCheckedAt(parsed, attachmentsMeta) {
+    const expectedCount = parsed.attachments?.length || 0;
+    return expectedCount === 0 || attachmentsMeta.length >= expectedCount
+        ? new Date().toISOString()
+        : null;
+}
+
+async function backfillAttachmentsForExistingMail(client, account, row, rawUid, summary) {
+    try {
+        const msgSource = await client.fetchOne(rawUid, { source: true }, { uid: true });
+        if (!msgSource?.source) {
+            summary.errors.push(`UID ${rawUid}: source introuvable pour recuperer les pieces jointes`);
+            return;
+        }
+
+        const parsed = await simpleParser(msgSource.source);
+        const expectedCount = parsed.attachments?.length || 0;
+        const attachmentsMeta = expectedCount > 0
+            ? await saveAttachments(parsed, account, rawUid)
+            : parseAttachmentsMeta(row.attachments);
+        const checkedAt = attachmentsCheckedAt(parsed, attachmentsMeta);
+
+        if (expectedCount > 0 && attachmentsMeta.length === 0 && !checkedAt) {
+            summary.errors.push(`UID ${rawUid}: pieces jointes presentes mais non sauvegardees`);
+            return;
+        }
+
+        await dbRun(
+            `UPDATE emails
+             SET attachments = ?,
+                 attachments_checked_at = ?
+             WHERE id = ? AND user_id = ?`,
+            [
+                JSON.stringify(attachmentsMeta),
+                checkedAt,
+                row.id,
+                summary.userId,
+            ]
+        );
+
+        summary.attachmentsChecked += 1;
+        summary.attachmentsBackfilled += attachmentsMeta.length;
+        if (attachmentsMeta.length > 0) {
+            console.log(`[IMAP] Pieces jointes recuperees pour ${account.email} UID ${rawUid}: ${attachmentsMeta.length}`);
+        }
+    } catch (error) {
+        const errorMessage = `UID ${rawUid}: PJ non recuperees (${error.message || error})`;
+        summary.errors.push(errorMessage);
+        console.error(`[IMAP] ${account.email} ${errorMessage}`);
+    }
+}
+
+async function syncMailbox(userConfig, account, options = {}) {
+    const attachmentBackfillLimit = Math.max(
+        0,
+        Number(options.attachmentBackfillLimit ?? ATTACHMENT_BACKFILL_LIMIT)
+    );
     const summary = {
         userId: userConfig.user_id,
         mailboxId: account.id,
         mailbox: account.email,
         imported: 0,
+        attachmentsChecked: 0,
+        attachmentsBackfilled: 0,
         checked: 0,
         errors: [],
     };
@@ -267,30 +345,45 @@ async function syncMailbox(userConfig, account) {
         try {
             const rows = await dbAll(
                 `SELECT
+                    id,
+                    user_id,
                     CAST(uid AS CHAR) AS uid,
                     mailbox_address,
-                    CAST(raw_imap_uid AS CHAR) AS raw_imap_uid
+                    CAST(raw_imap_uid AS CHAR) AS raw_imap_uid,
+                    attachments,
+                    attachments_checked_at
                  FROM emails
                  WHERE user_id = ? AND direction != 'sent'`,
                 [userConfig.user_id]
             );
             const existingUids = new Set(rows.map(row => String(row.uid || '')).filter(Boolean));
-            const existingMessageKeys = new Set(
+            const existingByUid = new Map(rows.map(row => [String(row.uid || ''), row]).filter(([uid]) => uid));
+            const existingByMessageKey = new Map(
                 rows
-                    .map(row => getMailboxMessageKey(row.mailbox_address, row.raw_imap_uid))
-                    .filter(Boolean)
+                    .map(row => [getMailboxMessageKey(row.mailbox_address, row.raw_imap_uid), row])
+                    .filter(([key]) => key)
             );
+            const existingMessageKeys = new Set(existingByMessageKey.keys());
 
             const uidsToProcess = [];
+            const attachmentsToBackfill = [];
             for await (const msg of client.fetch('1:*', { uid: true })) {
                 const internalUid = storedImapUid(account, msg.uid);
                 const mailboxKey = getMailboxMessageKey(account.email, msg.uid);
+                const existingRow = existingByMessageKey.get(mailboxKey)
+                    || existingByUid.get(String(internalUid || ''));
+
                 if (
                     internalUid &&
                     !existingUids.has(String(internalUid)) &&
                     !existingMessageKeys.has(mailboxKey)
                 ) {
                     uidsToProcess.push({ rawUid: msg.uid, internalUid });
+                } else if (
+                    attachmentsToBackfill.length < attachmentBackfillLimit &&
+                    shouldBackfillAttachments(existingRow)
+                ) {
+                    attachmentsToBackfill.push({ row: existingRow, rawUid: msg.uid });
                 }
             }
             summary.checked = uidsToProcess.length;
@@ -318,6 +411,7 @@ async function syncMailbox(userConfig, account) {
                     const htmlContent = parsed.html || null;
                     const date = parsed.date ? parsed.date.toISOString() : new Date().toISOString();
                     const attachmentsMeta = await saveAttachments(parsed, account, uidInfo.rawUid);
+                    const checkedAt = attachmentsCheckedAt(parsed, attachmentsMeta);
                     const folderId = await resolveMappedFolderId(account, uidInfo.rawUid);
 
                     const aiResult = defaultEmailAnalysis(subject, fromAddr);
@@ -327,9 +421,9 @@ async function syncMailbox(userConfig, account) {
                             uid, from_address, subject, content, html_content,
                             categorie, priorite, resume,
                             reponse_formelle, reponse_amicale, reponse_rapide,
-                            amount, due_date, attachments, date_reception, action_recommandee, is_business,
+                            amount, due_date, attachments, attachments_checked_at, date_reception, action_recommandee, is_business,
                             is_advertising, user_id, mailbox_id, mailbox_address, raw_imap_uid, direction, to_address, cc_address, bcc_address, folder_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             uidInfo.internalUid,
                             fromAddr,
@@ -345,6 +439,7 @@ async function syncMailbox(userConfig, account) {
                             aiResult.amount,
                             aiResult.due_date,
                             JSON.stringify(attachmentsMeta),
+                            checkedAt,
                             date,
                             aiResult.action_recommandee || 'Repondre',
                             aiResult.is_business ? 1 : 0,
@@ -379,6 +474,10 @@ async function syncMailbox(userConfig, account) {
                     console.error(`[IMAP] Erreur import ${account.email} ${errorMessage}`);
                 }
             }
+
+            for (const item of attachmentsToBackfill) {
+                await backfillAttachmentsForExistingMail(client, account, item.row, item.rawUid, summary);
+            }
         } finally {
             lock.release();
         }
@@ -400,6 +499,98 @@ async function syncMailbox(userConfig, account) {
     return summary;
 }
 
+async function backfillEmailAttachments(userId, emailId) {
+    const row = await dbGet(
+        `SELECT
+            *,
+            CAST(uid AS CHAR) AS uid,
+            CAST(raw_imap_uid AS CHAR) AS raw_imap_uid
+         FROM emails
+         WHERE id = ? AND user_id = ?`,
+        [emailId, userId]
+    );
+
+    if (!row) {
+        return { success: false, skipped: true, error: 'Mail introuvable.' };
+    }
+
+    const rawUid = String(row.raw_imap_uid || row.uid || '').trim();
+    if (row.direction === 'sent' || !rawUid || row.attachments_checked_at) {
+        return { success: true, skipped: true, mail: row };
+    }
+
+    const userConfig = (await getUserMailSettings(userId))[0];
+    if (!userConfig) {
+        return { success: false, skipped: true, error: 'Configuration mail introuvable.', mail: row };
+    }
+
+    const accounts = getReceiverAccountsFromSettings(userConfig)
+        .filter(account => account.host && account.user && account.pass);
+    const account = accounts.find(item => accountMatchesEmailRow(item, row)) || accounts[0];
+    if (!account) {
+        return { success: false, skipped: true, error: 'Compte de reception introuvable.', mail: row };
+    }
+
+    const summary = {
+        userId,
+        mailboxId: account.id,
+        mailbox: account.email,
+        imported: 0,
+        attachmentsChecked: 0,
+        attachmentsBackfilled: 0,
+        checked: 0,
+        errors: [],
+    };
+
+    let imapConnectionError = null;
+    const client = new ImapFlow({
+        host: account.host,
+        port: parseInt(account.imap_port || 993, 10),
+        secure: account.imap_secure !== false,
+        auth: {
+            user: account.user,
+            pass: account.pass,
+        },
+        socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
+        logger: false,
+    });
+
+    client.on('error', (err) => {
+        imapConnectionError = err;
+        console.error(`[IMAP] Erreur socket ${account.email} USER ${userId}:`, err.message);
+    });
+
+    try {
+        await client.connect();
+        const lock = await client.getMailboxLock('INBOX');
+        try {
+            await backfillAttachmentsForExistingMail(client, account, row, rawUid, summary);
+        } finally {
+            lock.release();
+        }
+
+        try {
+            await client.logout();
+        } catch (logoutError) {
+            console.warn(`[IMAP] Fermeture session ${account.email}:`, logoutError.message);
+        }
+    } catch (error) {
+        try {
+            client.close();
+        } catch {}
+        const finalError = error?.message ? error : imapConnectionError;
+        summary.errors.push(finalError?.message || 'Erreur connexion IMAP inconnue');
+    }
+
+    const updated = await dbGet("SELECT * FROM emails WHERE id = ? AND user_id = ?", [emailId, userId]).catch(() => row);
+    return {
+        success: summary.errors.length === 0,
+        skipped: false,
+        ...summary,
+        mail: updated || row,
+    };
+}
+
 function rotateWorkItems(workItems, limit) {
     if (!limit || limit <= 0 || workItems.length <= limit) return workItems;
 
@@ -416,6 +607,8 @@ async function fetchNewEmailsInternal(userId = null, options = {}) {
         accounts: 0,
         availableAccounts: 0,
         imported: 0,
+        attachmentsChecked: 0,
+        attachmentsBackfilled: 0,
         mailboxes: [],
         errors: [],
     };
@@ -448,8 +641,10 @@ async function fetchNewEmailsInternal(userId = null, options = {}) {
     summary.accounts = selectedWorkItems.length;
 
     for (const { userConfig, account } of selectedWorkItems) {
-        const mailboxSummary = await syncMailbox(userConfig, account);
+        const mailboxSummary = await syncMailbox(userConfig, account, options);
         summary.imported += mailboxSummary.imported;
+        summary.attachmentsChecked += mailboxSummary.attachmentsChecked;
+        summary.attachmentsBackfilled += mailboxSummary.attachmentsBackfilled;
         summary.mailboxes.push(mailboxSummary);
         summary.errors.push(...mailboxSummary.errors.map(error => `${account.email}: ${error}`));
     }
@@ -457,4 +652,4 @@ async function fetchNewEmailsInternal(userId = null, options = {}) {
     return summary;
 }
 
-module.exports = { fetchNewEmails };
+module.exports = { fetchNewEmails, backfillEmailAttachments };

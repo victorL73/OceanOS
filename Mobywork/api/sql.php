@@ -251,6 +251,7 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
             reponse_rapide LONGTEXT NULL,
             html_content LONGTEXT NULL,
             attachments LONGTEXT NULL,
+            attachments_checked_at DATETIME NULL,
             action_recommandee TEXT NULL,
             is_business INT NULL,
             is_advertising INT NOT NULL DEFAULT 0,
@@ -274,6 +275,7 @@ function mobywork_sql_ensure_schema(PDO $pdo): void
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'to_address', 'TEXT NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'cc_address', 'TEXT NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'bcc_address', 'TEXT NULL');
+    mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'attachments_checked_at', 'DATETIME NULL');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'is_advertising', 'INT NOT NULL DEFAULT 0');
     mobywork_sql_ensure_column($pdo, 'mobywork_emails', 'folder_id', 'BIGINT UNSIGNED NULL');
 

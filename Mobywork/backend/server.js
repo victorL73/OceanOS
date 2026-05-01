@@ -5,7 +5,7 @@ const fs = require('fs');
 const cron = require('node-cron');
 const multer = require('multer');
 const db = require('./database');
-const { fetchNewEmails } = require('./imapService');
+const { fetchNewEmails, backfillEmailAttachments } = require('./imapService');
 const { sendReply, sendNewMessage, buildSignature } = require('./smtpService');
 const { getMailAccountsFromSettings } = require('./mailAccounts');
 const { ATTACHMENTS_DIR, isInsideDirectory, resolveStoredAttachmentPath } = require('./attachmentStorage');
@@ -561,6 +561,19 @@ app.get('/api/emails/:id', (req, res) => {
 });
 
 // Mise à jour du statut
+app.post('/api/emails/:id/attachments/sync', async (req, res) => {
+    try {
+        const result = await backfillEmailAttachments(req.user.id, req.params.id);
+        const statusCode = result.success ? 200 : 500;
+        res.status(statusCode).json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Impossible de verifier les pieces jointes.',
+        });
+    }
+});
+
 app.patch('/api/emails/bulk/status', async (req, res) => {
     const ids = Array.isArray(req.body?.ids)
         ? req.body.ids.map(id => Number(id)).filter(Number.isFinite)
@@ -780,8 +793,12 @@ app.post('/api/emails/compose', upload.array('attachments'), async (req, res) =>
 // Synchronisation manuelle IMAP
 app.post('/api/sync', async (req, res) => {
     try {
-        const result = await fetchNewEmails(req.user.id);
-        const statusCode = result?.errors?.length && Number(result.imported || 0) === 0 ? 500 : 200;
+        const result = await fetchNewEmails(req.user.id, { attachmentBackfillLimit: 50 });
+        const statusCode = result?.errors?.length
+            && Number(result.imported || 0) === 0
+            && Number(result.attachmentsChecked || 0) === 0
+            ? 500
+            : 200;
         res.status(statusCode).json({
             success: statusCode < 400,
             skipped: !!result?.skipped,
