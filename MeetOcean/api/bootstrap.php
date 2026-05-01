@@ -128,6 +128,22 @@ function meetocean_languages(): array
         'pt-PT' => 'Portugais',
         'nl-NL' => 'Neerlandais',
         'ar-SA' => 'Arabe',
+        'zh-CN' => 'Chinois simplifie',
+        'zh-TW' => 'Chinois traditionnel',
+        'ja-JP' => 'Japonais',
+        'ko-KR' => 'Coreen',
+        'hi-IN' => 'Hindi',
+        'bn-IN' => 'Bengali',
+        'ur-PK' => 'Ourdou',
+        'fa-IR' => 'Persan',
+        'tr-TR' => 'Turc',
+        'th-TH' => 'Thai',
+        'vi-VN' => 'Vietnamien',
+        'id-ID' => 'Indonesien',
+        'ms-MY' => 'Malais',
+        'fil-PH' => 'Filipino',
+        'ta-IN' => 'Tamoul',
+        'te-IN' => 'Telougou',
     ];
 }
 
