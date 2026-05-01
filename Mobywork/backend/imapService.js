@@ -38,6 +38,14 @@ function normalizeMailboxAddress(value = '') {
     return String(value || '').trim().toLowerCase();
 }
 
+function truncateText(value, maxLength) {
+    return String(value || '').trim().slice(0, maxLength);
+}
+
+function mailActionUrl(emailId) {
+    return `/Mobywork/?module=mail&id=${encodeURIComponent(String(emailId))}&nav_ts=${Date.now()}`;
+}
+
 function formatParsedAddresses(addresses) {
     return (addresses?.value || [])
         .map(item => item.address)
@@ -64,6 +72,54 @@ async function createMailNotification(userId, emailId, mailboxAddress, fromAddre
         );
     } catch (error) {
         console.warn('[IMAP] Notification mail non creee:', error.message);
+    }
+
+    try {
+        const title = truncateText(`Nouveau mail recu : ${subject || 'Sans objet'}`, 190);
+        const body = truncateText(
+            [
+                fromAddress ? `De : ${fromAddress}` : '',
+                mailboxAddress ? `Boite : ${mailboxAddress}` : '',
+            ].filter(Boolean).join(' - '),
+            1000
+        );
+        const payload = JSON.stringify({
+            app: 'Mobywork',
+            module: 'mail',
+            emailId,
+            mailboxAddress: normalizeMailboxAddress(mailboxAddress),
+            fromAddress: fromAddress || '',
+            subject: subject || 'Sans objet',
+        });
+
+        await dbRun(
+            `INSERT INTO oceanos_notifications (
+                user_id, actor_user_id, module, type, severity, title, body, action_url, dedupe_key, payload_json
+            ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                module = VALUES(module),
+                type = VALUES(type),
+                severity = VALUES(severity),
+                title = VALUES(title),
+                body = VALUES(body),
+                action_url = VALUES(action_url),
+                payload_json = VALUES(payload_json),
+                read_at = NULL,
+                updated_at = CURRENT_TIMESTAMP`,
+            [
+                userId,
+                'Mobywork',
+                'mail_received',
+                'info',
+                title,
+                body || null,
+                mailActionUrl(emailId),
+                `mobywork-mail-${emailId}`,
+                payload,
+            ]
+        );
+    } catch (error) {
+        console.warn('[IMAP] Notification OceanOS non creee:', error.message);
     }
 }
 

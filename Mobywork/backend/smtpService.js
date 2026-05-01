@@ -230,7 +230,7 @@ function buildMailBodies(messageText, settings, htmlBody = null) {
     return { text, html };
 }
 
-async function sendReply(emailId, replyText, attachments = [], userId = 1, senderId = null, ccAddress = '', bccAddress = '') {
+async function sendReply(emailId, replyText, attachments = [], userId = 1, senderId = null, ccAddress = '', bccAddress = '', toAddress = '') {
     return new Promise(async (resolve, reject) => {
         try {
             const config = await getTransporter(userId, senderId);
@@ -240,9 +240,10 @@ async function sendReply(emailId, replyText, attachments = [], userId = 1, sende
 
                 try {
                     const bodies = buildMailBodies(replyText, config.settings);
+                    const replyTo = normalizeRecipients(toAddress) || normalizeRecipients(mail.from_address) || mail.from_address;
                     const mailOptions = {
                         from: config.from,
-                        to: mail.from_address,
+                        to: replyTo,
                         subject: `Re: ${mail.subject}`,
                         text: bodies.text,
                     };
@@ -261,6 +262,7 @@ async function sendReply(emailId, replyText, attachments = [], userId = 1, sende
                         info,
                         sender: config.sender,
                         from: config.from,
+                        to: replyTo,
                         user: config.user,
                         bodies,
                     });

@@ -718,7 +718,7 @@ app.patch('/api/emails/:id/status', (req, res) => {
 
 // Envoyer une réponse SMTP
 app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) => {
-    const { message, senderId, cc = '', bcc = '' } = req.body;
+    const { message, senderId, to = '', cc = '', bcc = '' } = req.body;
     const files = req.files || [];
     
     // Convertir les fichiers multer en format attendu par nodemailer
@@ -728,13 +728,13 @@ app.post('/api/emails/:id/reply', upload.array('attachments'), async (req, res) 
     }));
 
     try {
-        const info = await sendReply(req.params.id, message, attachments, req.user.id, senderId, cc, bcc);
+        const info = await sendReply(req.params.id, message, attachments, req.user.id, senderId, cc, bcc, to);
         const originalMail = await dbGet("SELECT from_address, subject FROM emails WHERE id = ? AND user_id = ?", [req.params.id, req.user.id]).catch(() => null);
         if (originalMail) {
             await recordSentMail({
                 userId: req.user.id,
                 sender: info,
-                to: originalMail.from_address,
+                to: info.to || to || originalMail.from_address,
                 cc,
                 bcc,
                 subject: `Re: ${originalMail.subject || 'Sans objet'}`,

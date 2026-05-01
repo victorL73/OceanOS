@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Check, Archive, Clock, Send, Edit3, Paperclip, X, ChevronRight } from 'lucide-react';
+import { Check, Archive, Clock, Send, Edit3, Paperclip, X, ChevronRight, Reply, ReplyAll } from 'lucide-react';
 import AiPanel from './AiPanel';
 import EmailAttachments from './EmailAttachments';
 import axios from 'axios';
@@ -53,6 +53,54 @@ function countAttachments(attachmentsJson) {
   }
 }
 
+function extractEmails(value = '') {
+  const matches = String(value || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi);
+  return Array.from(new Set((matches || []).map(email => email.toLowerCase())));
+}
+
+function formatRecipients(values = []) {
+  return Array.from(new Set(values.map(value => String(value || '').trim()).filter(Boolean))).join(', ');
+}
+
+function buildReplyRecipients(mail, senders = [], mode = 'single') {
+  if (!mail) return { to: '', cc: '', bcc: '' };
+
+  const to = formatRecipients(extractEmails(mail.reply_to_address || mail.reply_to || mail.from_address));
+  if (mode !== 'all') return { to, cc: '', bcc: '' };
+
+  const ownEmails = new Set([
+    ...extractEmails(mail.mailbox_address),
+    ...senders.flatMap(sender => extractEmails(sender.email)),
+  ]);
+  const directRecipients = new Set(extractEmails(to));
+  const ccCandidates = [
+    ...extractEmails(mail.to_address),
+    ...extractEmails(mail.cc_address),
+  ].filter(email => !ownEmails.has(email) && !directRecipients.has(email));
+
+  return {
+    to,
+    cc: formatRecipients(ccCandidates),
+    bcc: '',
+  };
+}
+
+function findSenderForMail(mail, senders = [], fallbackId = '') {
+  if (!mail || senders.length === 0) return fallbackId;
+
+  const mailboxEmails = new Set([
+    ...extractEmails(mail.mailbox_address),
+    ...extractEmails(mail.to_address),
+    ...extractEmails(mail.bcc_address),
+  ]);
+
+  const matchingSender = senders.find(sender =>
+    extractEmails(sender.email).some(email => mailboxEmails.has(email))
+  );
+
+  return matchingSender?.id || fallbackId || senders.find(sender => sender.isDefault)?.id || senders[0]?.id || '';
+}
+
 export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated, onBack }) {
   const [activeTab, setActiveTab] = useState('ai');
   const [draftReply, setDraftReply] = useState('');
@@ -61,6 +109,8 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   const [replyAttachments, setReplyAttachments] = useState([]);
   const [senders, setSenders] = useState([]);
   const [senderId, setSenderId] = useState('');
+  const [replyMode, setReplyMode] = useState('single');
+  const [replyTo, setReplyTo] = useState('');
   const [replyCc, setReplyCc] = useState('');
   const [replyBcc, setReplyBcc] = useState('');
   const [thread, setThread] = useState([]);
@@ -94,9 +144,35 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   }, [isSent, mail?.id]);
 
   useEffect(() => {
-    setReplyCc('');
-    setReplyBcc('');
+    const recipients = buildReplyRecipients(mail, senders, 'single');
+    setReplyMode('single');
+    setReplyTo(recipients.to);
+    setReplyCc(recipients.cc);
+    setReplyBcc(recipients.bcc);
+    setDraftReply('');
+    setReplyAttachments([]);
   }, [mail?.id]);
+
+  useEffect(() => {
+    if (!mail?.id || senders.length === 0) return;
+    const preferredSenderId = findSenderForMail(mail, senders, senderId);
+    if (preferredSenderId && preferredSenderId !== senderId) {
+      setSenderId(preferredSenderId);
+    }
+  }, [mail?.id, senders]);
+
+  const applyReplyMode = (mode) => {
+    const recipients = buildReplyRecipients(mail, senders, mode);
+    setReplyMode(mode);
+    setReplyTo(recipients.to);
+    setReplyCc(recipients.cc);
+    setReplyBcc(recipients.bcc);
+    const preferredSenderId = findSenderForMail(mail, senders, senderId);
+    if (preferredSenderId) setSenderId(preferredSenderId);
+
+    const ta = document.getElementById('reply-box');
+    if (ta) ta.focus();
+  };
 
   useEffect(() => {
     if (!mail?.id) {
@@ -183,10 +259,15 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
   // Compter les pièces jointes
   const handleSend = async () => {
       if(!draftReply.trim() && replyAttachments.length === 0) return;
+      if(!replyTo.trim()) {
+          alert("Aucun destinataire de reponse.");
+          return;
+      }
       setIsSending(true);
       try {
           const formData = new FormData();
           formData.append('message', draftReply);
+          formData.append('to', replyTo);
           formData.append('cc', replyCc);
           formData.append('bcc', replyBcc);
           if (senderId) formData.append('senderId', senderId);
@@ -199,6 +280,7 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
           });
           onMarkDone(mail.id);
           setDraftReply('');
+          setReplyTo(buildReplyRecipients(mail, senders, 'single').to);
           setReplyCc('');
           setReplyBcc('');
           setReplyAttachments([]);
@@ -413,8 +495,41 @@ export default function MailDetail({ mail, onMarkDone, onArchive, onMailUpdated,
                      </option>
                    ))}
                  </select>
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                   <button
+                     type="button"
+                     className={`action-btn outline ${replyMode === 'single' ? 'active' : ''}`}
+                     onClick={() => applyReplyMode('single')}
+                     disabled={isSending}
+                     title="Repondre uniquement a l'expediteur"
+                     style={{ height: '34px', padding: '0.35rem 0.7rem' }}
+                   >
+                     <Reply size={13} /> Repondre
+                   </button>
+                   <button
+                     type="button"
+                     className={`action-btn outline ${replyMode === 'all' ? 'active' : ''}`}
+                     onClick={() => applyReplyMode('all')}
+                     disabled={isSending}
+                     title="Repondre a l'expediteur et aux personnes en copie"
+                     style={{ height: '34px', padding: '0.35rem 0.7rem' }}
+                   >
+                     <ReplyAll size={13} /> Repondre a tous
+                   </button>
+                 </div>
                </div>
              )}
+             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, minWidth: 28 }}>A</span>
+               <input
+                 className="crm-input"
+                 value={replyTo}
+                 onChange={(e) => setReplyTo(e.target.value)}
+                 placeholder="destinataire@domaine.com"
+                 disabled={isSending}
+                 style={{ height: '34px', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}
+               />
+             </div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '0.6rem' }}>
                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, minWidth: 28 }}>Cc</span>

@@ -90,6 +90,18 @@ function getInitialModule() {
   return MODULE_IDS.has(moduleParam) ? moduleParam : 'dashboard';
 }
 
+function getInitialNavContext() {
+  const id = new URLSearchParams(window.location.search).get('id');
+  return id ? { id } : null;
+}
+
+function refreshOceanOSNotifications() {
+  window.dispatchEvent(new CustomEvent('oceanos:notifications-refresh'));
+  if (window.OceanOSNotifications?.refresh) {
+    window.OceanOSNotifications.refresh();
+  }
+}
+
 function updateBrowserModuleUrl(moduleName, context = null) {
   try {
     const url = new URL(window.location.href);
@@ -537,7 +549,7 @@ export default function App() {
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('moby_user') || 'null'));
 
   const [activeModule, setActiveModule] = useState(getInitialModule);
-  const [navContext, setNavContext] = useState(null);
+  const [navContext, setNavContext] = useState(getInitialNavContext);
   const [isAutopiloting, setIsAutopiloting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -688,6 +700,7 @@ export default function App() {
       const syncRes = await axios.post(`${API_URL}/sync`); 
       await fetchNotifications();
       await fetchEmailUnread();
+      refreshOceanOSNotifications();
       if (syncRes.data?.success === false && syncRes.data?.errors?.length) {
         toast.warning('Synchronisation', syncRes.data.errors[0]);
       } else {
@@ -780,7 +793,7 @@ export default function App() {
         isAutopiloting={isAutopiloting}
         user={user}
         emailUnread={emailUnread}
-        dashboardBadge={notifications.length}
+        dashboardBadge={0}
         mobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
       />

@@ -30,6 +30,7 @@
     panel: null,
     list: null,
     status: null,
+    refreshListenerInstalled: false,
   };
 
   function nextUrl() {
@@ -336,6 +337,15 @@
     });
 
     renderNotificationHub();
+    window.OceanOSNotifications = {
+      refresh: () => refreshNotifications().catch(() => setNotificationStatus("Notifications indisponibles.")),
+    };
+    if (!notificationState.refreshListenerInstalled) {
+      window.addEventListener("oceanos:notifications-refresh", () => {
+        void refreshNotifications().catch(() => {});
+      });
+      notificationState.refreshListenerInstalled = true;
+    }
     void refreshNotifications().catch(() => setNotificationStatus("Notifications indisponibles."));
     if (!notificationState.timer) {
       notificationState.timer = window.setInterval(() => {
