@@ -339,7 +339,7 @@ const dashboardService = {
                 suggestions.push({
                     id: `mail_new_${mail.id}`,
                     type: "email",
-                    priority: "normal",
+                    priority: "medium",
                     icon: "📬",
                     title: `Nouveau mail recu : ${mail.subject || "Sans objet"}`,
                     description: `${mail.from_address || "Expediteur inconnu"}${mail.mailbox_address ? ` -> ${mail.mailbox_address}` : ""}`,

@@ -27,8 +27,8 @@ const PRIORITY_LABELS = {
 
 function SuggestionCard({ suggestion, index, onExecute, onIgnore, onModuleNav }) {
   const [state, setState] = useState('idle'); // idle | running | done | ignored
-  const style = TYPE_STYLES[suggestion.type] || TYPE_STYLES.perf;
-  const priority = PRIORITY_LABELS[suggestion.priority];
+  const style = TYPE_STYLES[suggestion?.type] || TYPE_STYLES.perf;
+  const priority = PRIORITY_LABELS[suggestion?.priority] || PRIORITY_LABELS.medium;
 
   const handleExecute = async () => {
     setState('running');

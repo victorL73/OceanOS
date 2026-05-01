@@ -10,6 +10,7 @@ require('dotenv').config();
 
 const IMAP_SOCKET_TIMEOUT_MS = Number(process.env.IMAP_SOCKET_TIMEOUT_MS || 30000);
 let syncInProgress = false;
+let scheduledSyncCursor = 0;
 
 function dbAll(sql, params = []) {
     return new Promise((resolve, reject) => {
@@ -150,7 +151,7 @@ function scheduleEmailAnalysis(mailId, subject, content, fromAddr, userId) {
     }, 0);
 }
 
-async function fetchNewEmails(userId = null) {
+async function fetchNewEmails(userId = null, options = {}) {
     if (syncInProgress) {
         console.log('[IMAP] Synchronisation deja en cours, cycle ignore.');
         return { success: true, skipped: true, reason: 'sync_in_progress' };
@@ -158,7 +159,7 @@ async function fetchNewEmails(userId = null) {
 
     syncInProgress = true;
     try {
-        const summary = await fetchNewEmailsInternal(userId);
+        const summary = await fetchNewEmailsInternal(userId, options);
         return { success: summary.errors.length === 0, skipped: false, ...summary };
     } finally {
         syncInProgress = false;
@@ -399,11 +400,21 @@ async function syncMailbox(userConfig, account) {
     return summary;
 }
 
-async function fetchNewEmailsInternal(userId = null) {
+function rotateWorkItems(workItems, limit) {
+    if (!limit || limit <= 0 || workItems.length <= limit) return workItems;
+
+    const start = scheduledSyncCursor % workItems.length;
+    const rotated = [...workItems.slice(start), ...workItems.slice(0, start)];
+    scheduledSyncCursor = (start + limit) % workItems.length;
+    return rotated.slice(0, limit);
+}
+
+async function fetchNewEmailsInternal(userId = null, options = {}) {
     console.log(`[IMAP] Lancement de la synchronisation mail (Utilisateur: ${userId || 'TOUS'})...`);
     const summary = {
         users: 0,
         accounts: 0,
+        availableAccounts: 0,
         imported: 0,
         mailboxes: [],
         errors: [],
@@ -416,10 +427,11 @@ async function fetchNewEmailsInternal(userId = null) {
         return summary;
     }
 
+    const workItems = [];
     for (const userConfig of usersToSync) {
         const accountsToSync = getReceiverAccountsFromSettings(userConfig)
             .filter(account => account.host && account.user && account.pass);
-        summary.accounts += accountsToSync.length;
+        summary.availableAccounts += accountsToSync.length;
 
         if (accountsToSync.length === 0) {
             const message = `Aucun compte reception complet pour user ${userConfig.user_id}.`;
@@ -428,12 +440,18 @@ async function fetchNewEmailsInternal(userId = null) {
             continue;
         }
 
-        for (const account of accountsToSync) {
-            const mailboxSummary = await syncMailbox(userConfig, account);
-            summary.imported += mailboxSummary.imported;
-            summary.mailboxes.push(mailboxSummary);
-            summary.errors.push(...mailboxSummary.errors.map(error => `${account.email}: ${error}`));
-        }
+        accountsToSync.forEach(account => workItems.push({ userConfig, account }));
+    }
+
+    const limitAccounts = Number(options.limitAccounts || 0);
+    const selectedWorkItems = userId ? workItems : rotateWorkItems(workItems, limitAccounts);
+    summary.accounts = selectedWorkItems.length;
+
+    for (const { userConfig, account } of selectedWorkItems) {
+        const mailboxSummary = await syncMailbox(userConfig, account);
+        summary.imported += mailboxSummary.imported;
+        summary.mailboxes.push(mailboxSummary);
+        summary.errors.push(...mailboxSummary.errors.map(error => `${account.email}: ${error}`));
     }
 
     return summary;

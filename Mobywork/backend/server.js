@@ -1097,10 +1097,19 @@ app.use((err, req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // CRON JOBS
 // ═══════════════════════════════════════════════════════════
-cron.schedule('*/30 * * * * *', () => {
-    console.log("⏰ Vérification des nouveaux mails OVH...");
-    fetchNewEmails().catch(err => console.error("Erreur sync IMAP planifiee:", err.message));
-});
+const AUTO_SYNC_ACCOUNTS_PER_TICK = Math.max(1, Number(process.env.MOBYWORK_AUTO_SYNC_ACCOUNTS_PER_TICK || 1));
+const AUTO_SYNC_ENABLED = String(process.env.MOBYWORK_AUTO_SYNC_ENABLED || '1') !== '0';
+const SYNC_ON_START = String(process.env.MOBYWORK_SYNC_ON_START || '0') === '1';
+
+if (AUTO_SYNC_ENABLED) {
+    cron.schedule('*/30 * * * * *', () => {
+        console.log("⏰ Vérification des nouveaux mails OVH...");
+        fetchNewEmails(null, { limitAccounts: AUTO_SYNC_ACCOUNTS_PER_TICK })
+            .catch(err => console.error("Erreur sync IMAP planifiee:", err.message));
+    });
+} else {
+    console.log('Synchronisation IMAP automatique desactivee (MOBYWORK_AUTO_SYNC_ENABLED=0).');
+}
 
 // Analyse automatique des emails pour les factures (Toutes les 6 Heures)
 cron.schedule('0 */6 * * *', () => {
@@ -1113,6 +1122,9 @@ cron.schedule('0 */6 * * *', () => {
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
     console.log(`🚀 Serveur Backend OVH+IA démarré sur http://localhost:${PORT}`);
-    fetchNewEmails().catch(err => console.error("Erreur sync IMAP initiale:", err.message));
+    if (SYNC_ON_START) {
+        fetchNewEmails(null, { limitAccounts: AUTO_SYNC_ACCOUNTS_PER_TICK })
+            .catch(err => console.error("Erreur sync IMAP initiale:", err.message));
+    }
 });
 
