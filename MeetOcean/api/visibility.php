@@ -214,7 +214,7 @@ try {
     oceanos_json_response([
         'ok' => false,
         'error' => 'database_error',
-        'message' => 'Erreur base de donnees MeetOcean.',
+        'message' => 'Erreur base de donnees MeetOcean: ' . $exception->getMessage(),
     ], 500);
 } catch (Throwable $exception) {
     oceanos_json_response([

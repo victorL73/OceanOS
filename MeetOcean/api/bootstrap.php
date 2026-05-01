@@ -37,11 +37,11 @@ function meetocean_retry_delay(int $attempt): void
     usleep((45000 * $attempt) + random_int(10000, 60000));
 }
 
-function meetocean_execute(PDOStatement $statement, array $params = []): bool
+function meetocean_execute(PDOStatement $statement, ?array $params = null): bool
 {
     for ($attempt = 1; $attempt <= MEETOCEAN_DB_RETRY_ATTEMPTS; $attempt++) {
         try {
-            return $statement->execute($params);
+            return $params === null ? $statement->execute() : $statement->execute($params);
         } catch (PDOException $exception) {
             if (!meetocean_is_retryable_database_error($exception) || $attempt >= MEETOCEAN_DB_RETRY_ATTEMPTS) {
                 throw $exception;
@@ -89,6 +89,21 @@ function meetocean_ensure_schema(PDO $pdo): void
     if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'invite_token')) {
         meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN invite_token VARCHAR(80) NULL UNIQUE AFTER slug');
     }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'created_by')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER title');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'is_locked')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER created_by');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'created_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_locked');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'updated_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'last_activity_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN last_activity_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER updated_at');
+    }
 
     meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_participants (
@@ -111,6 +126,33 @@ function meetocean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_meetocean_participants_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'user_id')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER room_id');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'source_language')) {
+        meetocean_exec($pdo, "ALTER TABLE meetocean_participants ADD COLUMN source_language VARCHAR(12) NOT NULL DEFAULT 'fr-FR' AFTER display_name");
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'target_language')) {
+        meetocean_exec($pdo, "ALTER TABLE meetocean_participants ADD COLUMN target_language VARCHAR(12) NOT NULL DEFAULT 'fr-FR' AFTER source_language");
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'microphone_enabled')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN microphone_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER target_language');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'camera_enabled')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN camera_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER microphone_enabled');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'screen_enabled')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN screen_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER camera_enabled');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'connection_state')) {
+        meetocean_exec($pdo, "ALTER TABLE meetocean_participants ADD COLUMN connection_state VARCHAR(40) NOT NULL DEFAULT 'online' AFTER screen_enabled");
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'joined_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER connection_state');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_participants', 'updated_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_participants ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER joined_at');
+    }
 
     meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_signals (
@@ -126,6 +168,9 @@ function meetocean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_meetocean_signals_room FOREIGN KEY (room_id) REFERENCES meetocean_rooms(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!oceanos_column_exists($pdo, 'meetocean_signals', 'created_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_signals ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER payload_json');
+    }
 
     meetocean_exec($pdo,
         "CREATE TABLE IF NOT EXISTS meetocean_transcripts (
@@ -144,6 +189,21 @@ function meetocean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_meetocean_transcripts_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'user_id')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_transcripts ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER room_id');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'source_language')) {
+        meetocean_exec($pdo, "ALTER TABLE meetocean_transcripts ADD COLUMN source_language VARCHAR(12) NOT NULL DEFAULT 'fr-FR' AFTER speaker_name");
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'translations_json')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_transcripts ADD COLUMN translations_json LONGTEXT NULL AFTER text');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'is_final')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_transcripts ADD COLUMN is_final TINYINT(1) NOT NULL DEFAULT 1 AFTER translations_json');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'created_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_transcripts ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_final');
+    }
 }
 
 function meetocean_require_user(PDO $pdo): array
@@ -295,7 +355,7 @@ function meetocean_random_room_slug(PDO $pdo): string
         }
 
         $statement = $pdo->prepare('SELECT COUNT(*) FROM meetocean_rooms WHERE slug = :slug');
-        $statement->execute(['slug' => $code]);
+        meetocean_execute($statement, ['slug' => $code]);
         if ((int) $statement->fetchColumn() === 0) {
             return $code;
         }
@@ -309,7 +369,7 @@ function meetocean_random_invite_token(PDO $pdo): string
     for ($attempt = 0; $attempt < 20; $attempt++) {
         $token = bin2hex(random_bytes(24));
         $statement = $pdo->prepare('SELECT COUNT(*) FROM meetocean_rooms WHERE invite_token = :token');
-        $statement->execute(['token' => $token]);
+        meetocean_execute($statement, ['token' => $token]);
         if ((int) $statement->fetchColumn() === 0) {
             return $token;
         }
@@ -388,10 +448,10 @@ function meetocean_find_room(PDO $pdo, mixed $room): array
 {
     if (is_numeric($room)) {
         $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE id = :id LIMIT 1');
-        $statement->execute(['id' => (int) $room]);
+        meetocean_execute($statement, ['id' => (int) $room]);
     } else {
         $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE slug = :slug LIMIT 1');
-        $statement->execute(['slug' => meetocean_clean_room_code($room)]);
+        meetocean_execute($statement, ['slug' => meetocean_clean_room_code($room)]);
     }
 
     $row = $statement->fetch();
@@ -414,13 +474,13 @@ function meetocean_find_invited_room(PDO $pdo, mixed $room, mixed $token): array
 
     if (is_numeric($room)) {
         $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE id = :id AND invite_token = :token LIMIT 1');
-        $statement->execute([
+        meetocean_execute($statement, [
             'id' => (int) $room,
             'token' => $inviteToken,
         ]);
     } else {
         $statement = $pdo->prepare('SELECT * FROM meetocean_rooms WHERE slug = :slug AND invite_token = :token LIMIT 1');
-        $statement->execute([
+        meetocean_execute($statement, [
             'slug' => meetocean_clean_room_code($room),
             'token' => $inviteToken,
         ]);
