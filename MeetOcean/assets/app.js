@@ -138,7 +138,7 @@ function insecureMediaAction() {
   if (!isLoopbackHost()) {
     return {
       href: secureMeetOceanUrl(),
-      label: "Ouvrir en HTTPS",
+      label: "Reessayer en HTTPS",
     };
   }
   return {
@@ -469,7 +469,7 @@ function mediaAccessMessage(error) {
   if (!window.isSecureContext) {
     return isLoopbackHost()
       ? "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec http://localhost/MeetOcean/ ou utilisez HTTPS."
-      : "Le navigateur bloque camera et micro sur un serveur distant sans HTTPS. Ouvrez MeetOcean en HTTPS pour activer les autorisations.";
+      : "Camera et micro exigent HTTPS. Configurez la box pour rediriger le port 443 vers le serveur web, puis ouvrez MeetOcean en HTTPS.";
   }
   if (!navigator.mediaDevices?.getUserMedia) {
     return "Camera et micro indisponibles dans ce navigateur. Essayez Chrome, Edge ou Firefox.";
