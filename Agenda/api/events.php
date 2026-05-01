@@ -62,6 +62,16 @@ try {
         ]);
     }
 
+    if ($action === 'save_settings') {
+        $settings = agenda_save_settings($pdo, (int) ($user['id'] ?? 0), $input['settings'] ?? []);
+        oceanos_json_response([
+            'ok' => true,
+            'message' => 'Parametres Agenda enregistres.',
+            'settings' => $settings,
+            ...agenda_dashboard($pdo, $user),
+        ]);
+    }
+
     oceanos_json_response([
         'ok' => false,
         'error' => 'unsupported_action',

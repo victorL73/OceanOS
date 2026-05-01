@@ -45,6 +45,8 @@ const elements = {
   attendeeList: $("attendee-list"),
   attendeeCount: $("attendee-count"),
   saveButton: $("save-event-button"),
+  settingsList: $("settings-list"),
+  saveSettingsButton: $("save-settings-button"),
 };
 
 const state = {
@@ -53,6 +55,8 @@ const state = {
   events: [],
   moduleTasks: [],
   items: [],
+  settings: null,
+  settingsCatalog: {},
   activeView: "list",
   currentMonth: startOfMonth(new Date()),
   editingId: null,
