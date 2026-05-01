@@ -98,10 +98,57 @@ function setVisible(ready) {
   elements.appView.classList.toggle("hidden", !ready);
 }
 
-function setMessage(message = "", type = "") {
-  elements.appMessage.textContent = message;
+function setMessage(message = "", type = "", action = null) {
+  elements.appMessage.replaceChildren();
+  if (message) {
+    const text = document.createElement("span");
+    text.textContent = message;
+    elements.appMessage.appendChild(text);
+  }
+  if (action?.href && action?.label) {
+    const link = document.createElement("a");
+    link.className = "message-action";
+    link.href = action.href;
+    link.textContent = action.label;
+    elements.appMessage.appendChild(link);
+  }
   elements.appMessage.dataset.type = type;
   elements.appMessage.classList.toggle("hidden", message === "");
+}
+
+function isLoopbackHost(hostname = window.location.hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function localMeetOceanUrl() {
+  const path = window.location.pathname.endsWith("/")
+    ? window.location.pathname
+    : `${window.location.pathname}/`;
+  return `http://localhost${path}${window.location.search}${window.location.hash}`;
+}
+
+function secureMeetOceanUrl() {
+  const url = new URL(window.location.href);
+  url.protocol = "https:";
+  return url.toString();
+}
+
+function insecureMediaAction() {
+  if (window.isSecureContext) return null;
+  if (!isLoopbackHost()) {
+    return {
+      href: secureMeetOceanUrl(),
+      label: "Ouvrir en HTTPS",
+    };
+  }
+  return {
+    href: localMeetOceanUrl(),
+    label: "Ouvrir avec localhost",
+  };
+}
+
+function showMediaSecurityMessage() {
+  setMessage(mediaAccessMessage(), "error", insecureMediaAction());
 }
 
 async function requestJson(url, options = {}) {
@@ -420,7 +467,9 @@ function updateControlButtons() {
 
 function mediaAccessMessage(error) {
   if (!window.isSecureContext) {
-    return "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec http://localhost/MeetOcean/ ou utilisez HTTPS.";
+    return isLoopbackHost()
+      ? "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec http://localhost/MeetOcean/ ou utilisez HTTPS."
+      : "Le navigateur bloque camera et micro sur un serveur distant sans HTTPS. Ouvrez MeetOcean en HTTPS pour activer les autorisations.";
   }
   if (!navigator.mediaDevices?.getUserMedia) {
     return "Camera et micro indisponibles dans ce navigateur. Essayez Chrome, Edge ou Firefox.";
@@ -500,7 +549,7 @@ async function ensureLocalMedia(options = {}) {
 
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     const error = new Error(mediaAccessMessage());
-    setMessage(error.message, "error");
+    setMessage(error.message, "error", insecureMediaAction());
     throw error;
   }
 
@@ -583,7 +632,7 @@ async function toggleMicrophone() {
     try {
       await ensureLocalMedia({ audio: true, video: false });
     } catch (error) {
-      setMessage(error.message || mediaAccessMessage(error), "error");
+      setMessage(error.message || mediaAccessMessage(error), "error", insecureMediaAction());
       return;
     }
   }
@@ -608,7 +657,7 @@ async function toggleCamera() {
     try {
       await ensureLocalMedia({ audio: false, video: true });
     } catch (error) {
-      setMessage(error.message || mediaAccessMessage(error), "error");
+      setMessage(error.message || mediaAccessMessage(error), "error", insecureMediaAction());
       return;
     }
   }
@@ -904,7 +953,7 @@ async function createRoom() {
     });
     await enterRoom(payload);
   } catch (error) {
-    setMessage(error.message || "Creation impossible.", "error");
+    setMessage(error.message || "Creation impossible.", "error", insecureMediaAction());
   } finally {
     elements.createRoomButton.disabled = false;
   }
@@ -933,7 +982,7 @@ async function joinRoom() {
     });
     await enterRoom(payload);
   } catch (error) {
-    setMessage(error.message || "Connexion impossible.", "error");
+    setMessage(error.message || "Connexion impossible.", "error", insecureMediaAction());
   } finally {
     elements.joinRoomButton.disabled = false;
   }
@@ -1218,6 +1267,10 @@ async function loadDashboard(showReadyMessage = true) {
   const payload = await requestJson(API_URL);
   renderDashboard(payload);
   setVisible(true);
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    showMediaSecurityMessage();
+    return;
+  }
   if (showReadyMessage) {
     setMessage(payload.ai?.hasApiKey ? "" : "Ajoutez la cle Groq dans OceanOS pour activer la traduction.", "info");
   }

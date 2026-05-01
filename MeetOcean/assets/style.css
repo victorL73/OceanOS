@@ -205,7 +205,31 @@ select:disabled {
   border-radius: 8px;
   background: rgba(47, 111, 179, 0.07);
   color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   font-weight: 750;
+}
+
+.app-message span {
+  min-width: 220px;
+  flex: 1 1 420px;
+}
+
+.message-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  color: inherit;
+  padding: 0 12px;
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
 .app-message[data-type="success"] {
