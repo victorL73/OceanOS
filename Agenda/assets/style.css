@@ -531,6 +531,97 @@ textarea:focus {
   accent-color: var(--accent);
 }
 
+.settings-list {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-card.is-disabled {
+  opacity: 0.68;
+}
+
+.settings-card-head,
+.settings-module-label,
+.settings-option {
+  display: flex;
+  align-items: center;
+}
+
+.settings-card-head {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-module-label {
+  min-width: 0;
+  gap: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.settings-module-label input,
+.settings-option input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.settings-module-label strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-module-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.settings-count {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--muted);
+  padding: 5px 9px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.settings-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-option {
+  min-height: 38px;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.settings-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -660,7 +751,8 @@ textarea:focus {
 
 @media (max-width: 560px) {
   .metrics-grid,
-  .form-grid {
+  .form-grid,
+  .settings-type-grid {
     grid-template-columns: 1fr;
   }
 

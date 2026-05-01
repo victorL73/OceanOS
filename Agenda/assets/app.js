@@ -213,6 +213,119 @@ function renderModuleFilter() {
   });
 }
 
+function settingsCatalogEntries() {
+  return Object.entries(state.settingsCatalog || {});
+}
+
+function moduleSettings(moduleKey) {
+  return state.settings?.modules?.[moduleKey] || {};
+}
+
+function updateSettingsCount(card) {
+  const count = card.querySelector(".settings-count");
+  if (!count) return;
+  const typeInputs = Array.from(card.querySelectorAll(".settings-type-toggle"));
+  const enabled = typeInputs.filter((input) => input.checked).length;
+  count.textContent = `${enabled}/${typeInputs.length}`;
+}
+
+function updateSettingsCard(card, enabled) {
+  card.classList.toggle("is-disabled", !enabled);
+  const typeInputs = Array.from(card.querySelectorAll(".settings-type-toggle"));
+  typeInputs.forEach((input) => {
+    input.disabled = !enabled;
+  });
+  if (enabled && typeInputs.length > 0 && !typeInputs.some((input) => input.checked)) {
+    typeInputs.forEach((input) => {
+      input.checked = true;
+    });
+  }
+  updateSettingsCount(card);
+}
+
+function renderSettings() {
+  if (!elements.settingsList) return;
+  elements.settingsList.innerHTML = "";
+  const entries = settingsCatalogEntries();
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Aucun module configurable.";
+    elements.settingsList.appendChild(empty);
+    return;
+  }
+
+  entries.forEach(([moduleKey, definition]) => {
+    const current = moduleSettings(moduleKey);
+    const typeSettings = current.types || {};
+    const card = document.createElement("article");
+    card.className = "settings-card";
+
+    const head = document.createElement("div");
+    head.className = "settings-card-head";
+    const label = document.createElement("label");
+    label.className = "settings-module-label";
+    const moduleInput = document.createElement("input");
+    moduleInput.type = "checkbox";
+    moduleInput.className = "settings-module-toggle";
+    moduleInput.dataset.module = moduleKey;
+    moduleInput.checked = current.enabled !== false;
+    const chip = document.createElement("span");
+    chip.className = `settings-module-dot ${moduleClass(moduleKey)}`;
+    chip.setAttribute("aria-hidden", "true");
+    const title = document.createElement("strong");
+    title.textContent = definition.label || moduleKey;
+    label.append(moduleInput, chip, title);
+
+    const count = document.createElement("span");
+    count.className = "settings-count";
+    head.append(label, count);
+
+    const grid = document.createElement("div");
+    grid.className = "settings-type-grid";
+    Object.entries(definition.types || {}).forEach(([type, typeLabel]) => {
+      const option = document.createElement("label");
+      option.className = "settings-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.className = "settings-type-toggle";
+      input.dataset.module = moduleKey;
+      input.dataset.type = type;
+      input.checked = typeSettings[type] !== false;
+      input.disabled = !moduleInput.checked;
+      input.addEventListener("change", () => updateSettingsCount(card));
+      const span = document.createElement("span");
+      span.textContent = typeLabel;
+      option.append(input, span);
+      grid.appendChild(option);
+    });
+
+    moduleInput.addEventListener("change", () => updateSettingsCard(card, moduleInput.checked));
+    card.append(head, grid);
+    elements.settingsList.appendChild(card);
+    updateSettingsCard(card, moduleInput.checked);
+  });
+}
+
+function collectSettingsFromForm() {
+  const settings = { modules: {} };
+  settingsCatalogEntries().forEach(([moduleKey, definition]) => {
+    const moduleInput = Array.from(elements.settingsList.querySelectorAll(".settings-module-toggle"))
+      .find((input) => input.dataset.module === moduleKey);
+    const types = {};
+    Object.keys(definition.types || {}).forEach((type) => {
+      const typeInput = Array.from(elements.settingsList.querySelectorAll(".settings-type-toggle"))
+        .find((input) => input.dataset.module === moduleKey && input.dataset.type === type);
+      types[type] = typeInput ? typeInput.checked : true;
+    });
+    settings.modules[moduleKey] = {
+      enabled: moduleInput ? moduleInput.checked : true,
+      types,
+    };
+  });
+  return settings;
+}
+
 function renderMetrics() {
   const [start, end] = todayRange(7);
   const upcoming = state.items.filter((item) => {
@@ -490,10 +603,13 @@ function applyPayload(payload) {
   state.events = Array.isArray(payload.events) ? payload.events : [];
   state.moduleTasks = Array.isArray(payload.moduleTasks) ? payload.moduleTasks : [];
   state.items = Array.isArray(payload.items) ? payload.items : [];
+  state.settings = payload.settings || null;
+  state.settingsCatalog = payload.settingsCatalog || {};
   renderIdentity(payload);
   renderModuleFilter();
   renderMetrics();
   renderAttendees([state.currentUser?.id].filter(Boolean));
+  renderSettings();
   renderAll();
 }
 
@@ -549,6 +665,27 @@ async function saveEvent(event) {
     showMessage(error.message || "Enregistrement impossible.", "error");
   } finally {
     elements.saveButton.disabled = false;
+  }
+}
+
+async function saveSettings() {
+  if (!elements.saveSettingsButton) return;
+  elements.saveSettingsButton.disabled = true;
+  showMessage("");
+  try {
+    const response = await requestJson(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "save_settings",
+        settings: collectSettingsFromForm(),
+      }),
+    });
+    applyPayload(response);
+    showMessage(response.message || "Parametres enregistres.", "success");
+  } catch (error) {
+    showMessage(error.message || "Enregistrement des parametres impossible.", "error");
+  } finally {
+    elements.saveSettingsButton.disabled = false;
   }
 }
 
@@ -645,6 +782,7 @@ async function logout() {
 function bindEvents() {
   elements.form.addEventListener("submit", saveEvent);
   elements.cancelEditButton.addEventListener("click", resetForm);
+  elements.saveSettingsButton?.addEventListener("click", () => void saveSettings());
   elements.newEventButton.addEventListener("click", () => {
     resetForm();
     elements.formPanel.scrollIntoView({ behavior: "smooth", block: "start" });
