@@ -16,6 +16,7 @@ www/
   NautiCloud/            Drive partage, apercus et edition temps reel
   Formcean/              Formulaires publics, collecte de reponses et exports
   Naviplan/              Agenda administratif, fiscal, social et juridique
+  Visiocean/             Google Analytics, Search Console, audit SEO et recommandations
   _backups/              Sauvegardes SQL locales
   index.php              Redirection vers OceanOS
   Lancer_Serveurs.bat    Lanceur local des serveurs applicatifs
@@ -42,6 +43,7 @@ Les applications concernées actuellement sont :
 - NautiCloud
 - Formcean
 - Naviplan
+- Visiocean
 
 ## Page de configuration serveur
 
@@ -103,7 +105,8 @@ Ce fichier contient :
 - utilisateur MySQL
 - mot de passe MySQL
 
-Flowcean, Invocean, Stockcean et Mobywork lisent aussi cette configuration partagee.
+Flowcean, Invocean et Stockcean lisent aussi cette configuration partagee.
+Mobywork utilise OceanOS pour la connexion et les informations entreprise, mais garde ses parametres metier, mails, tris, dossiers et devis dans `Mobywork/backend/emails.db`.
 
 Sur une installation serveur :
 
@@ -194,6 +197,13 @@ Tables Naviplan :
 
 ```text
 naviplan_settings
+```
+
+Tables Visiocean :
+
+```text
+visiocean_settings
+visiocean_page_audits
 ```
 
 Des tables historiques comme `users` ou `user_ai_settings` peuvent exister après migration. Elles servent à la compatibilité ou à la migration depuis l'ancienne structure. Les comptes utilisés par OceanOS sont dans `oceanos_users`.
@@ -349,6 +359,24 @@ Il utilise OceanOS pour :
 - filtrer les echeances par fiscalite, TVA, employeur, CFE, juridique, RH et RGPD
 - exporter les echeances visibles au format ICS
 
+## Visiocean
+
+Visiocean se trouve au meme niveau que les autres applications :
+
+```text
+www/Visiocean/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- centraliser l'URL du site, la propriete GA4 et la propriete Search Console
+- stocker le compte de service Google chiffre avec les secrets OceanOS
+- generer la balise GA4 a installer sur le site public
+- lire Google Analytics Data API et Search Console quand les acces sont autorises
+- auditer les pages du site : title, meta description, H1, canonical, alt images, HTTPS et temps de chargement
+- proposer un plan d'action SEO et acquisition priorise
+
 ## Lanceur local
 
 Le lanceur local est à la racine :
@@ -397,7 +425,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean et Naviplan depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan et Visiocean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -468,4 +496,5 @@ http://localhost/NautiPost/
 http://localhost/NautiCloud/
 http://localhost/Formcean/
 http://localhost/Naviplan/
+http://localhost/Visiocean/
 ```

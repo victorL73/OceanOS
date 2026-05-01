@@ -80,6 +80,14 @@ const apps = [
     color: "#1a9d91",
   },
   {
+    id: "visiocean",
+    title: "Visiocean",
+    subtitle: "Google Analytics, Search Console, SEO et recommandations.",
+    href: "/Visiocean/",
+    mark: "VI",
+    color: "#168f83",
+  },
+  {
     id: "admin",
     title: "Admin serveur",
     subtitle: "Configuration initiale, BDD et super-utilisateurs.",
