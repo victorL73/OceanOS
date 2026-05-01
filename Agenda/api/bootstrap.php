@@ -59,6 +59,16 @@ function agenda_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_agenda_attendees_added_by FOREIGN KEY (added_by) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS agenda_user_settings (
+            user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            settings_json LONGTEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_agenda_user_settings_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
 }
 
 function agenda_require_user(PDO $pdo): array
@@ -108,6 +118,197 @@ function agenda_public_users(PDO $pdo): array
         'role' => (string) $row['role'],
         'isActive' => (bool) $row['is_active'],
     ], $rows);
+}
+
+function agenda_settings_catalog(): array
+{
+    return [
+        'Agenda' => [
+            'moduleId' => 'agenda',
+            'label' => 'Agenda',
+            'types' => [
+                'task' => 'Taches',
+                'event' => 'Evenements',
+                'meeting' => 'Reunions MeetOcean',
+                'reminder' => 'Rappels',
+            ],
+        ],
+        'Flowcean' => [
+            'moduleId' => 'flowcean',
+            'label' => 'Flowcean',
+            'types' => [
+                'todo_block' => 'Checklists',
+                'database_row' => 'Lignes de tableau',
+            ],
+        ],
+        'Mobywork' => [
+            'moduleId' => 'mobywork',
+            'label' => 'Mobywork',
+            'types' => [
+                'email' => 'Emails a traiter',
+                'quote' => 'Devis a suivre',
+            ],
+        ],
+        'Stockcean' => [
+            'moduleId' => 'stockcean',
+            'label' => 'Stockcean',
+            'types' => [
+                'purchase_order' => 'Commandes achat',
+                'stock_alert' => 'Alertes stock',
+            ],
+        ],
+        'Invocean' => [
+            'moduleId' => 'invocean',
+            'label' => 'Invocean',
+            'types' => [
+                'invoice' => 'Factures a suivre',
+            ],
+        ],
+        'Nautisign' => [
+            'moduleId' => 'nautisign',
+            'label' => 'Nautisign',
+            'types' => [
+                'signature' => 'Signatures a relancer',
+            ],
+        ],
+        'Formcean' => [
+            'moduleId' => 'formcean',
+            'label' => 'Formcean',
+            'types' => [
+                'form_draft' => 'Formulaires brouillons',
+            ],
+        ],
+        'Naviplan' => [
+            'moduleId' => 'naviplan',
+            'label' => 'Naviplan',
+            'types' => [
+                'tax_deadline' => 'Echeances fiscales',
+                'social_deadline' => 'Echeances sociales',
+                'legal_deadline' => 'Echeances juridiques',
+                'data_review' => 'Revues donnees',
+            ],
+        ],
+    ];
+}
+
+function agenda_default_settings(): array
+{
+    $modules = [];
+    foreach (agenda_settings_catalog() as $module => $definition) {
+        $types = [];
+        foreach (array_keys($definition['types']) as $type) {
+            $types[$type] = true;
+        }
+        $modules[$module] = [
+            'enabled' => true,
+            'types' => $types,
+        ];
+    }
+
+    return ['modules' => $modules];
+}
+
+function agenda_normalize_settings(mixed $settings): array
+{
+    $inputModules = is_array($settings) && is_array($settings['modules'] ?? null) ? $settings['modules'] : [];
+    $normalized = agenda_default_settings();
+
+    foreach (agenda_settings_catalog() as $module => $definition) {
+        $incoming = is_array($inputModules[$module] ?? null) ? $inputModules[$module] : null;
+        if ($incoming === null) {
+            foreach ($inputModules as $key => $value) {
+                if (strcasecmp((string) $key, (string) $module) === 0 && is_array($value)) {
+                    $incoming = $value;
+                    break;
+                }
+            }
+        }
+        if ($incoming === null) {
+            continue;
+        }
+
+        $normalized['modules'][$module]['enabled'] = (bool) ($incoming['enabled'] ?? true);
+        $inputTypes = is_array($incoming['types'] ?? null) ? $incoming['types'] : [];
+        foreach (array_keys($definition['types']) as $type) {
+            if (array_key_exists($type, $inputTypes)) {
+                $normalized['modules'][$module]['types'][$type] = (bool) $inputTypes[$type];
+            }
+        }
+    }
+
+    return $normalized;
+}
+
+function agenda_store_settings(PDO $pdo, int $userId, array $settings): void
+{
+    if ($userId <= 0) {
+        return;
+    }
+
+    $json = json_encode($settings, JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new RuntimeException('Parametres Agenda invalides.');
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO agenda_user_settings (user_id, settings_json)
+         VALUES (:user_id, :settings_json)
+         ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json), updated_at = CURRENT_TIMESTAMP'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+        'settings_json' => $json,
+    ]);
+}
+
+function agenda_settings(PDO $pdo, int $userId): array
+{
+    $default = agenda_default_settings();
+    if ($userId <= 0) {
+        return $default;
+    }
+
+    $statement = $pdo->prepare('SELECT settings_json FROM agenda_user_settings WHERE user_id = :user_id LIMIT 1');
+    $statement->execute(['user_id' => $userId]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        agenda_store_settings($pdo, $userId, $default);
+        return $default;
+    }
+
+    $decoded = json_decode((string) $row['settings_json'], true);
+    return agenda_normalize_settings(is_array($decoded) ? $decoded : $default);
+}
+
+function agenda_save_settings(PDO $pdo, int $userId, mixed $settings): array
+{
+    $normalized = agenda_normalize_settings($settings);
+    agenda_store_settings($pdo, $userId, $normalized);
+    return $normalized;
+}
+
+function agenda_settings_module_enabled(?array $settings, string $module): bool
+{
+    if ($settings === null) {
+        return true;
+    }
+
+    $moduleSettings = is_array($settings['modules'][$module] ?? null) ? $settings['modules'][$module] : null;
+    return $moduleSettings === null || (bool) ($moduleSettings['enabled'] ?? true);
+}
+
+function agenda_settings_allows(?array $settings, string $module, string $type): bool
+{
+    if (!agenda_settings_module_enabled($settings, $module)) {
+        return false;
+    }
+    if ($settings === null) {
+        return true;
+    }
+
+    $moduleSettings = is_array($settings['modules'][$module] ?? null) ? $settings['modules'][$module] : null;
+    $types = is_array($moduleSettings['types'] ?? null) ? $moduleSettings['types'] : [];
+    return !array_key_exists($type, $types) || (bool) $types[$type];
 }
 
 function agenda_clean_text(mixed $value, int $maxLength = 4000, bool $singleLine = false): string
@@ -296,6 +497,7 @@ function agenda_save_attendees(PDO $pdo, int $eventId, array $attendeeUserIds, i
 function agenda_notify_attendees(PDO $pdo, array $event, array $actor, string $type = 'event_invite'): void
 {
     $attendees = agenda_event_attendees($pdo, (int) $event['id']);
+    $joinUrl = agenda_meetocean_event_join_url($pdo, $event);
     foreach ($attendees as $attendee) {
         $userId = (int) $attendee['id'];
         if ($userId <= 0 || $userId === (int) $actor['id']) {
@@ -305,7 +507,7 @@ function agenda_notify_attendees(PDO $pdo, array $event, array $actor, string $t
         $isMeeting = (string) ($event['category'] ?? '') === 'meeting';
         $title = $type === 'event_update' ? 'Evenement Agenda mis a jour' : 'Nouvel evenement Agenda';
         $body = (string) ($event['title'] ?? 'Evenement');
-        if ($isMeeting && trim((string) ($event['meetocean_join_url'] ?? '')) !== '') {
+        if ($isMeeting && $joinUrl !== '') {
             $body .= ' - lien MeetOcean disponible.';
         }
 
@@ -322,11 +524,61 @@ function agenda_notify_attendees(PDO $pdo, array $event, array $actor, string $t
             [
                 'eventId' => (int) $event['id'],
                 'startsAt' => (string) ($event['starts_at'] ?? ''),
-                'meetOceanJoinUrl' => (string) ($event['meetocean_join_url'] ?? ''),
+                'meetOceanJoinUrl' => $joinUrl,
             ],
             'agenda_' . $type . '_' . (int) $event['id'] . '_' . $userId
         );
     }
+}
+
+function agenda_meetocean_internal_url(array $room): string
+{
+    $code = trim((string) ($room['slug'] ?? $room['code'] ?? ''));
+    if ($code === '') {
+        return '';
+    }
+
+    return '/MeetOcean/?' . http_build_query(['room' => $code]);
+}
+
+function agenda_meetocean_internal_url_from_room_id(PDO $pdo, ?int $roomId): string
+{
+    if ($roomId === null || $roomId <= 0) {
+        return '';
+    }
+
+    $statement = $pdo->prepare('SELECT slug FROM meetocean_rooms WHERE id = :id LIMIT 1');
+    $statement->execute(['id' => $roomId]);
+    $room = $statement->fetch();
+
+    return is_array($room) ? agenda_meetocean_internal_url($room) : '';
+}
+
+function agenda_meetocean_event_join_url(PDO $pdo, array $event): string
+{
+    $roomUrl = agenda_meetocean_internal_url_from_room_id(
+        $pdo,
+        isset($event['meetocean_room_id']) ? (int) $event['meetocean_room_id'] : null
+    );
+    if ($roomUrl !== '') {
+        return $roomUrl;
+    }
+
+    $storedUrl = trim((string) ($event['meetocean_join_url'] ?? ''));
+    if ($storedUrl === '') {
+        return '';
+    }
+
+    $parts = parse_url($storedUrl);
+    if (is_array($parts) && isset($parts['query'])) {
+        parse_str((string) $parts['query'], $query);
+        $room = trim((string) ($query['room'] ?? $query['code'] ?? ''));
+        if ($room !== '') {
+            return '/MeetOcean/?' . http_build_query(['room' => $room]);
+        }
+    }
+
+    return $storedUrl;
 }
 
 function agenda_create_event(PDO $pdo, array $actor, array $input): array
@@ -340,7 +592,7 @@ function agenda_create_event(PDO $pdo, array $actor, array $input): array
         if ($event['createMeeting']) {
             $room = meetocean_create_room($pdo, $actor, $event['title']);
             $roomId = (int) $room['id'];
-            $joinUrl = meetocean_invite_url($room);
+            $joinUrl = agenda_meetocean_internal_url($room);
         }
 
         $insert = $pdo->prepare(
@@ -396,7 +648,9 @@ function agenda_update_event(PDO $pdo, array $actor, array $input): array
         if ($event['createMeeting'] && $roomId === null) {
             $room = meetocean_create_room($pdo, $actor, $event['title']);
             $roomId = (int) $room['id'];
-            $joinUrl = meetocean_invite_url($room);
+            $joinUrl = agenda_meetocean_internal_url($room);
+        } elseif ($roomId !== null && $roomId > 0) {
+            $joinUrl = agenda_meetocean_internal_url_from_room_id($pdo, $roomId) ?: $joinUrl;
         }
 
         $update = $pdo->prepare(
@@ -514,6 +768,7 @@ function agenda_event_attendees(PDO $pdo, int $eventId): array
 function agenda_public_event(PDO $pdo, array $event): array
 {
     $attendees = agenda_event_attendees($pdo, (int) $event['id']);
+    $meetOceanJoinUrl = agenda_meetocean_event_join_url($pdo, $event);
 
     return [
         'id' => (int) $event['id'],
@@ -532,7 +787,7 @@ function agenda_public_event(PDO $pdo, array $event): array
         'allDay' => (bool) $event['all_day'],
         'location' => (string) ($event['location'] ?? ''),
         'meetOceanRoomId' => isset($event['meetocean_room_id']) ? (int) $event['meetocean_room_id'] : null,
-        'meetOceanJoinUrl' => (string) ($event['meetocean_join_url'] ?? ''),
+        'meetOceanJoinUrl' => $meetOceanJoinUrl,
         'actionUrl' => '/Agenda/?event=' . (int) $event['id'],
         'attendees' => $attendees,
         'attendeeUserIds' => array_map(static fn(array $attendee): int => (int) $attendee['id'], $attendees),
@@ -543,8 +798,12 @@ function agenda_public_event(PDO $pdo, array $event): array
     ];
 }
 
-function agenda_list_events(PDO $pdo, array $user): array
+function agenda_list_events(PDO $pdo, array $user, ?array $settings = null): array
 {
+    if (!agenda_settings_module_enabled($settings, 'Agenda')) {
+        return [];
+    }
+
     $statement = $pdo->prepare(
         'SELECT DISTINCT e.*
          FROM agenda_events e
@@ -554,7 +813,15 @@ function agenda_list_events(PDO $pdo, array $user): array
     );
     $statement->execute(['user_id' => (int) $user['id']]);
 
-    return array_map(static fn(array $row): array => agenda_public_event($pdo, $row), $statement->fetchAll());
+    $events = [];
+    foreach ($statement->fetchAll() as $row) {
+        $event = agenda_public_event($pdo, $row);
+        if (agenda_settings_allows($settings, 'Agenda', (string) ($event['category'] ?? 'task'))) {
+            $events[] = $event;
+        }
+    }
+
+    return $events;
 }
 
 function agenda_external_task(
@@ -595,30 +862,36 @@ function agenda_external_task(
     ];
 }
 
-function agenda_collect_module_tasks(PDO $pdo, array $user): array
+function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = null): array
 {
     $tasks = [];
-    if (agenda_user_has_module($user, 'flowcean')) {
+    if (agenda_user_has_module($user, 'flowcean') && agenda_settings_module_enabled($settings, 'Flowcean')) {
         $tasks = array_merge($tasks, agenda_collect_flowcean_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'mobywork')) {
+    if (agenda_user_has_module($user, 'mobywork') && agenda_settings_module_enabled($settings, 'Mobywork')) {
         $tasks = array_merge($tasks, agenda_collect_mobywork_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'stockcean')) {
+    if (agenda_user_has_module($user, 'stockcean') && agenda_settings_module_enabled($settings, 'Stockcean')) {
         $tasks = array_merge($tasks, agenda_collect_stockcean_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'invocean')) {
+    if (agenda_user_has_module($user, 'invocean') && agenda_settings_module_enabled($settings, 'Invocean')) {
         $tasks = array_merge($tasks, agenda_collect_invocean_tasks($pdo));
     }
-    if (agenda_user_has_module($user, 'nautisign')) {
+    if (agenda_user_has_module($user, 'nautisign') && agenda_settings_module_enabled($settings, 'Nautisign')) {
         $tasks = array_merge($tasks, agenda_collect_nautisign_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'formcean')) {
+    if (agenda_user_has_module($user, 'formcean') && agenda_settings_module_enabled($settings, 'Formcean')) {
         $tasks = array_merge($tasks, agenda_collect_formcean_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'naviplan')) {
+    if (agenda_user_has_module($user, 'naviplan') && agenda_settings_module_enabled($settings, 'Naviplan')) {
         $tasks = array_merge($tasks, agenda_collect_naviplan_tasks($pdo));
     }
+
+    $tasks = array_values(array_filter($tasks, static fn(array $task): bool => agenda_settings_allows(
+        $settings,
+        (string) ($task['module'] ?? ''),
+        (string) ($task['sourceType'] ?? 'task')
+    )));
 
     usort($tasks, static function (array $a, array $b): int {
         $left = (string) ($a['startsAt'] ?? '9999-12-31 23:59:59');
@@ -1124,8 +1397,9 @@ function agenda_priority_from_text(string $value): string
 
 function agenda_dashboard(PDO $pdo, array $user): array
 {
-    $events = agenda_list_events($pdo, $user);
-    $moduleTasks = agenda_collect_module_tasks($pdo, $user);
+    $settings = agenda_settings($pdo, (int) ($user['id'] ?? 0));
+    $events = agenda_list_events($pdo, $user, $settings);
+    $moduleTasks = agenda_collect_module_tasks($pdo, $user, $settings);
     $feed = array_merge($events, $moduleTasks);
     usort($feed, static function (array $a, array $b): int {
         $left = (string) ($a['startsAt'] ?? '9999-12-31 23:59:59');
@@ -1145,6 +1419,8 @@ function agenda_dashboard(PDO $pdo, array $user): array
         'currentUser' => oceanos_public_user($user),
         'canManage' => agenda_is_admin($user),
         'users' => agenda_public_users($pdo),
+        'settings' => $settings,
+        'settingsCatalog' => agenda_settings_catalog(),
         'events' => $events,
         'moduleTasks' => $moduleTasks,
         'items' => $feed,

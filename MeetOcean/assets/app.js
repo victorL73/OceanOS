@@ -91,6 +91,7 @@ const state = {
   recognitionShouldRun: false,
   speechNoticeShown: false,
   transcriptFingerprints: [],
+  autoJoinAttempted: false,
 };
 
 function clientId() {
@@ -341,6 +342,9 @@ function renderDashboard(payload) {
   }
   renderIdentity(payload);
   syncLanguageControls();
+  if (!state.isGuest && state.inviteRoomCode && !state.room) {
+    elements.roomCode.value = state.inviteRoomCode;
+  }
   elements.guestPanel.classList.toggle("hidden", !state.isGuest || Boolean(state.room));
   elements.startPanel.classList.toggle("hidden", state.isGuest || Boolean(state.room));
   elements.sideColumn?.classList.toggle("hidden", state.isGuest && !state.room);
@@ -1471,6 +1475,10 @@ async function loadDashboard(showReadyMessage = true) {
     } else {
       setMessage(payload.ai?.hasApiKey ? "" : "Ajoutez la cle Groq dans OceanOS pour activer la traduction.", "info");
     }
+  }
+  if (!state.isGuest && state.inviteRoomCode && !state.autoJoinAttempted && !state.room) {
+    state.autoJoinAttempted = true;
+    void joinRoom();
   }
 }
 
