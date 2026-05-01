@@ -408,10 +408,14 @@ Points à vérifier avant production :
 
 - Ne pas exposer `admin/storage/`.
 - Ne pas exposer `NautiCloud/storage/`.
+- Ne pas exposer `Invocean/storage/`, `Mobywork/storage/` ni `Mobywork/backend/`.
 - Ne pas exposer `OceanOS/config/server.php`.
+- Ne jamais versionner les fichiers `.env`, `*.secret`, les bases locales, les logs, les uploads ou les exports generes.
+- Regenerer les cles Groq, SMTP/IMAP, PrestaShop et secrets de pont si elles ont deja ete stockees dans le depot.
 - Changer le mot de passe initial de `/admin/`.
 - Utiliser un utilisateur MySQL dédié avec les droits nécessaires.
 - Activer HTTPS.
+- Garder les headers de securite actifs dans Apache ou dans le reverse proxy.
 - Restreindre l'accès à `/admin/` par IP ou authentification serveur si possible.
 - Sauvegarder régulièrement la base OceanOS.
 

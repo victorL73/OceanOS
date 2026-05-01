@@ -2,3 +2,9 @@
 .env.local
 .mobywork_bridge_secret
 *.log
+*.db
+*.sqlite
+*.sqlite3
+node_modules/
+uploads/
+attachments/

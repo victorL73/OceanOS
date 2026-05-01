@@ -41,7 +41,9 @@ function invocean_load_vendor_autoload(): void
 function invocean_json_response(array $payload, int $status = 200): never
 {
     http_response_code($status);
+    invocean_send_security_headers();
     header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -59,6 +61,33 @@ function invocean_read_json_request(): array
     }
 
     return $data;
+}
+
+function invocean_is_https_request(): bool
+{
+    if (function_exists('oceanos_is_https_request')) {
+        return oceanos_is_https_request();
+    }
+
+    $https = strtolower((string) ($_SERVER['HTTPS'] ?? ''));
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    return $https === 'on' || $https === '1' || $forwardedProto === 'https';
+}
+
+function invocean_send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+    if (invocean_is_https_request()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
 }
 
 function invocean_pdo_root(): PDO
@@ -238,11 +267,16 @@ function invocean_start_session(): void
         return;
     }
 
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.cookie_httponly', '1');
+
     $config = invocean_config();
     session_name((string) $config['session_name']);
     session_set_cookie_params([
         'lifetime' => 60 * 60 * 8,
         'path' => '/',
+        'secure' => invocean_is_https_request(),
         'httponly' => true,
         'samesite' => 'Lax',
     ]);

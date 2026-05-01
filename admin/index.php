@@ -1,11 +1,59 @@
 <?php
 declare(strict_types=1);
 
-session_name('OCEANOSADMINSESSID');
-session_start();
-
 const OCEANOS_ADMIN_DEFAULT_LOGIN_HASH = 'dd693f002f22c059a7d870a74b10503c224a2f5e6e3f0d750fac9f10c026ebbd';
 const OCEANOS_ADMIN_DEFAULT_PASSWORD_HASH = '$2y$12$JwgZs7nHC01qGvoswVyCXOZTY1JG8Z.EyfY9lPtYQqEFoKkx8QvMq';
+const OCEANOS_ADMIN_MAX_LOGIN_ATTEMPTS = 5;
+const OCEANOS_ADMIN_LOGIN_WINDOW_SECONDS = 900;
+const OCEANOS_ADMIN_LOGIN_LOCK_SECONDS = 900;
+
+function oceanos_admin_is_https_request(): bool
+{
+    $https = strtolower((string) ($_SERVER['HTTPS'] ?? ''));
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    return $https === 'on' || $https === '1' || $forwardedProto === 'https';
+}
+
+function oceanos_admin_send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+    header("Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data:; font-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'");
+    if (oceanos_admin_is_https_request()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
+function oceanos_admin_start_session(): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        return;
+    }
+
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.cookie_httponly', '1');
+
+    session_name('OCEANOSADMINSESSID');
+    session_set_cookie_params([
+        'lifetime' => 60 * 30,
+        'path' => '/admin',
+        'secure' => oceanos_admin_is_https_request(),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_start();
+}
+
+oceanos_admin_send_security_headers();
+oceanos_admin_start_session();
 
 function h(?string $value): string
 {
@@ -20,6 +68,11 @@ function oceanos_admin_root_path(string ...$parts): string
 function oceanos_admin_credentials_path(): string
 {
     return __DIR__ . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'admin_credentials.php';
+}
+
+function oceanos_admin_login_attempts_path(): string
+{
+    return __DIR__ . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'login_attempts.php';
 }
 
 function oceanos_admin_default_credentials(): array
@@ -70,6 +123,113 @@ function oceanos_admin_save_password(string $password): void
     oceanos_admin_write_php_config(oceanos_admin_credentials_path(), $credentials);
 }
 
+function oceanos_admin_session_fingerprint(): string
+{
+    $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? 'cli'));
+    $userAgent = trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+    return hash('sha256', $ip . '|' . $userAgent);
+}
+
+function oceanos_admin_login_throttle_key(): string
+{
+    $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? 'cli'));
+    $forwardedFor = trim((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+    if ($forwardedFor !== '') {
+        $ip = trim(explode(',', $forwardedFor)[0]);
+    }
+
+    $userAgent = trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    return hash('sha256', $ip . '|' . $userAgent);
+}
+
+function oceanos_admin_load_login_attempts(): array
+{
+    $path = oceanos_admin_login_attempts_path();
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $attempts = require $path;
+    return is_array($attempts) ? $attempts : [];
+}
+
+function oceanos_admin_prune_login_attempts(array $attempts, int $now): array
+{
+    foreach ($attempts as $key => $entry) {
+        if (!is_array($entry)) {
+            unset($attempts[$key]);
+            continue;
+        }
+
+        $lastAt = (int) ($entry['last_at'] ?? 0);
+        $lockedUntil = (int) ($entry['locked_until'] ?? 0);
+        if ($lastAt > 0 && $lastAt < $now - 86400 && $lockedUntil < $now) {
+            unset($attempts[$key]);
+        }
+    }
+
+    return $attempts;
+}
+
+function oceanos_admin_save_login_attempts(array $attempts): void
+{
+    oceanos_admin_write_php_config(oceanos_admin_login_attempts_path(), $attempts);
+}
+
+function oceanos_admin_login_lock_seconds(): int
+{
+    $attempts = oceanos_admin_load_login_attempts();
+    $entry = $attempts[oceanos_admin_login_throttle_key()] ?? null;
+    if (!is_array($entry)) {
+        return 0;
+    }
+
+    return max(0, (int) ($entry['locked_until'] ?? 0) - time());
+}
+
+function oceanos_admin_record_login_failure(): void
+{
+    $now = time();
+    $attempts = oceanos_admin_prune_login_attempts(oceanos_admin_load_login_attempts(), $now);
+    $key = oceanos_admin_login_throttle_key();
+    $entry = $attempts[$key] ?? [
+        'count' => 0,
+        'first_at' => $now,
+        'last_at' => 0,
+        'locked_until' => 0,
+    ];
+    $entry = is_array($entry) ? $entry : [];
+
+    if ($now - (int) ($entry['first_at'] ?? $now) > OCEANOS_ADMIN_LOGIN_WINDOW_SECONDS) {
+        $entry = [
+            'count' => 0,
+            'first_at' => $now,
+            'last_at' => 0,
+            'locked_until' => 0,
+        ];
+    }
+
+    $entry['count'] = (int) ($entry['count'] ?? 0) + 1;
+    $entry['last_at'] = $now;
+    if ((int) $entry['count'] >= OCEANOS_ADMIN_MAX_LOGIN_ATTEMPTS) {
+        $entry['locked_until'] = $now + OCEANOS_ADMIN_LOGIN_LOCK_SECONDS;
+    }
+
+    $attempts[$key] = $entry;
+    oceanos_admin_save_login_attempts($attempts);
+}
+
+function oceanos_admin_clear_login_failures(): void
+{
+    $attempts = oceanos_admin_load_login_attempts();
+    $key = oceanos_admin_login_throttle_key();
+    if (isset($attempts[$key])) {
+        unset($attempts[$key]);
+        oceanos_admin_save_login_attempts($attempts);
+    }
+}
+
 function oceanos_admin_verify_login(string $login, string $password): bool
 {
     $credentials = oceanos_admin_load_credentials();
@@ -81,7 +241,35 @@ function oceanos_admin_verify_login(string $login, string $password): bool
 
 function oceanos_admin_is_authenticated(): bool
 {
-    return isset($_SESSION['oceanos_admin_authenticated']) && $_SESSION['oceanos_admin_authenticated'] === true;
+    return isset($_SESSION['oceanos_admin_authenticated'])
+        && $_SESSION['oceanos_admin_authenticated'] === true
+        && hash_equals(
+            oceanos_admin_session_fingerprint(),
+            (string) ($_SESSION['oceanos_admin_fingerprint'] ?? '')
+        );
+}
+
+function oceanos_admin_logout(): void
+{
+    $_SESSION = [];
+    if (ini_get('session.use_cookies')) {
+        $params = session_get_cookie_params();
+        $cookieOptions = [
+            'expires' => time() - 42000,
+            'path' => $params['path'] ?? '/admin',
+            'secure' => (bool) ($params['secure'] ?? oceanos_admin_is_https_request()),
+            'httponly' => true,
+            'samesite' => $params['samesite'] ?? 'Strict',
+        ];
+        if (!empty($params['domain'])) {
+            $cookieOptions['domain'] = $params['domain'];
+        }
+        setcookie(session_name(), '', $cookieOptions);
+    }
+
+    session_destroy();
+    oceanos_admin_start_session();
+    $_SESSION['oceanos_admin_csrf'] = bin2hex(random_bytes(32));
 }
 
 function oceanos_admin_csrf_token(): string
@@ -302,17 +490,24 @@ try {
         $action = (string) ($_POST['action'] ?? '');
 
         if ($action === 'login') {
+            $lockSeconds = oceanos_admin_login_lock_seconds();
+            if ($lockSeconds > 0) {
+                throw new RuntimeException('Trop de tentatives. Reessayez dans ' . (int) ceil($lockSeconds / 60) . ' minute(s).');
+            }
+
             if (oceanos_admin_verify_login((string) ($_POST['login'] ?? ''), (string) ($_POST['password'] ?? ''))) {
+                oceanos_admin_clear_login_failures();
                 session_regenerate_id(true);
                 $_SESSION['oceanos_admin_authenticated'] = true;
+                $_SESSION['oceanos_admin_fingerprint'] = oceanos_admin_session_fingerprint();
                 $_SESSION['oceanos_admin_csrf'] = bin2hex(random_bytes(32));
                 $message = ['type' => 'success', 'text' => 'Connexion admin active.'];
             } else {
+                oceanos_admin_record_login_failure();
                 $message = ['type' => 'error', 'text' => 'Identifiant ou mot de passe invalide.'];
             }
         } elseif ($action === 'logout') {
-            unset($_SESSION['oceanos_admin_authenticated']);
-            $_SESSION['oceanos_admin_csrf'] = bin2hex(random_bytes(32));
+            oceanos_admin_logout();
             $message = ['type' => 'success', 'text' => 'Session fermee.'];
         } elseif (!oceanos_admin_is_authenticated()) {
             $message = ['type' => 'error', 'text' => 'Connexion admin requise.'];

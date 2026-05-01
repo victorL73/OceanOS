@@ -28,6 +28,7 @@ function oceanos_config(): array
 function oceanos_json_response(array $payload, int $status = 200): void
 {
     http_response_code($status);
+    oceanos_send_security_headers();
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -43,6 +44,29 @@ function oceanos_read_json_request(): array
 
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function oceanos_is_https_request(): bool
+{
+    $https = strtolower((string) ($_SERVER['HTTPS'] ?? ''));
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    return $https === 'on' || $https === '1' || $forwardedProto === 'https';
+}
+
+function oceanos_send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+    if (oceanos_is_https_request()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
 }
 
 function oceanos_pdo_root(): PDO
@@ -267,10 +291,15 @@ function oceanos_start_session(): void
         return;
     }
 
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.cookie_httponly', '1');
+
     session_name('OCEANOSESSID');
     session_set_cookie_params([
         'lifetime' => 60 * 60 * 8,
         'path' => '/',
+        'secure' => oceanos_is_https_request(),
         'httponly' => true,
         'samesite' => 'Lax',
     ]);

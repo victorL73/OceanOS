@@ -35,6 +35,7 @@ function flowcean_config(): array
 function flowcean_json_response(array $payload, int $status = 200): void
 {
     http_response_code($status);
+    flowcean_send_security_headers();
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -50,6 +51,70 @@ function flowcean_read_json_request(): array
 
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function flowcean_is_https_request(): bool
+{
+    if (function_exists('oceanos_is_https_request')) {
+        return oceanos_is_https_request();
+    }
+
+    $https = strtolower((string) ($_SERVER['HTTPS'] ?? ''));
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+
+    return $https === 'on' || $https === '1' || $forwardedProto === 'https';
+}
+
+function flowcean_send_security_headers(): void
+{
+    if (headers_sent()) {
+        return;
+    }
+
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+    if (flowcean_is_https_request()) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
+function flowcean_sanitize_rich_html(string $html): string
+{
+    $clean = str_replace("\0", '', $html);
+    $clean = preg_replace(
+        '#<(script|style|iframe|object|embed|link|meta|base|form|input|button|textarea|select|option|svg|math)[^>]*>.*?</\1>#is',
+        '',
+        $clean
+    ) ?? $clean;
+    $clean = preg_replace(
+        '#</?(script|style|iframe|object|embed|link|meta|base|form|input|button|textarea|select|option|svg|math)[^>]*>#i',
+        '',
+        $clean
+    ) ?? $clean;
+    $clean = preg_replace('/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $clean) ?? $clean;
+    $clean = preg_replace('/\s+(href|src|xlink:href)\s*=\s*(["\'])\s*(?:javascript|vbscript|data:text\/html)[^"\']*\2/i', ' $1="#"', $clean) ?? $clean;
+    $clean = preg_replace('/\s+(href|src|xlink:href)\s*=\s*(?:javascript|vbscript|data:text\/html)[^\s>]*/i', ' $1="#"', $clean) ?? $clean;
+    $clean = preg_replace('/\s+style\s*=\s*(["\'])(?:(?!\1).)*(?:expression\s*\(|javascript:|vbscript:)(?:(?!\1).)*\1/is', '', $clean) ?? $clean;
+
+    return trim($clean) === '' ? '<p><br></p>' : $clean;
+}
+
+function flowcean_sanitize_workspace_state(array $state): array
+{
+    foreach ($state as $key => $value) {
+        if (is_array($value)) {
+            $state[$key] = flowcean_sanitize_workspace_state($value);
+            continue;
+        }
+
+        if (is_string($value) && strtolower((string) $key) === 'html') {
+            $state[$key] = flowcean_sanitize_rich_html($value);
+        }
+    }
+
+    return $state;
 }
 
 function flowcean_now_iso(): string
@@ -985,6 +1050,7 @@ function flowcean_workspace_payload(array $row, bool $created = false): array
     if (!is_array($state)) {
         $state = flowcean_default_state((string) $row['name'], (string) $row['slug']);
     }
+    $state = flowcean_sanitize_workspace_state($state);
 
     $memberRole = isset($row['member_role']) ? (string) $row['member_role'] : null;
     $permissions = flowcean_workspace_permissions($memberRole);
@@ -1610,6 +1676,7 @@ function flowcean_save_workspace(
             );
         }
 
+        $state = flowcean_sanitize_workspace_state($state);
         $workspaceName = flowcean_workspace_name($state, $name ?? (string) $row['name']);
         $state['workspace']['name'] = $workspaceName;
         $state['meta'] = array_merge(
@@ -1680,10 +1747,15 @@ function flowcean_start_session(): void
         return;
     }
 
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.cookie_httponly', '1');
+
     session_name('FLOWCEANSESSID');
     session_set_cookie_params([
         'lifetime' => 60 * 60 * 8,
         'path' => '/',
+        'secure' => flowcean_is_https_request(),
         'httponly' => true,
         'samesite' => 'Lax',
     ]);

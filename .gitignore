@@ -1,3 +1,43 @@
-OceanOS/config/server.local.php
+# Local backups and audit profiles
 _backup/
 _backups/
+
+# Local credentials and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.secret
+**/*.secret
+**/.invocean_secret
+**/.mobywork_bridge_secret
+OceanOS/config/server.local.php
+admin/storage/admin_credentials.php
+admin/storage/login_attempts.php
+
+# Dependencies and build outputs
+node_modules/
+**/node_modules/
+Mobywork/frontend/dist/
+
+# Runtime databases, logs and generated files
+*.log
+*.db
+*.sqlite
+*.sqlite3
+Mobywork/backend/uploads/
+Mobywork/backend/attachments/
+Mobywork/backend/*.db
+Mobywork/backend/*.sqlite
+Mobywork/backend/*.sqlite3
+Mobywork/backend/*.log
+Mobywork/storage/*
+!Mobywork/storage/.htaccess
+Invocean/storage/*
+!Invocean/storage/.htaccess
+NautiCloud/storage/*
+!NautiCloud/storage/.htaccess
+Nautisign/storage/*
+!Nautisign/storage/.htaccess

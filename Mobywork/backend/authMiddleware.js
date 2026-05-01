@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { findSharedUserById, publicSharedUser, useSharedAccounts } = require('./flowceanAccounts');
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.FLOWCEAN_AI_SECRET || 'MobyWorkspace_SuperSecretKey2026';
+const configuredJwtSecret = process.env.JWT_SECRET || process.env.FLOWCEAN_AI_SECRET;
+const JWT_SECRET = configuredJwtSecret || crypto.randomBytes(48).toString('hex');
+if (!configuredJwtSecret) {
+    console.warn('JWT_SECRET absent: secret temporaire genere pour cette execution. Definissez JWT_SECRET en production.');
+}
 
 async function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;

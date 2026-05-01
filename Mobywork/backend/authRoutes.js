@@ -12,6 +12,54 @@ const {
 } = require('./flowceanAccounts');
 
 const router = express.Router();
+const loginAttempts = new Map();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 8;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+function loginThrottleKey(req) {
+    const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return `${forwardedFor || req.ip || req.socket?.remoteAddress || 'local'}|${req.headers['user-agent'] || ''}`;
+}
+
+function pruneLoginAttempts(now = Date.now()) {
+    for (const [key, entry] of loginAttempts.entries()) {
+        if (!entry || (entry.lastAt < now - 24 * 60 * 60 * 1000 && entry.lockedUntil < now)) {
+            loginAttempts.delete(key);
+        }
+    }
+}
+
+function loginRateLimit(req, res, next) {
+    pruneLoginAttempts();
+    const entry = loginAttempts.get(loginThrottleKey(req));
+    const lockedUntil = entry?.lockedUntil || 0;
+    if (lockedUntil > Date.now()) {
+        return res.status(429).json({ error: 'Trop de tentatives. Reessayez dans quelques minutes.' });
+    }
+
+    return next();
+}
+
+function recordLoginFailure(req) {
+    const now = Date.now();
+    const key = loginThrottleKey(req);
+    const previous = loginAttempts.get(key);
+    const entry = previous && now - previous.firstAt <= LOGIN_WINDOW_MS
+        ? previous
+        : { count: 0, firstAt: now, lastAt: 0, lockedUntil: 0 };
+
+    entry.count += 1;
+    entry.lastAt = now;
+    if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+        entry.lockedUntil = now + LOGIN_LOCK_MS;
+    }
+    loginAttempts.set(key, entry);
+}
+
+function clearLoginFailures(req) {
+    loginAttempts.delete(loginThrottleKey(req));
+}
 
 function signUser(user) {
     return jwt.sign({
@@ -112,7 +160,7 @@ async function loginLocal(email, password) {
     return ok ? publicLocalUser(user) : null;
 }
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
         return res.status(400).json({ error: 'Email et mot de passe requis' });
@@ -124,9 +172,11 @@ router.post('/login', async (req, res) => {
             : await loginLocal(email, password);
 
         if (!user) {
+            recordLoginFailure(req);
             return res.status(401).json({ error: 'Identifiants incorrects' });
         }
 
+        clearLoginFailures(req);
         await ensureLocalUserProfile(user);
         const token = signUser(user);
         res.json({ success: true, token, user });

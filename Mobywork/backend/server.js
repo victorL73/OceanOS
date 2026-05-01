@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 const cron = require('node-cron');
 const multer = require('multer');
 const db = require('./database');
@@ -11,7 +12,6 @@ const { getMailAccountsFromSettings } = require('./mailAccounts');
 const { ATTACHMENTS_DIR, isInsideDirectory, resolveStoredAttachmentPath } = require('./attachmentStorage');
 const { generateReply } = require('./aiService');
 const crmService = require('./crmService');
-require('dotenv').config();
 
 process.on('uncaughtException', (err) => {
     console.error('Erreur non interceptee:', err);
@@ -31,6 +31,23 @@ const financeRoutes = require('./routes/finance.routes');
 const emailParserService = require('./services/emailParser.service');
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false);
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* https://api.groq.com https://api.x.ai; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; media-src 'self' blob: data:"
+  );
+  if (req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 // ─── CORS (prod: FRONTEND_URL, dev: localhost:5173) ─────────────────────────
 const allowedOrigins = [
@@ -109,9 +126,22 @@ app.get('/api/prestashop/products', async (req, res) => {
 });
 
 // Dossiers Uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    dotfiles: 'deny',
+    index: false,
+    setHeaders: (res) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+}));
 
-const upload = multer({ dest: 'uploads/' });
+const uploadMaxBytes = Number.parseInt(process.env.MOBYWORK_UPLOAD_MAX_BYTES || String(10 * 1024 * 1024), 10);
+const upload = multer({
+    dest: 'uploads/',
+    limits: {
+        fileSize: Number.isFinite(uploadMaxBytes) && uploadMaxBytes > 0 ? uploadMaxBytes : 10 * 1024 * 1024,
+        files: 8,
+    },
+});
 
 function dbGet(sql, params = []) {
     return new Promise((resolve, reject) => {
