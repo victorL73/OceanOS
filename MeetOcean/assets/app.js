@@ -124,7 +124,12 @@ function localMeetOceanUrl() {
   const path = window.location.pathname.endsWith("/")
     ? window.location.pathname
     : `${window.location.pathname}/`;
-  return `http://localhost${path}${window.location.search}${window.location.hash}`;
+  const url = new URL(window.location.href);
+  url.protocol = "http:";
+  url.hostname = "localhost";
+  url.port = "";
+  url.pathname = path;
+  return url.toString();
 }
 
 function secureMeetOceanUrl() {
@@ -468,7 +473,7 @@ function updateControlButtons() {
 function mediaAccessMessage(error) {
   if (!window.isSecureContext) {
     return isLoopbackHost()
-      ? "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec http://localhost/MeetOcean/ ou utilisez HTTPS."
+      ? "Le navigateur bloque camera et micro hors HTTPS. En local, ouvrez MeetOcean avec localhost ou utilisez HTTPS."
       : "Camera et micro exigent HTTPS. Configurez la box pour rediriger le port 443 vers le serveur web, puis ouvrez MeetOcean en HTTPS.";
   }
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -1056,6 +1061,17 @@ function recognitionConstructor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function recognitionErrorMessage(errorCode = "") {
+  const messages = {
+    "not-allowed": "Transcription bloquee par les permissions du navigateur. Autorisez le micro puis rechargez la page.",
+    "service-not-allowed": "Service de transcription bloque par le navigateur. Essayez Chrome ou Edge avec HTTPS.",
+    "audio-capture": "Aucun flux micro disponible pour la transcription.",
+    network: "Transcription indisponible cote navigateur. Verifiez la connexion Internet du poste.",
+    "language-not-supported": "Langue de transcription non prise en charge par ce navigateur.",
+  };
+  return messages[errorCode] || "Transcription interrompue par le navigateur.";
+}
+
 function startRecognitionIfNeeded() {
   state.transcriptionEnabled = elements.transcriptionToggle.checked;
   if (!state.room || !state.transcriptionEnabled || !state.media.microphone) {
@@ -1098,8 +1114,8 @@ function startRecognitionIfNeeded() {
     showLiveCaption(interim.trim());
   };
   recognition.onerror = (event) => {
-    if (!["no-speech", "aborted"].includes(event.error)) {
-      setMessage("Transcription momentanement interrompue.", "info");
+    if (!["no-speech", "aborted"].includes(event.error || "")) {
+      setMessage(recognitionErrorMessage(event.error), "info");
     }
   };
   recognition.onend = () => {

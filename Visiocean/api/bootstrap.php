@@ -28,10 +28,29 @@ function visiocean_ensure_schema(PDO $pdo): void
             competitors_json LONGTEXT NULL,
             service_account_cipher LONGTEXT NULL,
             service_account_hint VARCHAR(190) NULL,
+            oauth_client_id VARCHAR(255) NULL,
+            oauth_client_secret_cipher TEXT NULL,
+            oauth_refresh_token_cipher TEXT NULL,
+            oauth_connected_email VARCHAR(190) NULL,
+            oauth_scopes VARCHAR(500) NULL,
+            oauth_connected_at DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    $columns = [
+        'oauth_client_id' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_client_id VARCHAR(255) NULL AFTER service_account_hint',
+        'oauth_client_secret_cipher' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_client_secret_cipher TEXT NULL AFTER oauth_client_id',
+        'oauth_refresh_token_cipher' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_refresh_token_cipher TEXT NULL AFTER oauth_client_secret_cipher',
+        'oauth_connected_email' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_connected_email VARCHAR(190) NULL AFTER oauth_refresh_token_cipher',
+        'oauth_scopes' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_scopes VARCHAR(500) NULL AFTER oauth_connected_email',
+        'oauth_connected_at' => 'ALTER TABLE visiocean_settings ADD COLUMN oauth_connected_at DATETIME NULL AFTER oauth_scopes',
+    ];
+    foreach ($columns as $column => $sql) {
+        if (!oceanos_column_exists($pdo, 'visiocean_settings', $column)) {
+            $pdo->exec($sql);
+        }
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS visiocean_page_audits (
@@ -187,6 +206,32 @@ function visiocean_normalize_url(string $url, bool $allowSearchConsoleDomain = f
     return rtrim($url, '/');
 }
 
+function visiocean_origin_url(): string
+{
+    $scheme = oceanos_is_https_request() ? 'https' : 'http';
+    $host = trim((string) ($_SERVER['HTTP_HOST'] ?? 'localhost'));
+    if ($host === '') {
+        $host = 'localhost';
+    }
+
+    return $scheme . '://' . $host;
+}
+
+function visiocean_oauth_redirect_uri(): string
+{
+    return visiocean_origin_url() . '/Visiocean/api/oauth-callback.php';
+}
+
+function visiocean_google_scopes(): array
+{
+    return [
+        'openid',
+        'email',
+        'https://www.googleapis.com/auth/analytics.readonly',
+        'https://www.googleapis.com/auth/webmasters.readonly',
+    ];
+}
+
 function visiocean_public_settings(PDO $pdo, bool $canManage): array
 {
     $row = visiocean_settings_row($pdo);
@@ -202,6 +247,13 @@ function visiocean_public_settings(PDO $pdo, bool $canManage): array
         'competitors' => visiocean_decode_list($row['competitors_json'] ?? null),
         'hasServiceAccount' => trim((string) ($row['service_account_cipher'] ?? '')) !== '',
         'serviceAccountHint' => (string) ($row['service_account_hint'] ?? ''),
+        'oauthClientId' => (string) ($row['oauth_client_id'] ?? ''),
+        'hasOAuthClientSecret' => trim((string) ($row['oauth_client_secret_cipher'] ?? '')) !== '',
+        'hasOAuthConnection' => trim((string) ($row['oauth_refresh_token_cipher'] ?? '')) !== '',
+        'oauthConnectedEmail' => (string) ($row['oauth_connected_email'] ?? ''),
+        'oauthConnectedAt' => (string) ($row['oauth_connected_at'] ?? ''),
+        'oauthRedirectUri' => visiocean_oauth_redirect_uri(),
+        'oauthScopes' => visiocean_google_scopes(),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
         'canManage' => $canManage,
         'managedBy' => 'OceanOS',
@@ -215,6 +267,8 @@ function visiocean_private_settings(PDO $pdo): array
     return [
         ...visiocean_public_settings($pdo, true),
         'serviceAccountJson' => oceanos_decrypt_secret($row['service_account_cipher'] ?? ''),
+        'oauthClientSecret' => oceanos_decrypt_secret($row['oauth_client_secret_cipher'] ?? ''),
+        'oauthRefreshToken' => oceanos_decrypt_secret($row['oauth_refresh_token_cipher'] ?? ''),
     ];
 }
 
