@@ -4,6 +4,8 @@ const OCEANOS_AI_URL = "/OceanOS/api/ai.php";
 const OCEANOS_GROQ_URL = "/OceanOS/api/groq.php";
 const OCEANOS_NAUTIPOST_URL = "/OceanOS/api/nautipost.php";
 const MAX_HISTORY = 20;
+const HISTORY_THUMB_MAX_WIDTH = 520;
+const HISTORY_THUMB_QUALITY = 0.72;
 
 // Configurations par réseau
 const NETWORKS_CONF = {
@@ -39,6 +41,48 @@ let state = {
   image: null,
   history: []
 };
+
+function safeLocalStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.warn(`[NautiPost] Stockage local ignore (${key}):`, error.message || error);
+    return false;
+  }
+}
+
+function safeLocalStorageRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {}
+}
+
+function readLocalHistory() {
+  try {
+    const history = JSON.parse(localStorage.getItem("nautipost_history") || "[]");
+    return Array.isArray(history) ? history : [];
+  } catch (error) {
+    safeLocalStorageRemove("nautipost_history");
+    return [];
+  }
+}
+
+function persistLocalHistory(history) {
+  const slimHistory = (Array.isArray(history) ? history : [])
+    .slice(0, MAX_HISTORY)
+    .map(item => ({
+      ...item,
+      image: item.thumbnail || item.image || "",
+    }));
+
+  if (safeLocalStorageSet("nautipost_history", JSON.stringify(slimHistory))) {
+    return true;
+  }
+
+  const textOnlyHistory = slimHistory.map(item => ({ ...item, image: "" }));
+  return safeLocalStorageSet("nautipost_history", JSON.stringify(textOnlyHistory));
+}
 
 // DOM Elements
 const DOM = {
@@ -112,9 +156,10 @@ async function loadNautiPostHistory() {
     if (!response.ok || payload.ok === false) {
       throw new Error(payload.message || payload.error || "Historique OceanOS indisponible.");
     }
-    state.history = Array.isArray(payload.history) ? payload.history : [];
+    state.history = await normalizeHistoryForDevice(payload.history);
+    persistLocalHistory(state.history);
   } catch (error) {
-    state.history = JSON.parse(localStorage.getItem("nautipost_history") || "[]");
+    state.history = await normalizeHistoryForDevice(readLocalHistory());
   }
   renderHistory();
 }
@@ -158,7 +203,7 @@ function themeInit() {
     const currentTheme = document.body.getAttribute('data-theme');
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     document.body.setAttribute('data-theme', newTheme);
-    localStorage.setItem('nautipost_theme', newTheme);
+    safeLocalStorageSet('nautipost_theme', newTheme);
     updateThemeIcons(newTheme);
   });
 }
@@ -251,7 +296,7 @@ function eventsInit() {
   DOM.btnClearHistory.addEventListener('click', () => {
     if (confirm("Voulez-vous vraiment supprimer tout l'historique ?")) {
       state.history = [];
-      localStorage.removeItem("nautipost_history");
+      safeLocalStorageRemove("nautipost_history");
       void clearNautiPostHistory();
       renderHistory();
       showToast("Historique vidé");
@@ -293,6 +338,41 @@ function handleImage(file) {
     updateUIState();
   };
   reader.readAsDataURL(file);
+}
+
+function createHistoryThumbnail(base64Image) {
+  return new Promise((resolve) => {
+    if (!base64Image) {
+      resolve("");
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, HISTORY_THUMB_MAX_WIDTH / Math.max(img.width, img.height));
+      const width = Math.max(1, Math.round(img.width * scale));
+      const height = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', HISTORY_THUMB_QUALITY));
+    };
+    img.onerror = () => resolve("");
+    img.src = base64Image;
+  });
+}
+
+async function normalizeHistoryForDevice(history) {
+  const items = (Array.isArray(history) ? history : []).slice(0, MAX_HISTORY);
+  return Promise.all(items.map(async (item) => {
+    const image = item.thumbnail || item.image || "";
+    if (image && image.length > 280000) {
+      return { ...item, image: await createHistoryThumbnail(image) };
+    }
+    return { ...item, image };
+  }));
 }
 
 // --- LOGIQUE UI ---
@@ -462,7 +542,7 @@ IMPORTANT: Ne réponds qu'avec le texte final prêt à être publié, sans aucun
     }
 
     showResult(cardId, networkId, config, generatedText, finalImageUrl);
-    saveToHistory(networkId, generatedText, state.image.base64);
+    void saveToHistory(networkId, generatedText, finalImageUrl || state.image.base64);
 
   } catch (error) {
     console.error(`Erreur ${config.name}:`, error);
@@ -609,13 +689,14 @@ async function clearNautiPostHistory() {
   } catch (error) {}
 }
 
-function saveToHistory(networkId, text, imgBase64) {
+async function saveToHistory(networkId, text, imgBase64) {
+  const thumbnail = await createHistoryThumbnail(imgBase64);
   const item = {
     id: Date.now() + Math.random(),
     date: new Date().toISOString(),
     network: networkId,
     text: text,
-    image: imgBase64
+    image: thumbnail
   };
   
   state.history.unshift(item);
@@ -623,7 +704,8 @@ function saveToHistory(networkId, text, imgBase64) {
     state.history.pop();
   }
   
-  localStorage.setItem("nautipost_history", JSON.stringify(state.history));
+  persistLocalHistory(state.history);
+  renderHistory();
   void saveNautiPostHistoryItem(item);
 }
 
@@ -637,8 +719,8 @@ async function saveNautiPostHistoryItem(item) {
     });
     const payload = await response.json();
     if (response.ok && payload.ok !== false && Array.isArray(payload.history)) {
-      state.history = payload.history;
-      localStorage.setItem("nautipost_history", JSON.stringify(state.history));
+      state.history = await normalizeHistoryForDevice(payload.history);
+      persistLocalHistory(state.history);
       renderHistory();
     }
   } catch (error) {}
