@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nautimail.svg?v=20260502">
   <meta name="description" content="NautiMail - Boites mail partagees et tri IA OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260502-nautimail-mailview">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-nautimail"></script>
 </head>
 <body>
@@ -179,6 +179,7 @@
               <button class="primary-button" type="submit">Enregistrer</button>
               <button id="analyze-message-button" class="ghost-button" type="button">Synthese IA</button>
               <button id="open-reply-button" class="ghost-button" type="button">Repondre</button>
+              <button id="open-reply-all-button" class="ghost-button" type="button">Repondre a tous</button>
             </div>
           </form>
         </aside>
@@ -201,14 +202,25 @@
                 <option value="commercial">Commercial</option>
                 <option value="support">Support</option>
               </select>
+              <button id="reply-all-button" class="ghost-button" type="button">Repondre a tous</button>
               <button id="generate-reply-button" class="ghost-button" type="button">Generer IA</button>
             </div>
           </div>
           <form id="reply-form" class="stack-form">
             <label class="field">
               <span>A</span>
-              <input id="reply-to" type="email" required>
+              <input id="reply-to" type="text" inputmode="email" required>
             </label>
+            <div class="inline-fields">
+              <label class="field">
+                <span>Cc</span>
+                <input id="reply-cc" type="text" inputmode="email">
+              </label>
+              <label class="field">
+                <span>Cci</span>
+                <input id="reply-bcc" type="text" inputmode="email">
+              </label>
+            </div>
             <label class="field">
               <span>Objet</span>
               <input id="reply-subject" type="text" required>
@@ -348,6 +360,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260502-nautimail"></script>
+  <script src="assets/app.js?v=20260502-nautimail-mailview"></script>
 </body>
 </html>

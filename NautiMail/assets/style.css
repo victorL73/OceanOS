@@ -154,6 +154,12 @@ a {
   justify-content: center;
 }
 
+.ghost-button.is-active {
+  border-color: rgba(8, 125, 121, 0.38);
+  background: rgba(8, 125, 121, 0.10);
+  color: var(--teal);
+}
+
 .danger-text {
   color: var(--red);
 }
@@ -222,7 +228,8 @@ a {
 
 .mini-pill.gestion,
 .mini-pill.support,
-.mini-pill.triaged {
+.mini-pill.triaged,
+.mini-pill.attachment {
   color: var(--blue);
   border-color: rgba(47, 111, 179, 0.26);
   background: rgba(47, 111, 179, 0.08);
@@ -567,14 +574,143 @@ legend {
   letter-spacing: 0;
 }
 
-.mail-body {
-  margin-top: 16px;
-  padding: 14px;
+.message-headers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.message-header-row {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
-  white-space: pre-wrap;
+}
+
+.message-header-row.full {
+  grid-column: 1 / -1;
+}
+
+.message-header-row span,
+.section-heading span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.message-header-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.attachments-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(47, 111, 179, 0.20);
+  border-radius: 8px;
+  background: rgba(47, 111, 179, 0.06);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attachments-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.attachment-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  text-decoration: none;
+}
+
+.attachment-card span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attachment-card strong,
+.attachment-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(8, 125, 121, 0.10);
+  color: var(--teal);
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.mail-text-body,
+.mail-html-body {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+
+.mail-text-body {
+  background: var(--surface-soft);
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.mail-html-body {
+  background: #ffffff;
+  overflow: auto;
+}
+
+.mail-html-body * {
+  max-width: 100%;
+}
+
+.mail-html-body table {
+  border-collapse: collapse;
+}
+
+.mail-html-body img {
+  height: auto;
+}
+
+.mail-html-body p:first-child,
+.mail-html-body div:first-child {
+  margin-top: 0;
+}
+
+.mail-html-body p:last-child,
+.mail-html-body div:last-child {
+  margin-bottom: 0;
 }
 
 .ai-summary {
@@ -674,7 +810,9 @@ legend {
   .metrics-grid,
   .inline-fields,
   .server-grid,
-  .share-grid {
+  .share-grid,
+  .message-headers,
+  .attachments-list {
     grid-template-columns: 1fr;
   }
 

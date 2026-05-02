@@ -549,6 +549,7 @@ function nautimail_sanitize_html_for_display(string $html): string
     $html = preg_replace('/\s+style\s*=\s*"[^"]*"/iu', '', $html) ?: $html;
     $html = preg_replace("/\s+style\s*=\s*'[^']*'/iu", '', $html) ?: $html;
     $html = preg_replace('/\s+(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2/iu', '', $html) ?: $html;
+    $html = preg_replace('/\s+(href|src)\s*=\s*javascript:[^\s>]+/iu', '', $html) ?: $html;
     $html = preg_replace('/\s+(href|srcdoc)\s*=\s*[^\s>]+/iu', '', $html) ?: $html;
 
     return trim($html);
@@ -1587,7 +1588,7 @@ function nautimail_smtp_command($socket, string $command, array $expectedCodes):
     return $response;
 }
 
-function nautimail_smtp_send(array $account, array $recipients, string $subject, string $body): void
+function nautimail_smtp_send(array $account, array $toRecipients, array $ccRecipients, array $bccRecipients, string $subject, string $body): void
 {
     $host = trim((string) ($account['smtp_host'] ?? ''));
     if ($host === '') {
@@ -1632,10 +1633,12 @@ function nautimail_smtp_send(array $account, array $recipients, string $subject,
         $fromEmail = (string) $account['email_address'];
         $fromName = trim((string) ($account['display_name'] ?? ''));
         $fromHeader = $fromName !== '' ? nautimail_header_encode($fromName) . ' <' . $fromEmail . '>' : $fromEmail;
-        $toHeader = implode(', ', $recipients);
+        $toHeader = implode(', ', $toRecipients);
+        $ccHeader = implode(', ', $ccRecipients);
+        $allRecipients = array_values(array_unique(array_merge($toRecipients, $ccRecipients, $bccRecipients)));
 
         nautimail_smtp_command($socket, 'MAIL FROM:<' . $fromEmail . '>', [250]);
-        foreach ($recipients as $recipient) {
+        foreach ($allRecipients as $recipient) {
             nautimail_smtp_command($socket, 'RCPT TO:<' . $recipient . '>', [250, 251]);
         }
         nautimail_smtp_command($socket, 'DATA', [354]);
@@ -1651,6 +1654,12 @@ function nautimail_smtp_send(array $account, array $recipients, string $subject,
             'Content-Type: text/plain; charset=UTF-8',
             'Content-Transfer-Encoding: 8bit',
         ];
+        if ($ccHeader !== '') {
+            array_splice($headers, 3, 0, ['Cc: ' . $ccHeader]);
+        }
+        if (filter_var((string) ($account['reply_to'] ?? ''), FILTER_VALIDATE_EMAIL)) {
+            array_splice($headers, 3, 0, ['Reply-To: ' . (string) $account['reply_to']]);
+        }
         fwrite($socket, implode("\r\n", $headers) . "\r\n\r\n" . str_replace("\n", "\r\n", $body) . "\r\n.\r\n");
         $response = nautimail_smtp_read($socket);
         if (!in_array((int) substr($response, 0, 3), [250], true)) {
@@ -1676,7 +1685,9 @@ function nautimail_send_reply(PDO $pdo, array $user, array $input): array
         ], 403);
     }
 
-    $recipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? $message['sender_email'] ?? ''));
+    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? $message['sender_email'] ?? ''), true, 20);
+    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 30);
+    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 30);
     $subject = nautimail_clean_text($input['subject'] ?? nautimail_reply_subject((string) $message['subject']), 255, true);
     $body = nautimail_clean_text($input['body'] ?? '', 120000, false);
     if ($subject === '' || $body === '') {
@@ -1685,16 +1696,18 @@ function nautimail_send_reply(PDO $pdo, array $user, array $input): array
 
     $replyId = null;
     try {
-        nautimail_smtp_send($account, $recipients, $subject, $body);
+        nautimail_smtp_send($account, $toRecipients, $ccRecipients, $bccRecipients, $subject, $body);
         $statement = $pdo->prepare(
-            'INSERT INTO nautimail_replies (message_id, account_id, user_id, to_email, subject, body_text, status, sent_at)
-             VALUES (:message_id, :account_id, :user_id, :to_email, :subject, :body_text, "sent", NOW())'
+            'INSERT INTO nautimail_replies (message_id, account_id, user_id, to_email, cc_email, bcc_email, subject, body_text, status, sent_at)
+             VALUES (:message_id, :account_id, :user_id, :to_email, :cc_email, :bcc_email, :subject, :body_text, "sent", NOW())'
         );
         $statement->execute([
             'message_id' => $messageId,
             'account_id' => (int) $account['id'],
             'user_id' => (int) $user['id'],
-            'to_email' => implode(', ', $recipients),
+            'to_email' => implode(', ', $toRecipients),
+            'cc_email' => $ccRecipients !== [] ? implode(', ', $ccRecipients) : null,
+            'bcc_email' => $bccRecipients !== [] ? implode(', ', $bccRecipients) : null,
             'subject' => $subject,
             'body_text' => $body,
         ]);
@@ -1704,14 +1717,16 @@ function nautimail_send_reply(PDO $pdo, array $user, array $input): array
         $update->execute(['id' => $messageId]);
     } catch (Throwable $exception) {
         $statement = $pdo->prepare(
-            'INSERT INTO nautimail_replies (message_id, account_id, user_id, to_email, subject, body_text, status, error_message)
-             VALUES (:message_id, :account_id, :user_id, :to_email, :subject, :body_text, "failed", :error_message)'
+            'INSERT INTO nautimail_replies (message_id, account_id, user_id, to_email, cc_email, bcc_email, subject, body_text, status, error_message)
+             VALUES (:message_id, :account_id, :user_id, :to_email, :cc_email, :bcc_email, :subject, :body_text, "failed", :error_message)'
         );
         $statement->execute([
             'message_id' => $messageId,
             'account_id' => (int) $account['id'],
             'user_id' => (int) $user['id'],
-            'to_email' => implode(', ', $recipients),
+            'to_email' => implode(', ', $toRecipients),
+            'cc_email' => $ccRecipients !== [] ? implode(', ', $ccRecipients) : null,
+            'bcc_email' => $bccRecipients !== [] ? implode(', ', $bccRecipients) : null,
             'subject' => $subject,
             'body_text' => $body,
             'error_message' => $exception->getMessage(),

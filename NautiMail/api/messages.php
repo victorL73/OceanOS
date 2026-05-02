@@ -10,6 +10,10 @@ try {
 
     if ($method === 'GET') {
         $action = strtolower(trim((string) ($_GET['action'] ?? 'dashboard')));
+        if ($action === 'attachment') {
+            nautimail_download_attachment($pdo, $user, (int) ($_GET['id'] ?? 0), (int) ($_GET['index'] ?? -1));
+        }
+
         if ($action === 'message') {
             $message = nautimail_require_message_access($pdo, $user, (int) ($_GET['id'] ?? 0));
             nautimail_json_response([

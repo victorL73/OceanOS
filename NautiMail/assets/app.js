@@ -42,12 +42,16 @@ const elements = {
   messageAssigned: $("message-assigned"),
   analyzeMessageButton: $("analyze-message-button"),
   openReplyButton: $("open-reply-button"),
+  openReplyAllButton: $("open-reply-all-button"),
   replyEmpty: $("reply-empty"),
   replyPanel: $("reply-panel"),
   replyTone: $("reply-tone"),
+  replyAllButton: $("reply-all-button"),
   generateReplyButton: $("generate-reply-button"),
   replyForm: $("reply-form"),
   replyTo: $("reply-to"),
+  replyCc: $("reply-cc"),
+  replyBcc: $("reply-bcc"),
   replySubject: $("reply-subject"),
   replyBody: $("reply-body"),
   replyResetButton: $("reply-reset-button"),
@@ -87,6 +91,7 @@ const state = {
   currentView: "inbox",
   imapAvailable: false,
   aiSettings: null,
+  replyAll: false,
 };
 
 const labels = {
@@ -121,6 +126,19 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function formatBytes(value) {
+  const size = Number(value || 0);
+  if (size <= 0) return "Taille inconnue";
+  const units = ["o", "Ko", "Mo", "Go"];
+  let current = size;
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) {
+    current /= 1024;
+    unit += 1;
+  }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 function formatDateTime(value) {
@@ -216,6 +234,7 @@ async function loadDashboard() {
 async function loadMessage(messageId, activate = true) {
   const payload = await apiRequest(`${API.messages}?action=message&id=${encodeURIComponent(messageId)}`);
   state.selectedMessage = payload.message || null;
+  state.replyAll = false;
   renderDetail();
   renderReply();
   if (activate) setActiveView("detail");
@@ -318,6 +337,7 @@ function renderMessages() {
         <small class="mail-preview">${escapeHtml(mail.aiSummary || mail.preview || "Aucun apercu")}</small>
       </span>
       <span class="mail-tags">
+        ${(mail.attachments?.length || 0) > 0 ? badge(`${mail.attachments.length} PJ`, "attachment") : ""}
         ${badge(labels.category[mail.category] || mail.category, mail.category)}
         ${badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
         ${badge(labels.status[mail.status] || mail.status, mail.status)}
@@ -359,6 +379,71 @@ function renderAccountCards() {
   `).join("");
 }
 
+function renderHeaderRow(label, value, full = false) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `
+    <div class="message-header-row${full ? " full" : ""}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(text)}</strong>
+    </div>
+  `;
+}
+
+function renderAttachments(mail) {
+  const attachments = Array.isArray(mail.attachments) ? mail.attachments : [];
+  if (attachments.length === 0) return "";
+
+  return `
+    <section class="attachments-panel">
+      <div class="section-heading">
+        <strong>Pieces jointes</strong>
+        <span>${attachments.length}</span>
+      </div>
+      <div class="attachments-list">
+        ${attachments.map((attachment, index) => `
+          <a class="attachment-card" href="${API.messages}?action=attachment&id=${encodeURIComponent(mail.id)}&index=${encodeURIComponent(attachment.index ?? index)}">
+            <span class="attachment-icon">PJ</span>
+            <span>
+              <strong>${escapeHtml(attachment.filename || "piece-jointe")}</strong>
+              <small>${escapeHtml(attachment.contentType || "fichier")} - ${escapeHtml(formatBytes(attachment.size))}</small>
+            </span>
+          </a>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function emailListFromText(value) {
+  const matches = String(value || "").match(/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/gi) || [];
+  return Array.from(new Set(matches.map((email) => email.toLowerCase())));
+}
+
+function replyTargets(mail, replyAll = false) {
+  const account = selectedAccount();
+  const to = emailListFromText(mail?.senderEmail || "").slice(0, 10);
+  const excluded = new Set([
+    ...(account?.emailAddress ? emailListFromText(account.emailAddress) : []),
+    ...(mail?.accountEmail ? emailListFromText(mail.accountEmail) : []),
+    ...to,
+  ]);
+  const cc = [];
+  if (replyAll) {
+    [...emailListFromText(mail?.recipientText || ""), ...emailListFromText(mail?.ccText || "")].forEach((email) => {
+      if (!excluded.has(email) && !cc.includes(email)) {
+        cc.push(email);
+      }
+    });
+  }
+
+  return {
+    to: to.join(", "),
+    cc: cc.slice(0, 20).join(", "),
+    bcc: "",
+  };
+}
+
 function renderDetail() {
   const mail = state.selectedMessage;
   if (!mail) {
@@ -371,26 +456,39 @@ function renderDetail() {
   elements.mailDetailEmpty.classList.add("hidden");
   elements.mailDetail.classList.remove("hidden");
   elements.mailTriagePanel.classList.remove("hidden");
+  const senderLine = [mail.senderName, mail.senderEmail ? `<${mail.senderEmail}>` : ""].filter(Boolean).join(" ");
+  const bodyHtml = String(mail.bodyHtml || "").trim();
   elements.mailDetail.innerHTML = `
     <div class="detail-title">
       <div>
         <h2>${escapeHtml(mail.subject || "(Sans objet)")}</h2>
-        <span class="detail-meta">${escapeHtml(mail.senderName || mail.senderEmail || "Expediteur")} - ${escapeHtml(formatDateTime(mail.receivedAt))}</span>
-        <span class="detail-meta">${escapeHtml(mail.accountLabel || mail.accountEmail || "")}</span>
+        <span class="detail-meta">${escapeHtml(formatDateTime(mail.receivedAt))}</span>
       </div>
       <div class="detail-tags">
+        ${(mail.attachments?.length || 0) > 0 ? badge(`${mail.attachments.length} PJ`, "attachment") : ""}
         ${badge(labels.category[mail.category] || mail.category, mail.category)}
         ${badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
         ${badge(labels.status[mail.status] || mail.status, mail.status)}
       </div>
     </div>
+    <section class="message-headers">
+      ${renderHeaderRow("De", senderLine || "Expediteur", true)}
+      ${renderHeaderRow("A", mail.recipientText || mail.accountEmail, true)}
+      ${renderHeaderRow("Cc", mail.ccText, true)}
+      ${renderHeaderRow("Cci", mail.bccText, true)}
+      ${renderHeaderRow("Boite", mail.accountLabel || mail.accountEmail)}
+      ${renderHeaderRow("Dossier", mail.mailbox)}
+    </section>
+    ${renderAttachments(mail)}
     ${mail.aiSummary || mail.aiActions ? `
       <section class="ai-summary">
         ${mail.aiSummary ? `<strong>Synthese IA</strong><span>${escapeHtml(mail.aiSummary)}</span>` : ""}
         ${mail.aiActions ? `<strong>Actions</strong><span>${escapeHtml(mail.aiActions)}</span>` : ""}
       </section>
     ` : ""}
-    <pre class="mail-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>
+    ${bodyHtml
+      ? `<section class="mail-html-body">${bodyHtml}</section>`
+      : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`}
   `;
 
   elements.messageCategory.value = mail.category || "autre";
@@ -404,11 +502,18 @@ function replySubject(subject) {
   return /^re\s*:/i.test(clean) ? clean : `Re: ${clean}`;
 }
 
-function fillReplyDefaults(force = false) {
+function fillReplyDefaults(force = false, replyAll = state.replyAll) {
   const mail = state.selectedMessage;
   if (!mail) return;
-  if (force || !elements.replyTo.value) elements.replyTo.value = mail.senderEmail || "";
+  const targets = replyTargets(mail, replyAll);
+  state.replyAll = Boolean(replyAll);
+  if (force || !elements.replyTo.value) elements.replyTo.value = targets.to;
+  if (force || !elements.replyCc.value) elements.replyCc.value = targets.cc;
+  if (force || !elements.replyBcc.value) elements.replyBcc.value = targets.bcc;
   if (force || !elements.replySubject.value) elements.replySubject.value = replySubject(mail.subject);
+  if (elements.replyAllButton) {
+    elements.replyAllButton.classList.toggle("is-active", state.replyAll);
+  }
 }
 
 function renderReply() {
@@ -416,6 +521,12 @@ function renderReply() {
   elements.replyEmpty.classList.toggle("hidden", Boolean(mail));
   elements.replyPanel.classList.toggle("hidden", !mail);
   if (mail) fillReplyDefaults(false);
+}
+
+function openReply(replyAll = false) {
+  state.replyAll = Boolean(replyAll);
+  fillReplyDefaults(true, state.replyAll);
+  setActiveView("reply");
 }
 
 function renderShares(selectedIds = null) {
@@ -605,9 +716,12 @@ async function generateReply() {
         action: "generate_reply",
         messageId,
         tone: elements.replyTone.value,
+        replyAll: state.replyAll,
       }),
     });
     elements.replyTo.value = payload.draft?.toEmail || state.selectedMessage?.senderEmail || "";
+    elements.replyCc.value = payload.draft?.ccEmail || "";
+    elements.replyBcc.value = payload.draft?.bccEmail || "";
     elements.replySubject.value = payload.draft?.subject || replySubject(state.selectedMessage?.subject);
     elements.replyBody.value = payload.draft?.body || "";
     showMessage(payload.message || "Brouillon prepare.", "success");
@@ -629,6 +743,8 @@ async function sendReply(event) {
         action: "send_reply",
         messageId,
         toEmail: elements.replyTo.value.trim(),
+        ccEmail: elements.replyCc.value.trim(),
+        bccEmail: elements.replyBcc.value.trim(),
         subject: elements.replySubject.value.trim(),
         body: elements.replyBody.value.trim(),
       }),
@@ -733,15 +849,14 @@ function installListeners() {
 
   elements.messageForm.addEventListener("submit", saveMessageTriage);
   elements.analyzeMessageButton.addEventListener("click", () => { void analyzeSelectedMessage(); });
-  elements.openReplyButton.addEventListener("click", () => {
-    fillReplyDefaults(true);
-    setActiveView("reply");
-  });
+  elements.openReplyButton.addEventListener("click", () => openReply(false));
+  elements.openReplyAllButton.addEventListener("click", () => openReply(true));
+  elements.replyAllButton.addEventListener("click", () => openReply(!state.replyAll));
   elements.generateReplyButton.addEventListener("click", () => { void generateReply(); });
   elements.replyForm.addEventListener("submit", sendReply);
   elements.replyResetButton.addEventListener("click", () => {
     elements.replyBody.value = "";
-    fillReplyDefaults(true);
+    fillReplyDefaults(true, state.replyAll);
   });
 
   elements.newAccountButton.addEventListener("click", resetAccountForm);
