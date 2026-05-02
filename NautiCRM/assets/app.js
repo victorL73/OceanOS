@@ -434,7 +434,11 @@ function aiSearchText(client) {
     client.country,
     client.segment,
     client.source,
+    client.address,
+    client.siret,
+    client.vatNumber,
     client.notes,
+    ...(client.sourceUrls || []),
   ].join(" ").toLowerCase();
 }
 
@@ -443,6 +447,14 @@ function filteredAiClients() {
   const clients = state.aiImport.clients || [];
   if (search === "") return clients;
   return clients.filter((client) => aiSearchText(client).includes(search));
+}
+
+function urlHost(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch (error) {
+    return url;
+  }
 }
 
 function renderAiPreview() {
@@ -466,21 +478,25 @@ function renderAiPreview() {
     const name = client.companyName || [client.firstName, client.lastName].filter(Boolean).join(" ") || client.email || "Client IA";
     const contact = [client.firstName, client.lastName].filter(Boolean).join(" ");
     const segment = [client.segment, client.source].filter(Boolean).join(" - ");
+    const place = [client.address, client.city, client.country].filter(Boolean).join(" - ");
+    const identifiers = [client.siret ? `SIRET ${client.siret}` : "", client.vatNumber ? `TVA ${client.vatNumber}` : ""].filter(Boolean).join(" - ");
+    const sources = Array.isArray(client.sourceUrls) ? client.sourceUrls.filter(Boolean).slice(0, 4) : [];
     return `
       <article class="ai-preview-card">
         <div class="ai-preview-title">
           <div>
             <strong>${escapeHtml(name)}</strong>
-            <small class="detail-meta">${escapeHtml(contact || client.email || "Contact a completer")}</small>
+            <small class="detail-meta">${escapeHtml(contact || client.email || client.phone || "Contact a completer")}</small>
           </div>
           <button class="ghost-button danger-text" data-ai-remove="${originalIndex}" type="button">Retirer</button>
         </div>
         <div class="ai-preview-meta">
           <span>${escapeHtml(client.email || "-")}<br>${escapeHtml(client.phone || "")}</span>
-          <span>${escapeHtml(client.website || "-")}<br>${escapeHtml(client.city || "")}</span>
-          <span>${escapeHtml(segment || "Import IA")}<br>${escapeHtml(client.country || "")}</span>
+          <span>${escapeHtml(client.website || "-")}<br>${escapeHtml(place || "")}</span>
+          <span>${escapeHtml(segment || "Import IA")}<br>${escapeHtml(identifiers || "")}</span>
         </div>
         ${client.notes ? `<p class="ai-preview-notes">${escapeHtml(client.notes)}</p>` : ""}
+        ${sources.length ? `<div class="ai-source-list">${sources.map((url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(urlHost(url))}</a>`).join("")}</div>` : ""}
       </article>
     `;
   }).join("");
@@ -494,7 +510,7 @@ async function cleanAiImport() {
   }
 
   elements.aiCleanButton.disabled = true;
-  showMessage("Nettoyage IA en cours...");
+  showMessage("Recherche web et enrichissement IA en cours...");
   try {
     const payload = await apiRequest(API.clients, {
       method: "POST",
@@ -507,9 +523,9 @@ async function cleanAiImport() {
     });
     state.aiImport.clients = payload.clients || [];
     renderAiPreview();
-    showMessage(payload.message || `${state.aiImport.clients.length} client(s) prepare(s).`, "success");
+    showMessage(payload.message || `${state.aiImport.clients.length} client(s) enrichi(s).`, "success");
   } catch (error) {
-    showMessage(error.message || "Nettoyage IA impossible.", "error");
+    showMessage(error.message || "Recherche IA impossible.", "error");
   } finally {
     elements.aiCleanButton.disabled = false;
   }

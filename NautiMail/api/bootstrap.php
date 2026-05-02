@@ -570,11 +570,33 @@ function nautimail_sanitize_html_for_display(string $html): string
 
 function nautimail_normalize_content_id(string $value): string
 {
+    $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $value = trim(rawurldecode(nautimail_decode_mime_text($value)));
     $value = preg_replace('/^cid:/i', '', $value) ?: $value;
-    $value = trim($value, " <>\t\r\n\"");
+    $value = trim($value, " <>{}\t\r\n\"'");
 
     return mb_strtolower($value);
+}
+
+function nautimail_content_id_candidates(string $value): array
+{
+    $normalized = nautimail_normalize_content_id($value);
+    if ($normalized === '') {
+        return [];
+    }
+
+    $withoutQuery = preg_replace('/[?#].*$/', '', $normalized) ?: $normalized;
+    $basename = basename(str_replace('\\', '/', $withoutQuery));
+    $beforeAt = preg_replace('/@.*$/', '', $withoutQuery) ?: $withoutQuery;
+    $basenameBeforeAt = basename(str_replace('\\', '/', $beforeAt));
+
+    return array_values(array_unique(array_filter([
+        $normalized,
+        $withoutQuery,
+        $basename,
+        $beforeAt,
+        $basenameBeforeAt,
+    ], static fn(string $candidate): bool => $candidate !== '')));
 }
 
 function nautimail_attachment_url(int $messageId, int $index, bool $inline = false): string
@@ -583,54 +605,48 @@ function nautimail_attachment_url(int $messageId, int $index, bool $inline = fal
     return $inline ? $url . '&inline=1' : $url;
 }
 
+function nautimail_inline_cid_url(int $messageId, string $contentId): string
+{
+    return 'api/messages.php?action=inline&id=' . rawurlencode((string) $messageId) . '&cid=' . rawurlencode(nautimail_normalize_content_id($contentId));
+}
+
 function nautimail_rewrite_inline_sources(string $html, int $messageId, array $attachments): string
 {
     if ($html === '' || stripos($html, 'cid:') === false) {
         return $html;
     }
 
-    $byContentId = [];
-    foreach ($attachments as $index => $attachment) {
-        $contentId = nautimail_normalize_content_id((string) ($attachment['contentId'] ?? ''));
-        if ($contentId !== '') {
-            $byContentId[$contentId] = $index;
-        }
-    }
-    if ($byContentId === []) {
-        return $html;
-    }
-
-    $quoted = static function (array $matches) use ($messageId, $byContentId): string {
+    $quoted = static function (array $matches) use ($messageId): string {
         $contentId = nautimail_normalize_content_id((string) ($matches[3] ?? ''));
-        if ($contentId === '' || !isset($byContentId[$contentId])) {
+        if ($contentId === '') {
             return $matches[0];
         }
 
-        return ' ' . $matches[1] . '=' . $matches[2] . nautimail_attachment_url($messageId, (int) $byContentId[$contentId], true) . $matches[2];
+        return ' ' . $matches[1] . '=' . $matches[2] . nautimail_inline_cid_url($messageId, $contentId) . $matches[2];
     };
 
     $html = preg_replace_callback('/\s(src|background)\s*=\s*(["\'])cid:([^"\']+)\2/iu', $quoted, $html) ?: $html;
     $html = preg_replace_callback(
         '/\s(src|background)\s*=\s*cid:([^\s>]+)/iu',
-        static function (array $matches) use ($messageId, $byContentId): string {
+        static function (array $matches) use ($messageId): string {
             $contentId = nautimail_normalize_content_id((string) ($matches[2] ?? ''));
-            if ($contentId === '' || !isset($byContentId[$contentId])) {
+            if ($contentId === '') {
                 return $matches[0];
             }
 
-            return ' ' . $matches[1] . '="' . nautimail_attachment_url($messageId, (int) $byContentId[$contentId], true) . '"';
+            return ' ' . $matches[1] . '="' . nautimail_inline_cid_url($messageId, $contentId) . '"';
         },
         $html
     ) ?: $html;
     $html = preg_replace_callback(
         '/url\(\s*(["\']?)cid:([^)"\']+)\1\s*\)/iu',
-        static function (array $matches) use ($messageId, $byContentId): string {
+        static function (array $matches) use ($messageId): string {
             $contentId = nautimail_normalize_content_id((string) ($matches[2] ?? ''));
-            if ($contentId === '' || !isset($byContentId[$contentId])) {
+            if ($contentId === '') {
                 return $matches[0];
             }
 
-            return 'url("' . nautimail_attachment_url($messageId, (int) $byContentId[$contentId], true) . '")';
+            return 'url("' . nautimail_inline_cid_url($messageId, $contentId) . '")';
         },
         $html
     ) ?: $html;
@@ -662,6 +678,8 @@ function nautimail_stored_attachments(mixed $value): array
             'encoding' => max(0, (int) ($item['encoding'] ?? 0)),
             'disposition' => nautimail_clean_text($item['disposition'] ?? 'attachment', 40, true),
             'contentId' => nautimail_normalize_content_id((string) ($item['contentId'] ?? '')),
+            'contentLocation' => nautimail_normalize_content_id((string) ($item['contentLocation'] ?? '')),
+            'xAttachmentId' => nautimail_normalize_content_id((string) ($item['xAttachmentId'] ?? '')),
             'isInline' => !empty($item['isInline']) || strtolower((string) ($item['disposition'] ?? '')) === 'inline',
         ];
     }
@@ -686,6 +704,63 @@ function nautimail_public_attachments(mixed $value, int $messageId): array
     }
 
     return $attachments;
+}
+
+function nautimail_attachment_lookup_keys(array $attachment): array
+{
+    $keys = [];
+    foreach (['contentId', 'contentLocation', 'xAttachmentId', 'filename'] as $field) {
+        foreach (nautimail_content_id_candidates((string) ($attachment[$field] ?? '')) as $candidate) {
+            $keys[$candidate] = true;
+        }
+    }
+
+    return array_keys($keys);
+}
+
+function nautimail_find_attachment_index_by_cid(array $attachments, string $contentId): ?int
+{
+    $wanted = [];
+    foreach (nautimail_content_id_candidates($contentId) as $candidate) {
+        $wanted[$candidate] = true;
+    }
+    if ($wanted === []) {
+        return null;
+    }
+
+    foreach ($attachments as $index => $attachment) {
+        if (!is_array($attachment)) {
+            continue;
+        }
+        foreach (nautimail_attachment_lookup_keys($attachment) as $key) {
+            if (isset($wanted[$key])) {
+                return (int) $index;
+            }
+        }
+    }
+
+    return null;
+}
+
+function nautimail_attachment_content_type(string $filename, string $contentType): string
+{
+    $contentType = nautimail_clean_text($contentType, 120, true);
+    $generic = $contentType === '' || in_array(strtolower($contentType), ['application/octet-stream', 'application/binary'], true);
+    if (!$generic && preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~i', $contentType)) {
+        return $contentType;
+    }
+
+    $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+    return match ($extension) {
+        'jpg', 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'gif' => 'image/gif',
+        'webp' => 'image/webp',
+        'svg' => 'image/svg+xml',
+        'bmp' => 'image/bmp',
+        'pdf' => 'application/pdf',
+        default => 'application/octet-stream',
+    };
 }
 
 function nautimail_public_message(array $row): array
@@ -883,16 +958,10 @@ function nautimail_message_missing_inline_sources(array $message): bool
         return false;
     }
 
-    $known = [];
-    foreach (nautimail_stored_attachments($message['attachments_json'] ?? null) as $attachment) {
-        $contentId = nautimail_normalize_content_id((string) ($attachment['contentId'] ?? ''));
-        if ($contentId !== '') {
-            $known[$contentId] = true;
-        }
-    }
+    $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
 
     foreach ($contentIds as $contentId) {
-        if (!isset($known[$contentId])) {
+        if (nautimail_find_attachment_index_by_cid($attachments, $contentId) === null) {
             return true;
         }
     }
@@ -941,23 +1010,8 @@ function nautimail_refresh_message_parts(PDO $pdo, array $user, array $message):
     return nautimail_message_by_id($pdo, (int) $message['id']) ?: $message;
 }
 
-function nautimail_download_attachment(PDO $pdo, array $user, int $messageId, int $index, bool $inline = false): void
+function nautimail_output_attachment_content(PDO $pdo, array $user, array $message, array $attachment, bool $inline): void
 {
-    if (!function_exists('imap_open')) {
-        throw new RuntimeException('Extension PHP IMAP inactive.');
-    }
-
-    $message = nautimail_require_message_access($pdo, $user, $messageId);
-    $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
-    if (!isset($attachments[$index])) {
-        $message = nautimail_refresh_message_parts($pdo, $user, $message);
-        $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
-    }
-    if (!isset($attachments[$index])) {
-        throw new InvalidArgumentException('Piece jointe introuvable.');
-    }
-
-    $attachment = $attachments[$index];
     $account = nautimail_private_account(nautimail_require_account_access($pdo, $user, (int) $message['account_id']));
     $imap = @imap_open(nautimail_imap_mailbox($account), (string) $account['username'], (string) ($account['password'] ?? ''));
     if (!$imap) {
@@ -978,7 +1032,7 @@ function nautimail_download_attachment(PDO $pdo, array $user, int $messageId, in
     if ($filename === '') {
         $filename = 'piece-jointe';
     }
-    $contentType = nautimail_clean_text($attachment['contentType'] ?? 'application/octet-stream', 120, true);
+    $contentType = nautimail_attachment_content_type($filename, (string) ($attachment['contentType'] ?? 'application/octet-stream'));
     if (!preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~i', $contentType)) {
         $contentType = 'application/octet-stream';
     }
@@ -990,6 +1044,46 @@ function nautimail_download_attachment(PDO $pdo, array $user, int $messageId, in
     header('Cache-Control: private, max-age=3600');
     echo $content;
     exit;
+}
+
+function nautimail_download_attachment(PDO $pdo, array $user, int $messageId, int $index, bool $inline = false): void
+{
+    if (!function_exists('imap_open')) {
+        throw new RuntimeException('Extension PHP IMAP inactive.');
+    }
+
+    $message = nautimail_require_message_access($pdo, $user, $messageId);
+    $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
+    if (!isset($attachments[$index])) {
+        $message = nautimail_refresh_message_parts($pdo, $user, $message);
+        $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
+    }
+    if (!isset($attachments[$index])) {
+        throw new InvalidArgumentException('Piece jointe introuvable.');
+    }
+
+    nautimail_output_attachment_content($pdo, $user, $message, $attachments[$index], $inline);
+}
+
+function nautimail_download_inline_content_id(PDO $pdo, array $user, int $messageId, string $contentId): void
+{
+    if (!function_exists('imap_open')) {
+        throw new RuntimeException('Extension PHP IMAP inactive.');
+    }
+
+    $message = nautimail_require_message_access($pdo, $user, $messageId);
+    $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
+    $index = nautimail_find_attachment_index_by_cid($attachments, $contentId);
+    if ($index === null) {
+        $message = nautimail_refresh_message_parts($pdo, $user, $message);
+        $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
+        $index = nautimail_find_attachment_index_by_cid($attachments, $contentId);
+    }
+    if ($index === null || !isset($attachments[$index])) {
+        throw new InvalidArgumentException('Image integree introuvable.');
+    }
+
+    nautimail_output_attachment_content($pdo, $user, $message, $attachments[$index], true);
 }
 
 function nautimail_imap_mailbox(array $account): string
@@ -1114,6 +1208,18 @@ function nautimail_part_parameter(mixed $parameters, string $attribute): string
     return '';
 }
 
+function nautimail_part_parameter_first(mixed $parameters, array $attributes): string
+{
+    foreach ($attributes as $attribute) {
+        $value = nautimail_part_parameter($parameters, (string) $attribute);
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return '';
+}
+
 function nautimail_part_filename(mixed $structure): string
 {
     if (!is_object($structure)) {
@@ -1143,6 +1249,37 @@ function nautimail_part_content_id(mixed $structure): string
     }
 
     return nautimail_normalize_content_id($contentId);
+}
+
+function nautimail_part_content_location(mixed $structure): string
+{
+    if (!is_object($structure)) {
+        return '';
+    }
+
+    $location = (string) ($structure->location ?? '');
+    if ($location === '') {
+        $location = nautimail_part_parameter_first($structure->parameters ?? [], ['content-location', 'location']);
+    }
+    if ($location === '') {
+        $location = nautimail_part_parameter_first($structure->dparameters ?? [], ['content-location', 'location']);
+    }
+
+    return nautimail_normalize_content_id($location);
+}
+
+function nautimail_part_x_attachment_id(mixed $structure): string
+{
+    if (!is_object($structure)) {
+        return '';
+    }
+
+    $value = nautimail_part_parameter_first($structure->parameters ?? [], ['x-attachment-id', 'xattachmentid']);
+    if ($value === '') {
+        $value = nautimail_part_parameter_first($structure->dparameters ?? [], ['x-attachment-id', 'xattachmentid']);
+    }
+
+    return nautimail_normalize_content_id($value);
 }
 
 function nautimail_part_content_type(mixed $structure): string
@@ -1198,12 +1335,14 @@ function nautimail_collect_body_parts($imap, int $uid, mixed $structure, string 
     $subtype = strtoupper((string) ($structure->subtype ?? ''));
     $filename = nautimail_part_filename($structure);
     $contentId = nautimail_part_content_id($structure);
+    $contentLocation = nautimail_part_content_location($structure);
+    $xAttachmentId = nautimail_part_x_attachment_id($structure);
     $disposition = strtolower((string) ($structure->disposition ?? ''));
     $isBodyTextPart = $type === 0 && in_array($subtype, ['PLAIN', 'HTML'], true) && $filename === '';
     $isAttachment = !$isBodyTextPart && (
         $filename !== ''
         || in_array($disposition, ['attachment', 'inline'], true)
-        || ($contentId !== '' && in_array($type, [3, 4, 5, 6, 7], true))
+        || (($contentId !== '' || $contentLocation !== '' || $xAttachmentId !== '') && in_array($type, [3, 4, 5, 6, 7], true))
     );
 
     if ($isAttachment) {
@@ -1217,6 +1356,8 @@ function nautimail_collect_body_parts($imap, int $uid, mixed $structure, string 
             'encoding' => max(0, (int) ($structure->encoding ?? 0)),
             'disposition' => $disposition !== '' ? $disposition : ($isInline ? 'inline' : 'attachment'),
             'contentId' => $contentId,
+            'contentLocation' => $contentLocation,
+            'xAttachmentId' => $xAttachmentId,
             'isInline' => $isInline,
         ];
     }

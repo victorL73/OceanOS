@@ -19,6 +19,8 @@ SYSTEMD_FILE="/etc/systemd/system/${MOBYWORK_SERVICE}.service"
 APACHE_SITE_FILE="/etc/apache2/sites-available/oceanos.conf"
 CONTROL_BIN="/usr/local/sbin/oceanos-service-control"
 SUDOERS_FILE="/etc/sudoers.d/oceanos-service-control"
+NAUTIMAIL_CRON_FILE="/etc/cron.d/oceanos-nautimail"
+NAUTIMAIL_LOG_FILE="/var/log/oceanos-nautimail-sync.log"
 
 log() {
   printf '[%s] %s\n' "$APP_NAME" "$*"
@@ -85,6 +87,7 @@ install_packages() {
     apache2 \
     mariadb-server \
     ca-certificates \
+    cron \
     curl \
     sudo \
     unzip \
@@ -148,6 +151,28 @@ install_node_dependencies() {
   elif [[ -f "$APP_ROOT/Mobywork/frontend/package.json" ]]; then
     (cd "$APP_ROOT/Mobywork/frontend" && npm install)
   fi
+}
+
+install_nautimail_cron() {
+  need_root
+  log "Installation du releve automatique NautiMail..."
+  if [[ ! -f "$APP_ROOT/NautiMail/cli/sync.php" ]]; then
+    log "NautiMail CLI introuvable, cron non installe."
+    return
+  fi
+
+  touch "$NAUTIMAIL_LOG_FILE"
+  chown "$PHP_USER:$PHP_GROUP" "$NAUTIMAIL_LOG_FILE"
+  chmod 0640 "$NAUTIMAIL_LOG_FILE"
+
+  cat > "$NAUTIMAIL_CRON_FILE" <<EOF
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/5 * * * * $PHP_USER cd "$APP_ROOT" && /usr/bin/flock -n /tmp/oceanos-nautimail-sync.lock /usr/bin/php NautiMail/cli/sync.php --limit=50 --json >> "$NAUTIMAIL_LOG_FILE" 2>&1
+EOF
+  chmod 0644 "$NAUTIMAIL_CRON_FILE"
+  systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1 || true
 }
 
 build_mobywork_frontend() {
@@ -629,6 +654,7 @@ install_all() {
   install_packages
   install_php_dependencies
   install_node_dependencies
+  install_nautimail_cron
   build_mobywork_frontend
   ensure_permissions
   install_mobywork_service
@@ -679,6 +705,7 @@ Usage:
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh stop
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh restart
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh node-deps
+  sudo ./scripts/ubuntu/oceanos-ubuntu.sh nautimail-cron
   ./scripts/ubuntu/oceanos-ubuntu.sh status
 
 Variables utiles:
@@ -691,8 +718,9 @@ EOF
 
 case "${1:-help}" in
   install) install_all ;;
-  deps) need_root; install_packages; install_php_dependencies; install_node_dependencies ;;
+  deps) need_root; install_packages; install_php_dependencies; install_node_dependencies; install_nautimail_cron ;;
   node-deps) install_node_dependencies ;;
+  nautimail-cron) need_root; install_nautimail_cron ;;
   build) build_mobywork_frontend ;;
   service) need_root; install_mobywork_service ;;
   apache) need_root; install_apache_site ;;

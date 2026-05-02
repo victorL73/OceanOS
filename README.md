@@ -397,6 +397,7 @@ Il utilise OceanOS pour :
 - enregistrer plusieurs adresses mail avec IMAP/SMTP et mots de passe chiffres
 - partager une adresse commune avec plusieurs utilisateurs OceanOS
 - relever les mails via IMAP quand l'extension PHP IMAP est activee
+- relever automatiquement les adresses actives toutes les 5 minutes via `NautiMail/cli/sync.php` et le cron Ubuntu `oceanos-nautimail`
 - pre-trier les mails client, vente, gestion, support et finance
 - synthetiser les mails et proposer des actions via la cle Groq configuree dans OceanOS
 - generer puis envoyer des reponses via SMTP

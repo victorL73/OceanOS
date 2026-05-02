@@ -4,6 +4,7 @@ const API = {
 };
 
 const OCEANOS_URL = "/OceanOS/";
+const AUTO_REFRESH_INTERVAL_MS = 60000;
 const $ = (id) => document.getElementById(id);
 
 const elements = {
@@ -93,6 +94,7 @@ const state = {
   imapAvailable: false,
   aiSettings: null,
   replyAll: false,
+  autoRefreshTimer: null,
 };
 
 const labels = {
@@ -885,6 +887,18 @@ async function logout() {
   window.location.href = OCEANOS_URL;
 }
 
+function startAutoRefresh() {
+  if (state.autoRefreshTimer) {
+    window.clearInterval(state.autoRefreshTimer);
+  }
+  state.autoRefreshTimer = window.setInterval(() => {
+    if (document.hidden || state.currentView === "reply") {
+      return;
+    }
+    void loadDashboard().catch(() => {});
+  }, AUTO_REFRESH_INTERVAL_MS);
+}
+
 function installListeners() {
   elements.viewTabs.forEach((button) => {
     button.addEventListener("click", () => setActiveView(button.dataset.view || "inbox"));
@@ -962,6 +976,7 @@ async function init() {
     if (!authenticated) return;
     resetAccountForm();
     await loadDashboard();
+    startAutoRefresh();
     setView("app");
   } catch (error) {
     showMessage(error.message || "NautiMail est indisponible.", "error");
