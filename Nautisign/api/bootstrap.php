@@ -131,14 +131,6 @@ function nautisign_quotes_dir(): string
         . DIRECTORY_SEPARATOR . 'quotes';
 }
 
-function nautisign_legacy_quotes_dir(): string
-{
-    return nautisign_www_root()
-        . DIRECTORY_SEPARATOR . 'Mobywork'
-        . DIRECTORY_SEPARATOR . 'storage'
-        . DIRECTORY_SEPARATOR . 'quotes';
-}
-
 function nautisign_quote_sources(): array
 {
     return [
@@ -146,11 +138,6 @@ function nautisign_quote_sources(): array
             'label' => 'Devis',
             'relativePath' => 'Devis/storage/quotes',
             'dir' => nautisign_quotes_dir(),
-        ],
-        'mobywork' => [
-            'label' => 'Archives',
-            'relativePath' => 'Mobywork/storage/quotes',
-            'dir' => nautisign_legacy_quotes_dir(),
         ],
     ];
 }

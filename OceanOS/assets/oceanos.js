@@ -1,5 +1,4 @@
 const AUTH_URL = "/OceanOS/api/auth.php";
-const MOBY_TOKEN_URL = "/OceanOS/api/mobywork-token.php";
 const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
@@ -70,14 +69,6 @@ const apps = [
     href: "/Tresorcean/",
     mark: "TR",
     color: "#256fbd",
-  },
-  {
-    id: "mobywork",
-    title: "Mobywork",
-    subtitle: "CRM eCommerce, commandes, emails et finance.",
-    href: "/Mobywork/",
-    mark: "MW",
-    color: "#f2b84b",
   },
   {
     id: "nauticrm",
@@ -481,19 +472,6 @@ async function refreshAuth() {
   applyAuthState(payload);
 }
 
-async function syncMobyworkToken() {
-  if (!authState.authenticated) return;
-  try {
-    const payload = await requestJson(MOBY_TOKEN_URL);
-    if (payload.token && payload.user) {
-      localStorage.setItem("moby_token", payload.token);
-      localStorage.setItem("moby_user", JSON.stringify(payload.user));
-    }
-  } catch (error) {
-    console.warn("Token Mobywork non synchronise:", error.message);
-  }
-}
-
 async function loadAiSettings() {
   if (!authState.authenticated) return;
 
@@ -751,14 +729,14 @@ async function loadServices() {
 
 async function runServerUpdate() {
   const confirmMessage = servicesControlAvailable
-    ? "Mettre a jour OceanOS depuis Git puis relancer Apache et le backend Mobywork ?"
+    ? "Mettre a jour OceanOS depuis Git puis relancer les services disponibles ?"
     : "Mettre a jour OceanOS depuis Git ? Les services ne seront pas relances depuis cet environnement.";
   const ok = window.confirm(confirmMessage);
   if (!ok) return;
 
   elements.updateServices.disabled = true;
   elements.reloadServices.disabled = true;
-  showServicesStatus(servicesControlAvailable ? "Mise a jour Git en cours, puis relance Mobywork..." : "Mise a jour Git en cours...");
+  showServicesStatus(servicesControlAvailable ? "Mise a jour Git en cours, puis relance des services..." : "Mise a jour Git en cours...");
   try {
     const payload = await requestJson(SERVICES_URL, {
       method: "POST",
@@ -905,9 +883,6 @@ function renderApps() {
       <small>Ouvrir</small>
     `;
     button.addEventListener("click", async () => {
-      if (app.id === "mobywork" || app.id === "nautipost") {
-        await syncMobyworkToken();
-      }
       window.location.href = app.href;
     });
     elements.appGrid.appendChild(button);
@@ -951,8 +926,6 @@ async function handleLogout(triggerButton = null) {
   } catch (error) {
     console.warn(error);
   }
-  localStorage.removeItem("moby_token");
-  localStorage.removeItem("moby_user");
   authState = { authenticated: false, needsSetup: false, user: null };
   elements.logoutButton.disabled = false;
   elements.menuLogoutButton.disabled = false;
@@ -1204,8 +1177,6 @@ elements.form.addEventListener("submit", async (event) => {
     });
     applyAuthState(payload);
     elements.password.value = "";
-    await syncMobyworkToken();
-
     const next = safeNext();
     if (next) {
       window.location.href = next;
@@ -1417,7 +1388,6 @@ window.addEventListener("hashchange", () => {
 });
 
 refreshAuth()
-  .then(syncMobyworkToken)
   .catch((error) => {
     showMessage(error.message || "OceanOS est indisponible.");
     setVisible("login");

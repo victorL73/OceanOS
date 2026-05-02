@@ -355,7 +355,7 @@ function oceanos_user_permissions(array $user): array
 
 function oceanos_available_module_ids(): array
 {
-    return ['agenda', 'flowcean', 'invocean', 'devis', 'commandes', 'sav', 'stockcean', 'tresorcean', 'mobywork', 'nauticrm', 'nautimail', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
+    return ['agenda', 'flowcean', 'invocean', 'devis', 'commandes', 'sav', 'stockcean', 'tresorcean', 'nauticrm', 'nautimail', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
 }
 
 function oceanos_normalize_visible_modules(mixed $modules, ?array $fallback = null): array
@@ -387,55 +387,55 @@ function oceanos_decode_visible_modules(?string $json): array
 
     $decoded = json_decode($json, true);
     $modules = oceanos_normalize_visible_modules($decoded);
-    $legacyModules = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost'];
+    $legacyModules = ['flowcean', 'invocean', 'stockcean', 'nautipost'];
     if (!in_array('nauticloud', $modules, true) && count(array_diff($legacyModules, $modules)) === 0) {
         $modules[] = 'nauticloud';
     }
-    $legacyModulesWithCloud = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud'];
+    $legacyModulesWithCloud = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud'];
     if (!in_array('formcean', $modules, true) && count(array_diff($legacyModulesWithCloud, $modules)) === 0) {
         $modules[] = 'formcean';
     }
-    $legacyModulesWithFormcean = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean'];
+    $legacyModulesWithFormcean = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean'];
     if (!in_array('nautisign', $modules, true) && count(array_diff($legacyModulesWithFormcean, $modules)) === 0) {
         $modules[] = 'nautisign';
     }
-    $legacyModulesWithNautisign = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign'];
+    $legacyModulesWithNautisign = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign'];
     if (!in_array('naviplan', $modules, true) && count(array_diff($legacyModulesWithNautisign, $modules)) === 0) {
         $modules[] = 'naviplan';
     }
-    $legacyModulesWithNaviplan = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan'];
+    $legacyModulesWithNaviplan = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan'];
     if (!in_array('visiocean', $modules, true) && count(array_diff($legacyModulesWithNaviplan, $modules)) === 0) {
         $modules[] = 'visiocean';
     }
-    $legacyModulesWithVisiocean = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean'];
+    $legacyModulesWithVisiocean = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean'];
     if (!in_array('meetocean', $modules, true) && count(array_diff($legacyModulesWithVisiocean, $modules)) === 0) {
         $modules[] = 'meetocean';
     }
-    $legacyModulesWithMeetOcean = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
+    $legacyModulesWithMeetOcean = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
     if (!in_array('agenda', $modules, true) && count(array_diff($legacyModulesWithMeetOcean, $modules)) === 0) {
         $modules[] = 'agenda';
     }
-    $legacyModulesWithAgenda = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda'];
+    $legacyModulesWithAgenda = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda'];
     if (!in_array('nauticrm', $modules, true) && count(array_diff($legacyModulesWithAgenda, $modules)) === 0) {
         $modules[] = 'nauticrm';
     }
-    $legacyModulesWithNautiCRM = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm'];
+    $legacyModulesWithNautiCRM = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm'];
     if (!in_array('nautimail', $modules, true) && count(array_diff($legacyModulesWithNautiCRM, $modules)) === 0) {
         $modules[] = 'nautimail';
     }
-    $legacyModulesWithNautiMail = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail'];
+    $legacyModulesWithNautiMail = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail'];
     if (!in_array('devis', $modules, true) && count(array_diff($legacyModulesWithNautiMail, $modules)) === 0) {
         $modules[] = 'devis';
     }
-    $legacyModulesWithDevis = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis'];
+    $legacyModulesWithDevis = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis'];
     if (!in_array('commandes', $modules, true) && count(array_diff($legacyModulesWithDevis, $modules)) === 0) {
         $modules[] = 'commandes';
     }
-    $legacyModulesWithCommandes = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes'];
+    $legacyModulesWithCommandes = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes'];
     if (!in_array('sav', $modules, true) && count(array_diff($legacyModulesWithCommandes, $modules)) === 0) {
         $modules[] = 'sav';
     }
-    $legacyModulesWithSav = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes', 'sav'];
+    $legacyModulesWithSav = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes', 'sav'];
     if (!in_array('tresorcean', $modules, true) && count(array_diff($legacyModulesWithSav, $modules)) === 0) {
         $modules[] = 'tresorcean';
     }

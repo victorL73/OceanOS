@@ -1070,7 +1070,10 @@ function stockcean_list_products(PDO $pdo, array $input): array
          FROM stockcean_products p
          LEFT JOIN stockcean_suppliers s ON s.id = p.supplier_id
          WHERE ' . $filters['sql'] . '
-         ORDER BY (p.quantity <= p.min_stock_alert) DESC, p.quantity ASC, p.name ASC
+         ORDER BY
+            CASE WHEN p.reference IS NULL OR p.reference = "" THEN 1 ELSE 0 END ASC,
+            p.reference ASC,
+            p.name ASC
          LIMIT :limit'
     );
     foreach ($filters['params'] as $key => $value) {
@@ -1088,7 +1091,11 @@ function stockcean_supplier_catalog(PDO $pdo): array
         'SELECT p.*, s.name AS supplier_name
          FROM stockcean_products p
          LEFT JOIN stockcean_suppliers s ON s.id = p.supplier_id
-         ORDER BY COALESCE(s.name, "Sans fournisseur") ASC, p.name ASC
+         ORDER BY
+            COALESCE(s.name, "Sans fournisseur") ASC,
+            CASE WHEN p.reference IS NULL OR p.reference = "" THEN 1 ELSE 0 END ASC,
+            p.reference ASC,
+            p.name ASC
          LIMIT 1000'
     )->fetchAll();
 

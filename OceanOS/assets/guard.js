@@ -1,11 +1,9 @@
 (function oceanosGuard() {
   const portalUrl = "/OceanOS/";
   const authUrl = "/OceanOS/api/auth.php";
-  const mobyTokenUrl = "/OceanOS/api/mobywork-token.php";
   const notificationsUrl = "/OceanOS/api/notifications.php";
   const path = window.location.pathname;
   const isPortal = path.toLowerCase().startsWith("/oceanos/");
-  const isMobywork = path.toLowerCase().startsWith("/mobywork/");
   const isMeetOcean = path.toLowerCase().startsWith("/meetocean/");
   const searchParams = new URLSearchParams(window.location.search);
   const isMeetOceanInvite = isMeetOcean
@@ -24,7 +22,6 @@
     ["/nautimail/", "nautimail"],
     ["/nautipost/", "nautipost"],
     ["/nauticloud/", "nauticloud"],
-    ["/mobywork/", "mobywork"],
     ["/formcean/", "formcean"],
     ["/nautisign/", "nautisign"],
     ["/naviplan/", "naviplan"],
@@ -108,8 +105,6 @@
   }
 
   async function logoutThroughOceanOS() {
-    localStorage.removeItem("moby_token");
-    localStorage.removeItem("moby_user");
     try {
       await fetch(authUrl, {
         method: "DELETE",
@@ -128,23 +123,6 @@
       const text = normalizeText(button.textContent);
       if (button.id === "logout-button" || text.includes("deconnexion")) {
         window.setTimeout(logoutThroughOceanOS, 0);
-      }
-    }, true);
-  }
-
-  function installAccountManagementBridge() {
-    if (!isMobywork) return;
-
-    const redirectLabels = ["equipe", "creer le compte"];
-    document.addEventListener("click", (event) => {
-      const button = event.target && event.target.closest ? event.target.closest("button") : null;
-      if (!button) return;
-
-      const text = normalizeText(button.textContent);
-      if (redirectLabels.some((label) => text.includes(label))) {
-        event.preventDefault();
-        event.stopPropagation();
-        window.location.href = portalUrl;
       }
     }, true);
   }
@@ -375,20 +353,6 @@
     }
   }
 
-  async function ensureMobyworkToken() {
-    if (!isMobywork) return;
-
-    const token = localStorage.getItem("moby_token");
-    if (token) return;
-
-    const payload = await fetchJson(mobyTokenUrl);
-    if (!payload.token || !payload.user) return;
-
-    localStorage.setItem("moby_token", payload.token);
-    localStorage.setItem("moby_user", JSON.stringify(payload.user));
-    window.location.reload();
-  }
-
   function retryPortalNotificationsAfterLogin() {
     if (!isPortal || portalAuthRetryTimer) return;
     portalAuthRetryTimer = window.setInterval(async () => {
@@ -408,35 +372,21 @@
     onReady(() => {
       installButton();
       installLogoutBridge();
-      installAccountManagementBridge();
     });
 
     try {
       const payload = await fetchJson(authUrl);
       if (!payload.authenticated) {
-        if (isMobywork) {
-          localStorage.removeItem("moby_token");
-          localStorage.removeItem("moby_user");
-        }
         retryPortalNotificationsAfterLogin();
         redirectToPortal();
         return;
       }
       if (!moduleAllowedForUser(payload.user || null)) {
-        if (isMobywork) {
-          localStorage.removeItem("moby_token");
-          localStorage.removeItem("moby_user");
-        }
         window.location.replace(portalUrl);
         return;
       }
-      await ensureMobyworkToken();
       onReady(installNotificationHub);
     } catch (error) {
-      if (isMobywork) {
-        localStorage.removeItem("moby_token");
-        localStorage.removeItem("moby_user");
-      }
       retryPortalNotificationsAfterLogin();
       redirectToPortal();
     }

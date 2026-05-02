@@ -30,12 +30,6 @@ function oceanos_services_catalog(): array
             'description' => 'MariaDB/MySQL stocke les comptes et donnees applicatives.',
             'unit' => 'mariadb',
         ],
-        'mobywork' => [
-            'id' => 'mobywork',
-            'label' => 'Mobywork API',
-            'description' => 'API Node utilisee par Mobywork.',
-            'unit' => 'mobywork-backend',
-        ],
     ];
 }
 
@@ -398,25 +392,6 @@ function oceanos_service_status_payload(): array
     ];
 }
 
-function oceanos_restart_mobywork_after_update(array $actionResult): array
-{
-    if (!oceanos_service_control_available()) {
-        return $actionResult;
-    }
-
-    $restartResult = oceanos_run_service_control('restart', 'mobywork');
-    $message = trim((string) ($actionResult['message'] ?? 'Mise a jour terminee.'));
-    if ($message === '') {
-        $message = 'Mise a jour terminee.';
-    }
-
-    return [
-        ...$actionResult,
-        'message' => rtrim($message, '.') . '. Backend Mobywork relance.',
-        'mobyworkRestart' => $restartResult,
-    ];
-}
-
 function oceanos_require_services_admin(): array
 {
     try {
@@ -464,7 +439,7 @@ try {
         if (!in_array($action, ['status', 'start', 'stop', 'restart', 'update'], true)) {
             throw new InvalidArgumentException('Action service non supportee.');
         }
-        if (!in_array($service, ['all', 'web', 'database', 'mobywork'], true)) {
+        if (!in_array($service, ['all', 'web', 'database'], true)) {
             throw new InvalidArgumentException('Service non supporte.');
         }
         if (!in_array($action, ['status', 'update'], true) && $service === 'all') {
@@ -477,10 +452,6 @@ try {
             $actionResult = oceanos_run_git_update_direct();
         } else {
             $actionResult = oceanos_run_service_control($action, $service);
-        }
-
-        if ($action === 'update' && in_array($service, ['all', 'mobywork'], true)) {
-            $actionResult = oceanos_restart_mobywork_after_update($actionResult);
         }
 
         oceanos_json_response([

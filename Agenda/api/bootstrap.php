@@ -141,14 +141,6 @@ function agenda_settings_catalog(): array
                 'database_row' => 'Lignes de tableau',
             ],
         ],
-        'Mobywork' => [
-            'moduleId' => 'mobywork',
-            'label' => 'Mobywork',
-            'types' => [
-                'email' => 'Emails a traiter',
-                'quote' => 'Devis a suivre',
-            ],
-        ],
         'Devis' => [
             'moduleId' => 'devis',
             'label' => 'Devis',
@@ -950,9 +942,6 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     if (agenda_user_has_module($user, 'flowcean') && agenda_settings_module_enabled($settings, 'Flowcean')) {
         $tasks = array_merge($tasks, agenda_collect_flowcean_tasks($pdo, $user));
     }
-    if (agenda_user_has_module($user, 'mobywork') && agenda_settings_module_enabled($settings, 'Mobywork')) {
-        $tasks = array_merge($tasks, agenda_collect_mobywork_tasks($pdo, $user));
-    }
     if (agenda_user_has_module($user, 'devis') && agenda_settings_module_enabled($settings, 'Devis')) {
         $tasks = array_merge($tasks, agenda_collect_devis_tasks($pdo, $user));
     }
@@ -1175,63 +1164,6 @@ function agenda_flowcean_row_priority(array $cells, array $properties): string
     }
 
     return 'normal';
-}
-
-function agenda_collect_mobywork_tasks(PDO $pdo, array $user): array
-{
-    $tasks = [];
-    if (oceanos_table_exists($pdo, 'mobywork_emails')) {
-        $statement = $pdo->prepare(
-            "SELECT id, subject, from_address, status, priorite, due_date, date_reception
-             FROM mobywork_emails
-             WHERE user_id = :user_id
-               AND LOWER(COALESCE(status, '')) NOT IN ('traite', 'termine', 'archive', 'done', 'repondu', 'clos', 'closed')
-             ORDER BY COALESCE(date_reception, NOW()) DESC
-             LIMIT 50"
-        );
-        $statement->execute(['user_id' => (int) $user['id']]);
-        foreach ($statement->fetchAll() as $row) {
-            $subject = agenda_clean_text($row['subject'] ?? 'Email a traiter', 160, true);
-            $tasks[] = agenda_external_task(
-                'Mobywork',
-                'email:' . (int) $row['id'],
-                'Repondre: ' . ($subject !== '' ? $subject : 'Email'),
-                agenda_parse_due_datetime($row['due_date'] ?? '') ?? agenda_parse_due_datetime($row['date_reception'] ?? ''),
-                agenda_clean_text($row['from_address'] ?? '', 240, true),
-                agenda_priority_from_text((string) ($row['priorite'] ?? 'normal')),
-                '/Mobywork/',
-                'email'
-            );
-        }
-    }
-
-    if (oceanos_table_exists($pdo, 'mobywork_quotes')) {
-        $statement = $pdo->prepare(
-            "SELECT id, reference, client_name, status, date_updated
-             FROM mobywork_quotes
-             WHERE user_id = :user_id
-               AND LOWER(COALESCE(status, '')) NOT IN ('accepte', 'signe', 'annule', 'refuse')
-             ORDER BY date_updated DESC
-             LIMIT 30"
-        );
-        $statement->execute(['user_id' => (int) $user['id']]);
-        foreach ($statement->fetchAll() as $row) {
-            $label = agenda_clean_text($row['reference'] ?? '', 100, true);
-            $client = agenda_clean_text($row['client_name'] ?? '', 120, true);
-            $tasks[] = agenda_external_task(
-                'Mobywork',
-                'quote:' . (int) $row['id'],
-                'Suivre le devis ' . ($label !== '' ? $label : '#' . (int) $row['id']),
-                agenda_parse_due_datetime($row['date_updated'] ?? ''),
-                $client,
-                'normal',
-                '/Mobywork/',
-                'quote'
-            );
-        }
-    }
-
-    return $tasks;
 }
 
 function agenda_collect_devis_tasks(PDO $pdo, array $user): array

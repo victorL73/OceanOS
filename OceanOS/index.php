@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, Mobywork, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
+  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
@@ -35,7 +35,6 @@
           <span>SAV</span>
           <span>Stockcean</span>
           <span>Tresorcean</span>
-          <span>Mobywork</span>
           <span>NautiCRM</span>
           <span>NautiMail</span>
           <span>NautiPost</span>
@@ -151,7 +150,7 @@
                   <button class="user-control-action" data-user-jump="ai" type="button">
                     <span>
                       <strong>Configuration IA Groq</strong>
-                      <small>Gerer la cle utilisee par Flowcean, Mobywork, NautiMail, NautiPost et MeetOcean.</small>
+                      <small>Gerer la cle utilisee par Flowcean, NautiMail, NautiPost et MeetOcean.</small>
                     </span>
                     <em>Onglet</em>
                   </button>
@@ -179,7 +178,7 @@
                   <button class="user-control-action services-only-action hidden" data-user-jump="services" type="button">
                     <span>
                       <strong>Services Ubuntu</strong>
-                      <small>Suivre et piloter Apache, la base de donnees et Mobywork.</small>
+                      <small>Suivre et piloter Apache et la base de donnees.</small>
                     </span>
                     <em>Admin</em>
                   </button>
@@ -196,7 +195,7 @@
               <section class="user-menu-section" data-user-section="ai">
                 <div class="user-control-heading">
                   <h3>Configuration IA Groq</h3>
-                  <p>Cette cle est utilisee par Flowcean, Mobywork, NautiMail, NautiPost, MeetOcean et les futurs modules OceanOS.</p>
+                  <p>Cette cle est utilisee par Flowcean, NautiMail, NautiPost, MeetOcean et les futurs modules OceanOS.</p>
                 </div>
 
                 <form class="ai-form" id="ai-form">
@@ -259,7 +258,7 @@
               <section class="user-menu-section" data-user-section="prestashop">
                 <div class="user-control-heading">
                   <h3>Connecteur PrestaShop</h3>
-                  <p>Cette configuration est utilisee par Invocean, Devis, Stockcean, Mobywork et les futurs modules e-commerce.</p>
+                  <p>Cette configuration est utilisee par Invocean, Devis, Stockcean et les futurs modules e-commerce.</p>
                 </div>
 
                 <form class="prestashop-form" id="prestashop-form">
@@ -350,7 +349,7 @@
           <p class="eyebrow">Applications</p>
           <h2>Passerelle principale</h2>
         </div>
-                <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, Mobywork, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.</p>
+                <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.</p>
       </section>
 
       <section class="app-grid" id="app-grid"></section>

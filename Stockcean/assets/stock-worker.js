@@ -10,6 +10,28 @@ function purchasePrice(product) {
   return firstSupplierPrice ? Number(firstSupplierPrice.priceTaxExcl || 0) : 0;
 }
 
+function productReferenceNumber(product) {
+  const match = String(product?.reference || "").match(/\d+/);
+  return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+}
+
+function compareProductsByReference(left, right) {
+  const leftNumber = productReferenceNumber(left);
+  const rightNumber = productReferenceNumber(right);
+  if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+
+  const referenceCompare = String(left?.reference || "").localeCompare(String(right?.reference || ""), "fr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (referenceCompare !== 0) return referenceCompare;
+
+  return String(left?.name || "").localeCompare(String(right?.name || ""), "fr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function productMatchesCatalog(product, search, supplierFilter) {
   const matchesSupplier = supplierFilter === ""
     || (supplierFilter === "__none__" && !product.supplierId)
@@ -37,7 +59,10 @@ function buildCatalogGroups(products, search, supplierFilter) {
       group.stockValue += Number(product.quantity || 0) * purchasePrice(product);
       if (product.isLowStock) group.lowCount += 1;
     });
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    products: [...group.products].sort(compareProductsByReference),
+  }));
 }
 
 function orderMatchesSearch(order, search) {

@@ -3,7 +3,7 @@ const API = {
   stock: "api/stock.php",
 };
 const OCEANOS_URL = "/OceanOS/";
-const STOCK_WORKER_URL = "assets/stock-worker.js";
+const STOCK_WORKER_URL = "assets/stock-worker.js?v=20260502-reference-order";
 
 const $ = (id) => document.getElementById(id);
 
@@ -336,6 +336,32 @@ function productList() {
   return state.catalogProducts.length > 0 ? state.catalogProducts : state.products;
 }
 
+function productReferenceNumber(product) {
+  const match = String(product?.reference || "").match(/\d+/);
+  return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+}
+
+function compareProductsByReference(left, right) {
+  const leftNumber = productReferenceNumber(left);
+  const rightNumber = productReferenceNumber(right);
+  if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+
+  const referenceCompare = String(left?.reference || "").localeCompare(String(right?.reference || ""), "fr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (referenceCompare !== 0) return referenceCompare;
+
+  return String(left?.name || "").localeCompare(String(right?.name || ""), "fr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function productsByReference(products) {
+  return [...products].sort(compareProductsByReference);
+}
+
 function productById(productId) {
   return productList().find((item) => Number(item.id) === Number(productId)) || null;
 }
@@ -362,7 +388,7 @@ function productPurchasePrice(product, supplierId = null) {
 }
 
 function productOptions(selectedId = null) {
-  const products = productList();
+  const products = productsByReference(productList());
   if (products.length === 0) {
     return '<option value="">Aucun produit synchronise</option>';
   }
@@ -375,7 +401,7 @@ function productOptions(selectedId = null) {
 }
 
 function createPurchaseLine(productId = null) {
-  const product = productById(productId) || productList()[0] || null;
+  const product = productById(productId) || productsByReference(productList())[0] || null;
   const id = state.nextPurchaseLineId++;
   return {
     id,
@@ -414,7 +440,7 @@ function renderProducts() {
     return;
   }
 
-  elements.productsBody.innerHTML = state.products.map((product) => {
+  elements.productsBody.innerHTML = productsByReference(state.products).map((product) => {
     const stockClass = product.quantity <= 0 ? "out" : (product.isLowStock ? "low" : "");
     const disabled = isAdmin() ? "" : " disabled";
     return `
@@ -540,13 +566,13 @@ function renderSupplierCatalog() {
     }
   }
 
-  const filteredProducts = products.filter((product) => {
+  const filteredProducts = productsByReference(products.filter((product) => {
     const matchesSupplier = supplierFilter === ""
       || (supplierFilter === "__none__" && !product.supplierId)
       || Number(product.supplierId || 0) === Number(supplierFilter);
     const text = `${product.name || ""} ${product.reference || ""} ${product.supplierName || ""}`.toLowerCase();
     return matchesSupplier && (search === "" || text.includes(search));
-  });
+  }));
 
   if (filteredProducts.length === 0) {
     elements.supplierCatalog.innerHTML = '<div class="empty-state">Aucun produit dans ce catalogue.</div>';
@@ -599,7 +625,7 @@ function renderSupplierCatalogGroups(groups) {
               </tr>
             </thead>
             <tbody>
-              ${group.products.map((product) => {
+              ${productsByReference(group.products).map((product) => {
                 const stockClass = product.quantity <= 0 ? "out" : (product.isLowStock ? "low" : "");
                 return `
                   <tr>
