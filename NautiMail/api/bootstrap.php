@@ -96,10 +96,12 @@ function nautimail_ensure_schema(PDO $pdo): void
             sender_email VARCHAR(190) NULL,
             recipient_text TEXT NULL,
             cc_text TEXT NULL,
+            bcc_text TEXT NULL,
             received_at DATETIME NULL,
             preview TEXT NULL,
             body_text LONGTEXT NULL,
             body_html LONGTEXT NULL,
+            attachments_json LONGTEXT NULL,
             category ENUM('client', 'vente', 'gestion', 'support', 'finance', 'spam', 'autre') NOT NULL DEFAULT 'autre',
             priority ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
             status ENUM('new', 'triaged', 'read', 'replied', 'archived') NOT NULL DEFAULT 'new',
@@ -126,6 +128,8 @@ function nautimail_ensure_schema(PDO $pdo): void
             account_id BIGINT UNSIGNED NOT NULL,
             user_id BIGINT UNSIGNED NULL,
             to_email TEXT NOT NULL,
+            cc_email TEXT NULL,
+            bcc_email TEXT NULL,
             subject VARCHAR(255) NOT NULL,
             body_text LONGTEXT NOT NULL,
             status ENUM('draft', 'sent', 'failed') NOT NULL DEFAULT 'sent',
@@ -140,6 +144,19 @@ function nautimail_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_nautimail_replies_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    if (!oceanos_column_exists($pdo, 'nautimail_messages', 'bcc_text')) {
+        $pdo->exec('ALTER TABLE nautimail_messages ADD COLUMN bcc_text TEXT NULL AFTER cc_text');
+    }
+    if (!oceanos_column_exists($pdo, 'nautimail_messages', 'attachments_json')) {
+        $pdo->exec('ALTER TABLE nautimail_messages ADD COLUMN attachments_json LONGTEXT NULL AFTER body_html');
+    }
+    if (!oceanos_column_exists($pdo, 'nautimail_replies', 'cc_email')) {
+        $pdo->exec('ALTER TABLE nautimail_replies ADD COLUMN cc_email TEXT NULL AFTER to_email');
+    }
+    if (!oceanos_column_exists($pdo, 'nautimail_replies', 'bcc_email')) {
+        $pdo->exec('ALTER TABLE nautimail_replies ADD COLUMN bcc_email TEXT NULL AFTER cc_email');
+    }
 }
 
 function nautimail_require_user(PDO $pdo): array
@@ -512,6 +529,76 @@ function nautimail_save_account_shares(PDO $pdo, int $accountId, array $user, mi
     }
 }
 
+function nautimail_sanitize_html_for_display(string $html): string
+{
+    $html = trim($html);
+    if ($html === '') {
+        return '';
+    }
+
+    if (preg_match('~<body\b[^>]*>(.*?)</body>~is', $html, $matches)) {
+        $html = (string) $matches[1];
+    }
+
+    $html = preg_replace('~<!doctype\b[^>]*>~i', '', $html) ?: $html;
+    $html = preg_replace('~<(script|style|iframe|object|embed|form|meta|link|base)\b[^>]*>.*?</\1>~is', '', $html) ?: $html;
+    $html = preg_replace('~<(script|style|iframe|object|embed|form|meta|link|base)\b[^>]*?/?>~is', '', $html) ?: $html;
+    $html = preg_replace('/\s+on[a-z]+\s*=\s*"[^"]*"/iu', '', $html) ?: $html;
+    $html = preg_replace("/\s+on[a-z]+\s*=\s*'[^']*'/iu", '', $html) ?: $html;
+    $html = preg_replace('/\s+on[a-z]+\s*=\s*[^\s>]+/iu', '', $html) ?: $html;
+    $html = preg_replace('/\s+style\s*=\s*"[^"]*"/iu', '', $html) ?: $html;
+    $html = preg_replace("/\s+style\s*=\s*'[^']*'/iu", '', $html) ?: $html;
+    $html = preg_replace('/\s+(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2/iu', '', $html) ?: $html;
+    $html = preg_replace('/\s+(href|srcdoc)\s*=\s*[^\s>]+/iu', '', $html) ?: $html;
+
+    return trim($html);
+}
+
+function nautimail_stored_attachments(mixed $value): array
+{
+    $decoded = is_array($value) ? $value : json_decode((string) $value, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $attachments = [];
+    foreach ($decoded as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $filename = nautimail_clean_text($item['filename'] ?? '', 255, true);
+        if ($filename === '') {
+            $filename = 'piece-jointe';
+        }
+        $attachments[] = [
+            'part' => nautimail_clean_text($item['part'] ?? '', 40, true),
+            'filename' => $filename,
+            'contentType' => nautimail_clean_text($item['contentType'] ?? 'application/octet-stream', 120, true),
+            'size' => max(0, (int) ($item['size'] ?? 0)),
+            'encoding' => max(0, (int) ($item['encoding'] ?? 0)),
+            'disposition' => nautimail_clean_text($item['disposition'] ?? 'attachment', 40, true),
+        ];
+    }
+
+    return array_slice($attachments, 0, 50);
+}
+
+function nautimail_public_attachments(mixed $value): array
+{
+    $attachments = [];
+    foreach (nautimail_stored_attachments($value) as $index => $item) {
+        $attachments[] = [
+            'index' => $index,
+            'filename' => $item['filename'],
+            'contentType' => $item['contentType'],
+            'size' => $item['size'],
+            'disposition' => $item['disposition'],
+        ];
+    }
+
+    return $attachments;
+}
+
 function nautimail_public_message(array $row): array
 {
     return [
@@ -527,9 +614,12 @@ function nautimail_public_message(array $row): array
         'senderEmail' => (string) ($row['sender_email'] ?? ''),
         'recipientText' => (string) ($row['recipient_text'] ?? ''),
         'ccText' => (string) ($row['cc_text'] ?? ''),
+        'bccText' => (string) ($row['bcc_text'] ?? ''),
         'receivedAt' => $row['received_at'] ? (string) $row['received_at'] : null,
         'preview' => (string) ($row['preview'] ?? ''),
         'bodyText' => (string) ($row['body_text'] ?? ''),
+        'bodyHtml' => nautimail_sanitize_html_for_display((string) ($row['body_html'] ?? '')),
+        'attachments' => nautimail_public_attachments($row['attachments_json'] ?? null),
         'category' => (string) $row['category'],
         'priority' => (string) $row['priority'],
         'status' => (string) $row['status'],
@@ -674,6 +764,53 @@ function nautimail_require_message_access(PDO $pdo, array $user, int $messageId)
     return $message;
 }
 
+function nautimail_download_attachment(PDO $pdo, array $user, int $messageId, int $index): void
+{
+    if (!function_exists('imap_open')) {
+        throw new RuntimeException('Extension PHP IMAP inactive.');
+    }
+
+    $message = nautimail_require_message_access($pdo, $user, $messageId);
+    $attachments = nautimail_stored_attachments($message['attachments_json'] ?? null);
+    if (!isset($attachments[$index])) {
+        throw new InvalidArgumentException('Piece jointe introuvable.');
+    }
+
+    $attachment = $attachments[$index];
+    $account = nautimail_private_account(nautimail_require_account_access($pdo, $user, (int) $message['account_id']));
+    $imap = @imap_open(nautimail_imap_mailbox($account), (string) $account['username'], (string) ($account['password'] ?? ''));
+    if (!$imap) {
+        throw new RuntimeException('Connexion IMAP impossible: ' . imap_last_error());
+    }
+
+    try {
+        $part = (string) ($attachment['part'] ?? '');
+        $raw = $part === ''
+            ? (string) @imap_body($imap, (int) $message['imap_uid'], FT_UID | FT_PEEK)
+            : (string) @imap_fetchbody($imap, (int) $message['imap_uid'], $part, FT_UID | FT_PEEK);
+        $content = nautimail_decode_part_body($raw, (int) ($attachment['encoding'] ?? 0));
+    } finally {
+        @imap_close($imap);
+    }
+
+    $filename = nautimail_clean_text($attachment['filename'] ?? 'piece-jointe', 255, true);
+    if ($filename === '') {
+        $filename = 'piece-jointe';
+    }
+    $contentType = nautimail_clean_text($attachment['contentType'] ?? 'application/octet-stream', 120, true);
+    if (!preg_match('~^[a-z0-9.+-]+/[a-z0-9.+-]+$~i', $contentType)) {
+        $contentType = 'application/octet-stream';
+    }
+
+    oceanos_send_security_headers();
+    header('Content-Type: ' . $contentType);
+    header('Content-Disposition: attachment; filename="' . addcslashes($filename, "\\\"") . '"; filename*=UTF-8\'\'' . rawurlencode($filename));
+    header('Content-Length: ' . strlen($content));
+    header('Cache-Control: private, no-store, max-age=0');
+    echo $content;
+    exit;
+}
+
 function nautimail_imap_mailbox(array $account): string
 {
     $flags = '/imap';
@@ -774,13 +911,69 @@ function nautimail_convert_charset(string $body, mixed $parameters): string
     return $body;
 }
 
+function nautimail_part_parameter(mixed $parameters, string $attribute): string
+{
+    if (!is_array($parameters)) {
+        return '';
+    }
+
+    foreach ($parameters as $parameter) {
+        if (!is_object($parameter)) {
+            continue;
+        }
+        if (strtolower((string) ($parameter->attribute ?? '')) === strtolower($attribute)) {
+            return nautimail_decode_mime_text((string) ($parameter->value ?? ''));
+        }
+    }
+
+    return '';
+}
+
+function nautimail_part_filename(mixed $structure): string
+{
+    if (!is_object($structure)) {
+        return '';
+    }
+
+    $filename = nautimail_part_parameter($structure->dparameters ?? [], 'filename');
+    if ($filename === '') {
+        $filename = nautimail_part_parameter($structure->parameters ?? [], 'name');
+    }
+
+    return nautimail_clean_text($filename, 255, true);
+}
+
+function nautimail_part_content_type(mixed $structure): string
+{
+    if (!is_object($structure)) {
+        return 'application/octet-stream';
+    }
+
+    $types = [
+        0 => 'text',
+        1 => 'multipart',
+        2 => 'message',
+        3 => 'application',
+        4 => 'audio',
+        5 => 'image',
+        6 => 'video',
+        7 => 'application',
+    ];
+    $type = $types[(int) ($structure->type ?? 7)] ?? 'application';
+    $subtype = strtolower((string) ($structure->subtype ?? 'octet-stream'));
+    $subtype = preg_replace('/[^a-z0-9.+-]/i', '', $subtype) ?: 'octet-stream';
+
+    return $type . '/' . $subtype;
+}
+
 function nautimail_collect_body_parts($imap, int $uid, mixed $structure, string $partNumber = ''): array
 {
     $plain = [];
     $html = [];
+    $attachments = [];
 
     if (!is_object($structure)) {
-        return ['plain' => '', 'html' => ''];
+        return ['plain' => '', 'html' => '', 'attachments' => []];
     }
 
     if (isset($structure->parts) && is_array($structure->parts)) {
@@ -793,12 +986,31 @@ function nautimail_collect_body_parts($imap, int $uid, mixed $structure, string 
             if ($child['html'] !== '') {
                 $html[] = $child['html'];
             }
+            foreach ($child['attachments'] as $attachment) {
+                $attachments[] = $attachment;
+            }
         }
     }
 
     $type = (int) ($structure->type ?? -1);
     $subtype = strtoupper((string) ($structure->subtype ?? ''));
-    if ($type === 0 && in_array($subtype, ['PLAIN', 'HTML'], true)) {
+    $filename = nautimail_part_filename($structure);
+    $disposition = strtolower((string) ($structure->disposition ?? ''));
+    $isBodyTextPart = $type === 0 && in_array($subtype, ['PLAIN', 'HTML'], true) && $filename === '';
+    $isAttachment = !$isBodyTextPart && ($filename !== '' || in_array($disposition, ['attachment', 'inline'], true));
+
+    if ($isAttachment) {
+        $attachments[] = [
+            'part' => $partNumber,
+            'filename' => $filename !== '' ? $filename : 'piece-jointe-' . ($partNumber !== '' ? str_replace('.', '-', $partNumber) : 'mail'),
+            'contentType' => nautimail_part_content_type($structure),
+            'size' => max(0, (int) ($structure->bytes ?? 0)),
+            'encoding' => max(0, (int) ($structure->encoding ?? 0)),
+            'disposition' => $disposition !== '' ? $disposition : 'attachment',
+        ];
+    }
+
+    if ($isBodyTextPart) {
         $raw = $partNumber === ''
             ? (string) @imap_body($imap, $uid, FT_UID | FT_PEEK)
             : (string) @imap_fetchbody($imap, $uid, $partNumber, FT_UID | FT_PEEK);
@@ -814,6 +1026,7 @@ function nautimail_collect_body_parts($imap, int $uid, mixed $structure, string 
     return [
         'plain' => trim(implode("\n\n", array_filter($plain))),
         'html' => trim(implode("\n\n", array_filter($html))),
+        'attachments' => array_slice($attachments, 0, 50),
     ];
 }
 
@@ -841,6 +1054,7 @@ function nautimail_fetch_message_body($imap, int $uid): array
     return [
         'text' => $plain,
         'html' => $html,
+        'attachments' => $parts['attachments'] ?? [],
     ];
 }
 
@@ -916,9 +1130,9 @@ function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int
 
     $statement = $pdo->prepare(
         'INSERT INTO nautimail_messages
-            (account_id, mailbox, imap_uid, message_id, thread_key, subject, sender_name, sender_email, recipient_text, cc_text, received_at, preview, body_text, body_html, category, priority)
+            (account_id, mailbox, imap_uid, message_id, thread_key, subject, sender_name, sender_email, recipient_text, cc_text, bcc_text, received_at, preview, body_text, body_html, attachments_json, category, priority)
          VALUES
-            (:account_id, :mailbox, :imap_uid, :message_id, :thread_key, :subject, :sender_name, :sender_email, :recipient_text, :cc_text, :received_at, :preview, :body_text, :body_html, :category, :priority)
+            (:account_id, :mailbox, :imap_uid, :message_id, :thread_key, :subject, :sender_name, :sender_email, :recipient_text, :cc_text, :bcc_text, :received_at, :preview, :body_text, :body_html, :attachments_json, :category, :priority)
          ON DUPLICATE KEY UPDATE
             message_id = VALUES(message_id),
             thread_key = VALUES(thread_key),
@@ -927,11 +1141,17 @@ function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int
             sender_email = VALUES(sender_email),
             recipient_text = VALUES(recipient_text),
             cc_text = VALUES(cc_text),
+            bcc_text = VALUES(bcc_text),
             received_at = VALUES(received_at),
             preview = VALUES(preview),
             body_text = VALUES(body_text),
             body_html = VALUES(body_html),
+            attachments_json = VALUES(attachments_json),
             updated_at = CURRENT_TIMESTAMP'
+    );
+    $attachmentsJson = json_encode(
+        nautimail_stored_attachments($payload['attachments'] ?? []),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
     );
     $statement->execute([
         'account_id' => $accountId,
@@ -944,10 +1164,12 @@ function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int
         'sender_email' => nautimail_nullable_text($payload['senderEmail'] ?? '', 190, true),
         'recipient_text' => nautimail_nullable_text($payload['recipientText'] ?? '', 4000, true),
         'cc_text' => nautimail_nullable_text($payload['ccText'] ?? '', 4000, true),
+        'bcc_text' => nautimail_nullable_text($payload['bccText'] ?? '', 4000, true),
         'received_at' => $payload['receivedAt'] ?? null,
         'preview' => nautimail_message_preview((string) ($payload['bodyText'] ?? '')),
         'body_text' => nautimail_nullable_text($payload['bodyText'] ?? '', 120000, false),
         'body_html' => nautimail_nullable_text($payload['bodyHtml'] ?? '', 120000, false),
+        'attachments_json' => $attachmentsJson !== false && $attachmentsJson !== '[]' ? $attachmentsJson : null,
         'category' => $category,
         'priority' => $priority,
     ]);
@@ -1017,9 +1239,11 @@ function nautimail_sync_account(PDO $pdo, array $user, array $input): array
                 'senderEmail' => $senderEmail,
                 'recipientText' => nautimail_decode_mime_text((string) ($header->toaddress ?? '')),
                 'ccText' => nautimail_decode_mime_text((string) ($header->ccaddress ?? '')),
+                'bccText' => nautimail_decode_mime_text((string) ($header->bccaddress ?? '')),
                 'receivedAt' => $receivedAt,
                 'bodyText' => $body['text'],
                 'bodyHtml' => $body['html'],
+                'attachments' => $body['attachments'] ?? [],
             ]);
 
             $seen++;
@@ -1193,6 +1417,61 @@ function nautimail_reply_subject(string $subject): string
     return preg_match('/^re\s*:/i', $subject) ? $subject : 'Re: ' . $subject;
 }
 
+function nautimail_extract_email_list(string $value, bool $required = false, int $limit = 20): array
+{
+    preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $value, $matches);
+    $emails = [];
+    foreach ($matches[0] ?? [] as $match) {
+        $email = nautimail_email($match, false);
+        if ($email !== null) {
+            $emails[$email] = true;
+        }
+    }
+
+    if ($emails === [] && $required) {
+        throw new InvalidArgumentException('Destinataire obligatoire.');
+    }
+
+    return array_slice(array_keys($emails), 0, $limit);
+}
+
+function nautimail_reply_recipients(array $message, array $account, bool $replyAll): array
+{
+    $sender = nautimail_extract_email_list((string) ($message['sender_email'] ?? ''), false, 1);
+    $to = $sender;
+    $cc = [];
+
+    if ($replyAll) {
+        $excluded = [];
+        foreach ([
+            (string) ($account['email_address'] ?? ''),
+            (string) ($account['reply_to'] ?? ''),
+            (string) ($message['account_email'] ?? ''),
+            ...$to,
+        ] as $email) {
+            foreach (nautimail_extract_email_list($email, false, 5) as $parsed) {
+                $excluded[$parsed] = true;
+            }
+        }
+
+        $candidates = array_merge(
+            nautimail_extract_email_list((string) ($message['recipient_text'] ?? ''), false, 30),
+            nautimail_extract_email_list((string) ($message['cc_text'] ?? ''), false, 30)
+        );
+        foreach ($candidates as $email) {
+            if (!isset($excluded[$email])) {
+                $cc[$email] = true;
+            }
+        }
+    }
+
+    return [
+        'toEmail' => implode(', ', array_slice(array_values($to), 0, 10)),
+        'ccEmail' => implode(', ', array_slice(array_keys($cc), 0, 20)),
+        'bccEmail' => '',
+    ];
+}
+
 function nautimail_generate_reply(PDO $pdo, array $user, array $input): array
 {
     $messageId = (int) ($input['messageId'] ?? 0);
@@ -1212,12 +1491,17 @@ function nautimail_generate_reply(PDO $pdo, array $user, array $input): array
     }
 
     $tone = nautimail_enum($input['tone'] ?? 'pro', ['pro', 'court', 'commercial', 'support'], 'pro');
+    $replyAll = !empty($input['replyAll']);
+    $recipients = nautimail_reply_recipients($message, $account, $replyAll);
     $prompt = mb_substr(
         "Ton: {$tone}\n" .
         "Adresse de reponse: " . (string) $account['email_address'] . "\n" .
+        "Mode: " . ($replyAll ? "repondre a tous" : "repondre a l expediteur") . "\n" .
         "Signature: " . (string) ($account['signature'] ?? '') . "\n\n" .
         "Mail recu\nSujet: " . (string) $message['subject'] . "\n" .
         "De: " . (string) $message['sender_email'] . "\n" .
+        "A: " . (string) ($message['recipient_text'] ?? '') . "\n" .
+        "Cc: " . (string) ($message['cc_text'] ?? '') . "\n" .
         "Synthese IA: " . (string) ($message['ai_summary'] ?? '') . "\n\n" .
         (string) $message['body_text'],
         0,
@@ -1244,27 +1528,17 @@ function nautimail_generate_reply(PDO $pdo, array $user, array $input): array
     }
 
     return [
-        'toEmail' => (string) ($message['sender_email'] ?? ''),
+        'toEmail' => $recipients['toEmail'],
+        'ccEmail' => $recipients['ccEmail'],
+        'bccEmail' => $recipients['bccEmail'],
         'subject' => nautimail_reply_subject((string) $message['subject']),
         'body' => $body,
     ];
 }
 
-function nautimail_parse_recipients(string $value): array
+function nautimail_parse_recipients(string $value, bool $required = true, int $limit = 20): array
 {
-    $parts = preg_split('/[,;]+/', $value) ?: [];
-    $emails = [];
-    foreach ($parts as $part) {
-        $email = nautimail_email($part, false);
-        if ($email !== null) {
-            $emails[$email] = true;
-        }
-    }
-    if ($emails === []) {
-        throw new InvalidArgumentException('Destinataire obligatoire.');
-    }
-
-    return array_slice(array_keys($emails), 0, 10);
+    return nautimail_extract_email_list($value, $required, $limit);
 }
 
 function nautimail_header_encode(string $value): string

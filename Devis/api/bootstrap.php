@@ -352,6 +352,23 @@ function devis_delete_pdf_file(mixed $relativePath): void
     }
 }
 
+function devis_ensure_writable_dir(string $dir, string $label): void
+{
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        throw new RuntimeException('Impossible de creer le dossier ' . $label . ' : ' . $dir);
+    }
+
+    clearstatcache(true, $dir);
+    if (!is_writable($dir)) {
+        @chmod($dir, 0775);
+        clearstatcache(true, $dir);
+    }
+
+    if (!is_writable($dir)) {
+        throw new RuntimeException('Le dossier ' . $label . ' n est pas accessible en ecriture par PHP : ' . $dir);
+    }
+}
+
 function devis_save_quote(PDO $pdo, array $user, array $input): array
 {
     $userId = (int) $user['id'];
@@ -865,9 +882,7 @@ function devis_draw_table_header(DevisPdfCanvas $pdf, float $y): void
 function devis_generate_quote_pdf(array $quote, array $settings = []): array
 {
     $storageDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'quotes';
-    if (!is_dir($storageDir) && !mkdir($storageDir, 0775, true) && !is_dir($storageDir)) {
-        throw new RuntimeException('Impossible de creer le dossier PDF.');
-    }
+    devis_ensure_writable_dir($storageDir, 'PDF Devis');
 
     $reference = (string) ($quote['reference'] ?? ('DEV-' . time()));
     $filename = devis_safe_filename($reference) . '-' . date('Ymd-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 6) . '.pdf';
