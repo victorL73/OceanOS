@@ -15,6 +15,8 @@ CONTROL_BIN="/usr/local/sbin/oceanos-service-control"
 SUDOERS_FILE="/etc/sudoers.d/oceanos-service-control"
 NAUTIMAIL_CRON_FILE="/etc/cron.d/oceanos-nautimail"
 NAUTIMAIL_LOG_FILE="/var/log/oceanos-nautimail-sync.log"
+LEGACY_MOBYWORK_SERVICE="mobywork-backend"
+LEGACY_MOBYWORK_ENV="/etc/oceanos/mobywork-backend.env"
 
 log() {
   printf '[%s] %s\n' "$APP_NAME" "$*"
@@ -41,6 +43,21 @@ database_service() {
     return
   fi
   echo "mariadb"
+}
+
+remove_legacy_mobywork_service() {
+  need_root
+  log "Nettoyage de l'ancien service Node Mobywork si present..."
+
+  local unit="${LEGACY_MOBYWORK_SERVICE}.service"
+  if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx "$unit"; then
+    systemctl stop "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
+    systemctl disable "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
+  fi
+
+  rm -f "/etc/systemd/system/$unit" "$LEGACY_MOBYWORK_ENV"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl reset-failed "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
 }
 
 install_packages() {
@@ -140,6 +157,8 @@ APP_ROOT="${OCEANOS_APP_ROOT:-/var/www/oceanos}"
 PHP_USER="${OCEANOS_PHP_USER:-www-data}"
 PHP_GROUP="${OCEANOS_PHP_GROUP:-www-data}"
 WEB_SERVICE="${OCEANOS_WEB_SERVICE:-apache2}"
+LEGACY_MOBYWORK_SERVICE="mobywork-backend"
+LEGACY_MOBYWORK_ENV="/etc/oceanos/mobywork-backend.env"
 
 json_escape() {
   printf '%s' "$1" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g; s/"/\\"/g; s/\r/\\r/g; s/\n/\\n/g'
@@ -155,6 +174,18 @@ db_service() {
     return
   fi
   echo "mariadb"
+}
+
+cleanup_removed_services() {
+  local unit="${LEGACY_MOBYWORK_SERVICE}.service"
+  if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx "$unit"; then
+    systemctl stop "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
+    systemctl disable "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
+  fi
+
+  rm -f "/etc/systemd/system/$unit" "$LEGACY_MOBYWORK_ENV"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl reset-failed "$LEGACY_MOBYWORK_SERVICE" >/dev/null 2>&1 || true
 }
 
 unit_for() {
@@ -297,6 +328,8 @@ run_update() {
     exit "$status"
   fi
 
+  cleanup_removed_services
+
   set +e
   permissions_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" permissions 2>&1)"
   permissions_status=$?
@@ -433,6 +466,7 @@ ensure_permissions() {
 
 install_all() {
   need_root
+  remove_legacy_mobywork_service
   install_packages
   install_php_dependencies
   install_nautimail_cron
@@ -481,6 +515,7 @@ Usage:
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh stop
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh restart
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh nautimail-cron
+  sudo ./scripts/ubuntu/oceanos-ubuntu.sh cleanup
   ./scripts/ubuntu/oceanos-ubuntu.sh status
 
 Variables utiles:
@@ -494,7 +529,8 @@ case "${1:-help}" in
   deps) need_root; install_packages; install_php_dependencies; install_nautimail_cron ;;
   nautimail-cron) need_root; install_nautimail_cron ;;
   apache) need_root; install_apache_site ;;
-  control) need_root; install_service_control_wrapper ;;
+  control) need_root; remove_legacy_mobywork_service; install_service_control_wrapper ;;
+  cleanup) need_root; remove_legacy_mobywork_service ;;
   permissions) need_root; ensure_permissions ;;
   start) start_services ;;
   stop) stop_services ;;

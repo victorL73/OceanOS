@@ -3,7 +3,7 @@ const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
 const COMPANY_URL = "/OceanOS/api/company.php";
-const SERVICES_URL = "/OceanOS/api/services.php?v=20260502-git-update-fallback";
+  const SERVICES_URL = "/OceanOS/api/services.php?v=20260502-no-mobywork-node";
 
 const apps = [
   {
@@ -728,15 +728,13 @@ async function loadServices() {
 }
 
 async function runServerUpdate() {
-  const confirmMessage = servicesControlAvailable
-    ? "Mettre a jour OceanOS depuis Git puis relancer les services disponibles ?"
-    : "Mettre a jour OceanOS depuis Git ? Les services ne seront pas relances depuis cet environnement.";
+  const confirmMessage = "Mettre a jour OceanOS depuis Git ?";
   const ok = window.confirm(confirmMessage);
   if (!ok) return;
 
   elements.updateServices.disabled = true;
   elements.reloadServices.disabled = true;
-  showServicesStatus(servicesControlAvailable ? "Mise a jour Git en cours, puis relance des services..." : "Mise a jour Git en cours...");
+  showServicesStatus("Mise a jour Git en cours...");
   try {
     const payload = await requestJson(SERVICES_URL, {
       method: "POST",

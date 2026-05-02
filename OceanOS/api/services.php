@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-05-02-git-update-fallback';
+const OCEANOS_SERVICES_API_VERSION = '2026-05-02-no-mobywork-node';
 
 function oceanos_app_root(): string
 {
@@ -31,6 +31,16 @@ function oceanos_services_catalog(): array
             'unit' => 'mariadb',
         ],
     ];
+}
+
+function oceanos_known_service_ids(): array
+{
+    return array_keys(oceanos_services_catalog());
+}
+
+function oceanos_is_known_service(string $serviceId): bool
+{
+    return in_array($serviceId, oceanos_known_service_ids(), true);
 }
 
 function oceanos_service_control_available(): bool
@@ -229,6 +239,25 @@ function oceanos_normalize_service_row(array $service, bool $canControl = true):
     ];
 }
 
+function oceanos_normalize_known_services(array $services, bool $canControl = true): array
+{
+    $normalized = [];
+    foreach ($services as $service) {
+        if (!is_array($service)) {
+            continue;
+        }
+
+        $id = strtolower(trim((string) ($service['id'] ?? '')));
+        if (!oceanos_is_known_service($id)) {
+            continue;
+        }
+
+        $normalized[] = oceanos_normalize_service_row($service, $canControl);
+    }
+
+    return $normalized;
+}
+
 function oceanos_read_service_status_direct(string $message): array
 {
     return array_map(
@@ -305,6 +334,27 @@ function oceanos_git_short_head(): string
     }
 }
 
+function oceanos_preserve_server_config_before_pull(): void
+{
+    $root = oceanos_app_root();
+    $localConfig = $root . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'server.local.php';
+    $defaultConfig = $root . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'server.php';
+
+    if (!is_file($localConfig) && is_file($defaultConfig)) {
+        @copy($defaultConfig, $localConfig);
+    }
+
+    $tracked = oceanos_git_output(['ls-files', '--error-unmatch', 'OceanOS/config/server.php'], true);
+    if ((int) ($tracked['status'] ?? 1) !== 0) {
+        return;
+    }
+
+    $diff = oceanos_git_output(['diff', '--quiet', '--', 'OceanOS/config/server.php'], true);
+    if ((int) ($diff['status'] ?? 0) !== 0) {
+        oceanos_git_output(['checkout', '--', 'OceanOS/config/server.php'], true);
+    }
+}
+
 function oceanos_run_git_update_direct(): array
 {
     $root = oceanos_app_root();
@@ -313,6 +363,7 @@ function oceanos_run_git_update_direct(): array
     }
 
     $before = oceanos_git_short_head();
+    oceanos_preserve_server_config_before_pull();
     $result = oceanos_git_output(['pull', '--ff-only'], true);
     $status = (int) ($result['status'] ?? 1);
     $output = trim(trim((string) ($result['stdout'] ?? '')) . "\n" . trim((string) ($result['stderr'] ?? '')));
@@ -338,7 +389,7 @@ function oceanos_service_status_payload(): array
 {
     $controlAvailable = oceanos_service_control_available();
     $gitAvailable = oceanos_git_available();
-    $updateAvailable = $controlAvailable || $gitAvailable;
+    $updateAvailable = $gitAvailable;
     if (!$controlAvailable) {
         if (PHP_OS_FAMILY === 'Linux' && oceanos_can_run_process()) {
             $message = 'Etats lus via systemctl. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control pour activer les boutons.';
@@ -373,11 +424,41 @@ function oceanos_service_status_payload(): array
         ];
     }
 
-    $payload = oceanos_run_service_control('status', 'all');
-    $services = array_map(
-        static fn(array $service): array => oceanos_normalize_service_row($service, true),
-        is_array($payload['services'] ?? null) ? $payload['services'] : []
-    );
+    try {
+        $payload = oceanos_run_service_control('status', 'all');
+        $services = oceanos_normalize_known_services(
+            is_array($payload['services'] ?? null) ? $payload['services'] : [],
+            true
+        );
+    } catch (Throwable $exception) {
+        $message = 'Controleur systeme installe mais indisponible ou trop ancien : ' . $exception->getMessage();
+
+        if (PHP_OS_FAMILY === 'Linux' && oceanos_can_run_process()) {
+            return [
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'version' => OCEANOS_SERVICES_API_VERSION,
+                'controlAvailable' => false,
+                'gitAvailable' => $gitAvailable,
+                'updateAvailable' => $updateAvailable,
+                'controller' => oceanos_service_control_path(),
+                'services' => oceanos_read_service_status_direct($message),
+                'message' => $message,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'managedBy' => 'OceanOS',
+            'version' => OCEANOS_SERVICES_API_VERSION,
+            'controlAvailable' => false,
+            'gitAvailable' => $gitAvailable,
+            'updateAvailable' => $updateAvailable,
+            'controller' => oceanos_service_control_path(),
+            'services' => oceanos_unknown_services($message),
+            'message' => $message,
+        ];
+    }
 
     return [
         'ok' => true,
@@ -448,7 +529,7 @@ try {
 
         if ($action === 'status') {
             $actionResult = ['ok' => true];
-        } elseif ($action === 'update' && !oceanos_service_control_available()) {
+        } elseif ($action === 'update') {
             $actionResult = oceanos_run_git_update_direct();
         } else {
             $actionResult = oceanos_run_service_control($action, $service);
