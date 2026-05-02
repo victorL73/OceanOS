@@ -22,6 +22,7 @@
     ["/formcean/", "formcean"],
     ["/nautisign/", "nautisign"],
     ["/naviplan/", "naviplan"],
+    ["/seocean/", "visiocean"],
     ["/visiocean/", "visiocean"],
     ["/meetocean/", "meetocean"],
   ];

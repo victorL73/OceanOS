@@ -182,9 +182,11 @@ function MailModule({ onCompose, isComposing, setIsComposing, navContext, setNav
         axios.get(`${API_URL}/emails`, { params }),
         axios.get(`${API_URL}/stats`),
       ]);
-      setEmails(emailsRes.data);
+      const nextEmails = Array.isArray(emailsRes.data) ? emailsRes.data : [];
+      setEmails(nextEmails);
       setStats(statsRes.data);
-      setSelectedMailIds(prev => prev.filter(id => emailsRes.data.some(mail => mail.id === id)));
+      setSelectedMailIds(prev => prev.filter(id => nextEmails.some(mail => mail.id === id)));
+      setSelectedMail(prev => prev && nextEmails.some(mail => mail.id === prev.id) ? prev : null);
     } catch (err) {
       console.error('Backend non accessible:', err.message);
     }

@@ -187,13 +187,53 @@ async function getUserMailAccounts(userId) {
 
 function mailboxFilterClause(account) {
     if (!account) return { clause: '', params: [] };
-    const params = [account.id, account.email];
-    let clause = ' AND (mailbox_id = ? OR mailbox_address = ?';
-    if (account.id === 'legacy') {
-        clause += " OR mailbox_id IS NULL OR mailbox_id = ''";
+    const id = String(account.id || '').trim();
+    const email = normalizeMailboxAddress(account.email);
+    const clauses = [];
+    const params = [];
+
+    if (email) {
+        clauses.push("LOWER(COALESCE(mailbox_address, '')) = ?");
+        params.push(email);
     }
-    clause += ')';
-    return { clause, params };
+    if (id) {
+        clauses.push("(mailbox_id = ? AND (mailbox_address IS NULL OR mailbox_address = ''))");
+        params.push(id);
+    }
+    if (id === 'legacy') {
+        clauses.push("((mailbox_id IS NULL OR mailbox_id = '') AND (mailbox_address IS NULL OR mailbox_address = ''))");
+    }
+
+    return clauses.length > 0
+        ? { clause: ` AND (${clauses.join(' OR ')})`, params }
+        : { clause: ' AND 1 = 0', params: [] };
+}
+
+function mailboxesFilterClause(accounts = []) {
+    const clauses = [];
+    const params = [];
+
+    accounts.forEach(account => {
+        const filter = mailboxFilterClause(account);
+        if (!filter.clause || filter.clause === ' AND 1 = 0') return;
+        clauses.push(filter.clause.replace(/^ AND /, ''));
+        params.push(...filter.params);
+    });
+
+    return clauses.length > 0
+        ? { clause: ` AND (${clauses.join(' OR ')})`, params }
+        : { clause: ' AND 1 = 0', params: [] };
+}
+
+function rowBelongsToMailbox(row, account) {
+    const rowAddress = normalizeMailboxAddress(row.mailbox_address);
+    const rowMailboxId = String(row.mailbox_id || '').trim();
+    const accountAddress = normalizeMailboxAddress(account.email);
+    const accountId = String(account.id || '').trim();
+
+    if (rowAddress) return rowAddress === accountAddress;
+    if (accountId && rowMailboxId === accountId) return true;
+    return accountId === 'legacy' && (!rowMailboxId || rowMailboxId === 'legacy');
 }
 
 async function recordSentMail({ userId, sender, to, cc = '', bcc = '', subject, text, html, replyToMailId = null }) {
@@ -346,23 +386,28 @@ function cleanupEmailAttachments(rows = []) {
 // ═══════════════════════════════════════════════════════════
 
 // Dashboard Stats
-app.get('/api/stats', (req, res) => {
-    db.get(`
+app.get('/api/stats', async (req, res) => {
+    try {
+        const accounts = await getUserMailAccounts(req.user.id);
+        const mailboxFilter = mailboxesFilterClause(accounts);
+        const row = await dbGet(`
         SELECT 
             SUM(CASE WHEN priorite = 'urgent' AND status = 'a_repondre' THEN 1 ELSE 0 END) as urgents,
             SUM(CASE WHEN status = 'a_repondre' THEN 1 ELSE 0 END) as a_traiter,
             SUM(CASE WHEN status = 'traite' THEN 1 ELSE 0 END) as traites,
             SUM(CASE WHEN categorie = 'facture' THEN 1 ELSE 0 END) as factures
         FROM emails WHERE user_id = ? AND (direction IS NULL OR direction != 'sent')
-    `, [req.user.id], (err, row) => {
-        if (err) return res.status(500).json({ error: err });
+        ${mailboxFilter.clause}
+    `, [req.user.id, ...mailboxFilter.params]);
         res.json({
             urgents:   row.urgents   || 0,
             a_traiter: row.a_traiter || 0,
             traites:   row.traites   || 0,
             factures:  row.factures  || 0
         });
-    });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Impossible de charger les stats mail.' });
+    }
 });
 
 app.get('/api/mailboxes', async (req, res) => {
@@ -380,7 +425,7 @@ app.get('/api/mailboxes', async (req, res) => {
         `, [req.user.id]);
 
         const countFor = (account, field) => counts
-            .filter(row => row.mailbox_id === account.id || String(row.mailbox_address).toLowerCase() === String(account.email).toLowerCase() || (account.id === 'legacy' && row.mailbox_id === 'legacy'))
+            .filter(row => rowBelongsToMailbox(row, account))
             .reduce((sum, row) => sum + Number(row[field] || 0), 0);
 
         res.json(accounts.map(account => ({
@@ -503,10 +548,14 @@ app.get('/api/emails', async (req, res) => {
         query += " AND (direction IS NULL OR direction != 'sent')";
     }
 
+    const accounts = await getUserMailAccounts(req.user.id);
     if (mailbox && mailbox !== 'all') {
-        const accounts = await getUserMailAccounts(req.user.id);
         const account = accounts.find(item => item.id === mailbox || item.email === mailbox);
         const mailboxFilter = mailboxFilterClause(account || { id: mailbox, email: mailbox });
+        query += mailboxFilter.clause;
+        params.push(...mailboxFilter.params);
+    } else {
+        const mailboxFilter = mailboxesFilterClause(accounts);
         query += mailboxFilter.clause;
         params.push(...mailboxFilter.params);
     }

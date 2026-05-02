@@ -17,7 +17,7 @@ www/
   NautiCloud/            Drive partage, apercus et edition temps reel
   Formcean/              Formulaires publics, collecte de reponses et exports
   Naviplan/              Agenda administratif, fiscal, social et juridique
-  Visiocean/             Google Analytics, Search Console, audit SEO et recommandations
+  SeoCean/               Google Analytics, Search Console, audit SEO et recommandations
   MeetOcean/             Visioconference, transcription et traduction temps reel
   _backups/              Sauvegardes SQL locales
   index.php              Redirection vers OceanOS
@@ -46,7 +46,7 @@ Les applications concernées actuellement sont :
 - NautiCloud
 - Formcean
 - Naviplan
-- Visiocean
+- SeoCean
 - MeetOcean
 
 ## Page de configuration serveur
@@ -210,7 +210,7 @@ Tables Naviplan :
 naviplan_settings
 ```
 
-Tables Visiocean :
+Tables SeoCean :
 
 ```text
 visiocean_settings
@@ -380,12 +380,12 @@ Il utilise OceanOS pour :
 - filtrer les echeances par fiscalite, TVA, employeur, CFE, juridique, RH et RGPD
 - exporter les echeances visibles au format ICS
 
-## Visiocean
+## SeoCean
 
-Visiocean se trouve au meme niveau que les autres applications :
+SeoCean se trouve au meme niveau que les autres applications :
 
 ```text
-www/Visiocean/
+www/SeoCean/
 ```
 
 Il utilise OceanOS pour :
@@ -463,7 +463,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan, Visiocean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -544,6 +544,6 @@ http://localhost/NautiPost/
 http://localhost/NautiCloud/
 http://localhost/Formcean/
 http://localhost/Naviplan/
-http://localhost/Visiocean/
+http://localhost/SeoCean/
 http://localhost/MeetOcean/
 ```

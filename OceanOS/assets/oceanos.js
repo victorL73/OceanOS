@@ -89,10 +89,10 @@ const apps = [
   },
   {
     id: "visiocean",
-    title: "Visiocean",
+    title: "SeoCean",
     subtitle: "Google Analytics, Search Console, SEO et recommandations.",
-    href: "/Visiocean/",
-    mark: "VI",
+    href: "/SeoCean/",
+    mark: "SC",
     color: "#168f83",
   },
   {
