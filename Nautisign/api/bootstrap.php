@@ -440,10 +440,6 @@ function nautisign_list_quote_files(?PDO $pdo = null, ?array $user = null): arra
             $metadata = [];
             if ((string) $source === 'devis') {
                 $metadata = $devisMetadata[$entry] ?? [];
-                if ($metadata === []) {
-                    $referenceKey = 'ref:' . nautisign_devis_reference_from_filename($entry);
-                    $metadata = $devisMetadata[$referenceKey] ?? [];
-                }
             }
             if ((string) $source === 'devis' && $pdo !== null && $user !== null && $metadata === []) {
                 continue;

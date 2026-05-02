@@ -359,6 +359,85 @@ function devis_delete_pdf_file(mixed $relativePath): void
     }
 }
 
+function devis_pdf_storage_dir(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'quotes';
+}
+
+function devis_pdf_filename_for_quote(array $quote): string
+{
+    $reference = (string) ($quote['reference'] ?? ('DEV-' . time()));
+    $filename = devis_safe_filename($reference);
+    $quoteId = (int) ($quote['id'] ?? 0);
+    if ($quoteId > 0) {
+        $filename .= '-q' . $quoteId;
+    }
+
+    return $filename . '.pdf';
+}
+
+function devis_delete_previous_quote_pdfs(string $reference, mixed $keepRelativePath): void
+{
+    $storageDir = devis_pdf_storage_dir();
+    if (!is_dir($storageDir)) {
+        return;
+    }
+
+    $safeReference = devis_safe_filename($reference);
+    if ($safeReference === '') {
+        return;
+    }
+
+    $keepPath = devis_pdf_absolute_path($keepRelativePath);
+    $keepRealPath = $keepPath !== '' && is_file($keepPath) ? realpath($keepPath) : false;
+    foreach (scandir($storageDir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..' || !preg_match('/\.pdf$/i', $entry)) {
+            continue;
+        }
+        if (!str_starts_with($entry, $safeReference . '-')) {
+            continue;
+        }
+
+        $path = $storageDir . DIRECTORY_SEPARATOR . $entry;
+        $realPath = is_file($path) ? realpath($path) : false;
+        if ($realPath === false || ($keepRealPath !== false && $realPath === $keepRealPath)) {
+            continue;
+        }
+        @unlink($realPath);
+    }
+}
+
+function devis_sync_nautisign_quote_filename(PDO $pdo, int $userId, string $reference, string $filename): void
+{
+    if (!oceanos_table_exists($pdo, 'nautisign_requests')) {
+        return;
+    }
+
+    $safeReference = devis_safe_filename($reference);
+    if ($safeReference === '') {
+        return;
+    }
+
+    $safeFilename = basename(str_replace('\\', '/', $filename));
+    $safeFilename = preg_replace('/[^\pL\pN._ -]/u', '', $safeFilename) ?: '';
+    if ($safeFilename === '') {
+        return;
+    }
+
+    $statement = $pdo->prepare(
+        "UPDATE nautisign_requests
+         SET quote_filename = :quote_filename
+         WHERE owner_user_id = :owner_user_id
+           AND status <> 'signed'
+           AND quote_filename LIKE :reference_prefix"
+    );
+    $statement->execute([
+        'quote_filename' => 'devis/' . $safeFilename,
+        'owner_user_id' => $userId,
+        'reference_prefix' => 'devis/' . $safeReference . '%',
+    ]);
+}
+
 function devis_ensure_writable_dir(string $dir, string $label): void
 {
     if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
@@ -381,6 +460,7 @@ function devis_save_quote(PDO $pdo, array $user, array $input): array
     $userId = (int) $user['id'];
     $quoteId = (int) ($input['id'] ?? 0);
     $generatedPdf = null;
+    $oldPdfPath = '';
     $lines = devis_normalize_lines(is_array($input['lines'] ?? null) ? $input['lines'] : []);
     $totals = devis_totals($lines);
     $status = trim((string) ($input['status'] ?? 'Brouillon')) ?: 'Brouillon';
@@ -407,7 +487,8 @@ function devis_save_quote(PDO $pdo, array $user, array $input): array
     try {
         $pdo->beginTransaction();
         if ($quoteId > 0) {
-            devis_quote_row($pdo, $quoteId, $userId);
+            $existingRow = devis_quote_row($pdo, $quoteId, $userId);
+            $oldPdfPath = (string) ($existingRow['pdf_file_path'] ?? '');
             $params['id'] = $quoteId;
             $statement = $pdo->prepare(
                 'UPDATE devis_quotes
@@ -460,7 +541,17 @@ function devis_save_quote(PDO $pdo, array $user, array $input): array
         throw new RuntimeException('Devis non enregistre : impossible de generer le PDF local. ' . $exception->getMessage(), 0, $exception);
     }
 
-    return devis_public_quote(devis_quote_row($pdo, $quoteId, $userId));
+    $quote = devis_public_quote(devis_quote_row($pdo, $quoteId, $userId));
+    if ($oldPdfPath !== '' && $oldPdfPath !== (string) ($generatedPdf['relativePath'] ?? '')) {
+        devis_delete_pdf_file($oldPdfPath);
+    }
+    devis_delete_previous_quote_pdfs((string) ($quote['reference'] ?? ''), (string) ($generatedPdf['relativePath'] ?? ''));
+    try {
+        devis_sync_nautisign_quote_filename($pdo, $userId, (string) ($quote['reference'] ?? ''), (string) ($generatedPdf['filename'] ?? ''));
+    } catch (Throwable) {
+    }
+
+    return $quote;
 }
 
 function devis_delete_quote(PDO $pdo, array $user, int $quoteId): void
@@ -888,11 +979,10 @@ function devis_draw_table_header(DevisPdfCanvas $pdf, float $y): void
 
 function devis_generate_quote_pdf(array $quote, array $settings = []): array
 {
-    $storageDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'quotes';
+    $storageDir = devis_pdf_storage_dir();
     devis_ensure_writable_dir($storageDir, 'PDF Devis');
 
-    $reference = (string) ($quote['reference'] ?? ('DEV-' . time()));
-    $filename = devis_safe_filename($reference) . '-' . date('Ymd-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 6) . '.pdf';
+    $filename = devis_pdf_filename_for_quote($quote);
     $absolutePath = $storageDir . DIRECTORY_SEPARATOR . $filename;
     $relativePath = 'storage/quotes/' . $filename;
     $content = devis_render_quote_pdf($quote, $settings);
