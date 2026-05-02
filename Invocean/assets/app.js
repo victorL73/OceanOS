@@ -370,11 +370,8 @@ function renderSettings() {
     : "Aucune clé enregistrée";
   elements.clearWebserviceKey.checked = false;
   elements.pdfUrlTemplate.value = settings.pdfUrlTemplate || "";
-  elements.nautisignApiUrl.value = settings.nautisignApiUrl || "";
+  elements.nautisignApiUrl.value = "";
   elements.nautisignApiToken.value = "";
-  elements.nautisignApiToken.placeholder = settings.hasNautisignApiToken
-    ? `Jeton enregistré (${settings.nautisignApiTokenHint || "masqué"})`
-    : "Aucun jeton enregistré";
   elements.clearNautisignApiToken.checked = false;
   elements.syncWindowDays.value = settings.syncWindowDays || 30;
   elements.sellerName.value = settings.sellerName || "";
@@ -427,7 +424,7 @@ function renderSettings() {
     : "status-pill muted-pill";
 
   elements.syncButton.disabled = !canManage || !settings.shopUrl || !settings.hasWebserviceKey;
-  elements.syncQuotesButton.disabled = !canManage || !settings.nautisignApiUrl;
+  elements.syncQuotesButton.disabled = !canManage;
   elements.importQuoteButton.disabled = !canManage;
 }
 
@@ -752,7 +749,7 @@ function renderQuotes() {
 
 async function syncQuotes() {
   elements.syncQuotesButton.disabled = true;
-  showMessage(elements.quotesMessage, "Récupération Nautisign en cours...");
+  showMessage(elements.quotesMessage, "Lecture des devis signés Nautisign...");
 
   try {
     const payload = await apiRequest(API.quotes, {
@@ -766,7 +763,7 @@ async function syncQuotes() {
     showMessage(elements.quotesMessage, payload.message || "Devis récupérés.", "success");
     toast("Devis Nautisign récupérés.");
   } catch (error) {
-    showMessage(elements.quotesMessage, error.message || "Récupération Nautisign impossible.", "error");
+    showMessage(elements.quotesMessage, error.message || "Lecture Nautisign impossible.", "error");
   } finally {
     renderSettings();
   }

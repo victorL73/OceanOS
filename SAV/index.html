@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAV</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/sav.svg?v=20260502">
+  <meta name="description" content="SAV - demandes clients PrestaShop, suivi et reponses depuis OceanOS.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260502">
+  <script defer src="/OceanOS/assets/guard.js?v=20260502-commandes-sav"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">SV</div>
+      <p>Chargement SAV...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">SV</span>
+            <span id="connection-chip" class="status-pill muted-pill">PrestaShop non configure</span>
+          </div>
+          <h1>SAV</h1>
+          <p>Demandes clients PrestaShop et reponses de support.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Deconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <span>Demandes</span>
+          <strong id="metric-threads">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Ouvertes</span>
+          <strong id="metric-open">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>En attente</span>
+          <strong id="metric-pending">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Fermees</span>
+          <strong id="metric-closed">0</strong>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <aside class="panel threads-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">PrestaShop</p>
+              <h2>Demandes clients</h2>
+            </div>
+            <form id="filters-form" class="filters-form">
+              <input id="search-input" type="search" placeholder="Client, email ou commande">
+              <select id="status-filter">
+                <option value="">Tous les statuts</option>
+              </select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+          <div id="threads-list" class="threads-list"></div>
+        </aside>
+
+        <section class="panel detail-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Conversation</p>
+              <h2 id="detail-title">Selectionnez une demande</h2>
+            </div>
+            <span id="detail-status" class="status-pill muted-pill">En attente</span>
+          </div>
+
+          <div id="detail-empty" class="empty-state">Aucune demande selectionnee.</div>
+
+          <article id="detail-content" class="detail-content hidden">
+            <section class="detail-grid">
+              <div>
+                <span>Client</span>
+                <strong id="detail-customer">-</strong>
+                <small id="detail-email"></small>
+              </div>
+              <div>
+                <span>Commande</span>
+                <strong id="detail-order">-</strong>
+                <small id="detail-contact">-</small>
+              </div>
+              <div>
+                <span>Derniere activite</span>
+                <strong id="detail-date">-</strong>
+                <small id="detail-updated">Fil PrestaShop</small>
+              </div>
+            </section>
+
+            <section id="messages-list" class="messages-list"></section>
+
+            <form id="reply-form" class="reply-form">
+              <label class="field reply-field">
+                <span>Reponse</span>
+                <textarea id="reply-message" rows="5" placeholder="Votre reponse au client"></textarea>
+              </label>
+              <div class="reply-controls">
+                <label class="field">
+                  <span>Statut apres envoi</span>
+                  <select id="next-status"></select>
+                </label>
+                <label class="check-row">
+                  <input id="private-reply" type="checkbox">
+                  <span>Note interne</span>
+                </label>
+                <button id="reply-button" class="primary-button" type="submit">Repondre</button>
+                <button id="status-button" class="ghost-button" type="button">Changer le statut</button>
+              </div>
+            </form>
+          </article>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="assets/app.js?v=20260502"></script>
+</body>
+</html>

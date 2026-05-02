@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Invocean</title>
     <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/invocean.svg?v=20260427">
-    <link rel="stylesheet" href="assets/style.css?v=20260502-nautisign">
+    <link rel="stylesheet" href="assets/style.css?v=20260502-align">
     <link rel="stylesheet" href="/OceanOS/assets/guard.css">
     <script defer src="/OceanOS/assets/guard.js?v=20260426-module-rights"></script>
   </head>
@@ -266,18 +266,10 @@
                 <p class="eyebrow">Nautisign</p>
                 <strong>Devis signés</strong>
               </div>
-              <label class="field">
-                <span>URL API devis signés</span>
-                <input id="nautisign-api-url" type="url" placeholder="https://.../devis-signes">
-              </label>
-              <label class="field">
-                <span>Jeton API Nautisign</span>
-                <input id="nautisign-api-token" type="password" autocomplete="off" placeholder="Conserver le jeton actuel">
-              </label>
-              <label class="check-row">
-                <input id="clear-nautisign-api-token" type="checkbox">
-                <span>Effacer le jeton enregistré</span>
-              </label>
+              <p class="settings-note">Connexion interne : Invocean lit les demandes signées du module Nautisign et les lignes du module Devis. Aucun jeton API n'est nécessaire.</p>
+              <input id="nautisign-api-url" type="hidden">
+              <input id="nautisign-api-token" type="hidden">
+              <input id="clear-nautisign-api-token" class="hidden" type="checkbox">
               <div class="form-divider">
                 <p class="eyebrow">Factur-X</p>
                 <strong>Vendeur</strong>

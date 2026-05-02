@@ -295,6 +295,26 @@ function invocean_ensure_column(PDO $pdo, string $table, string $column, string 
     }
 }
 
+function invocean_table_exists(PDO $pdo, string $table): bool
+{
+    if (function_exists('oceanos_table_exists')) {
+        return oceanos_table_exists($pdo, $table);
+    }
+
+    $config = invocean_config();
+    $statement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = :db_name AND TABLE_NAME = :table_name'
+    );
+    $statement->execute([
+        'db_name' => (string) $config['db_name'],
+        'table_name' => $table,
+    ]);
+
+    return (int) $statement->fetchColumn() > 0;
+}
+
 function invocean_ensure_invoice_channel_values(PDO $pdo): void
 {
     $config = invocean_config();
@@ -3325,8 +3345,180 @@ function invocean_extract_quote_payloads(array $decoded): array
     return [$decoded];
 }
 
+function invocean_path_basename(mixed $path): string
+{
+    $path = trim(str_replace('\\', '/', (string) $path));
+    if ($path === '') {
+        return '';
+    }
+
+    return basename($path);
+}
+
+function invocean_devis_lines_to_quote_lines(mixed $linesJson): array
+{
+    $decoded = json_decode((string) ($linesJson ?? '[]'), true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $lines = [];
+    foreach ($decoded as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+
+        $quantity = max(0.0001, invocean_quote_number($line['quantity'] ?? 1));
+        $unitHt = invocean_quote_number($line['unit_price_ht'] ?? $line['unit_ht'] ?? 0);
+        $taxRate = invocean_quote_number($line['tax_rate'] ?? 0);
+        $unitTtc = $unitHt * (1 + ($taxRate / 100));
+        $totalHt = $unitHt * $quantity;
+        $totalTtc = $unitTtc * $quantity;
+        $label = trim((string) ($line['name'] ?? 'Prestation'));
+        if ((string) ($line['line_type'] ?? '') === 'fee' && $label !== '') {
+            $label = 'Frais annexes - ' . $label;
+        }
+
+        $lines[] = [
+            'name' => $label !== '' ? $label : 'Prestation',
+            'reference' => (string) ($line['product_reference'] ?? $line['reference'] ?? ''),
+            'quantity' => $quantity,
+            'unit_ht' => $unitHt,
+            'unit_ttc' => $unitTtc,
+            'total_ht' => $totalHt,
+            'total_ttc' => $totalTtc,
+            'tax_rate' => $taxRate,
+        ];
+    }
+
+    return $lines;
+}
+
+function invocean_nautisign_internal_payload(array $request, ?array $quote): array
+{
+    $quoteFilename = (string) ($request['quote_filename'] ?? '');
+    $filename = invocean_path_basename($quoteFilename);
+    $quoteNumber = trim((string) ($quote['reference'] ?? ''));
+    if ($quoteNumber === '') {
+        $quoteNumber = preg_replace('/\.pdf$/i', '', $filename) ?: 'Nautisign-' . (int) ($request['id'] ?? 0);
+    }
+
+    $clientName = trim((string) ($quote['client_name'] ?? ''));
+    if ($clientName === '') {
+        $clientName = trim((string) ($request['signer_name'] ?? ''));
+    }
+    $clientEmail = trim((string) ($quote['client_email'] ?? ''));
+    if ($clientEmail === '') {
+        $clientEmail = trim((string) ($request['signer_email'] ?? ''));
+    }
+
+    return [
+        'id' => 'nautisign-request-' . (int) ($request['id'] ?? 0),
+        'status' => 'signed',
+        'quote_number' => $quoteNumber,
+        'quote_date' => (string) ($quote['date_created'] ?? $request['created_at'] ?? ''),
+        'signed_at' => (string) ($request['signed_at'] ?? ''),
+        'customer' => [
+            'name' => $clientName,
+            'email' => $clientEmail,
+        ],
+        'total_ht' => (string) ($quote['total_ht'] ?? '0'),
+        'total_ttc' => (string) ($quote['total_ttc'] ?? '0'),
+        'currency' => 'EUR',
+        'lines' => invocean_devis_lines_to_quote_lines($quote['lines_json'] ?? null),
+        'nautisign' => [
+            'request_id' => (int) ($request['id'] ?? 0),
+            'token' => (string) ($request['token'] ?? ''),
+            'quote_filename' => $quoteFilename,
+            'signed_pdf_path' => (string) ($request['signed_pdf_path'] ?? ''),
+            'signed_pdf_hash' => (string) ($request['signed_pdf_hash'] ?? ''),
+            'signed_at' => (string) ($request['signed_at'] ?? ''),
+            'signer_name' => (string) ($request['signer_name'] ?? ''),
+            'signer_email' => (string) ($request['signer_email'] ?? ''),
+        ],
+        'devis' => is_array($quote) ? [
+            'quote_id' => (int) ($quote['id'] ?? 0),
+            'reference' => (string) ($quote['reference'] ?? ''),
+            'status' => (string) ($quote['status'] ?? ''),
+            'pdf_file_path' => (string) ($quote['pdf_file_path'] ?? ''),
+        ] : [],
+    ];
+}
+
+function invocean_sync_nautisign_internal_quotes(PDO $pdo): ?array
+{
+    if (!invocean_table_exists($pdo, 'nautisign_requests')) {
+        return null;
+    }
+
+    $hasDevis = invocean_table_exists($pdo, 'devis_quotes');
+    $quoteByFilename = [];
+    if ($hasDevis) {
+        $quoteRows = $pdo->query('SELECT * FROM devis_quotes ORDER BY date_updated DESC, id DESC')->fetchAll() ?: [];
+        foreach ($quoteRows as $quoteRow) {
+            if (!is_array($quoteRow)) {
+                continue;
+            }
+            $filename = invocean_path_basename($quoteRow['pdf_file_path'] ?? '');
+            if ($filename !== '' && !isset($quoteByFilename[$filename])) {
+                $quoteByFilename[$filename] = $quoteRow;
+            }
+        }
+    }
+
+    $requests = $pdo->query(
+        "SELECT *
+         FROM nautisign_requests
+         WHERE status = 'signed'
+           AND signed_at IS NOT NULL
+         ORDER BY signed_at DESC, id DESC
+         LIMIT 300"
+    )->fetchAll() ?: [];
+
+    $seen = 0;
+    $created = 0;
+    $updated = 0;
+    $ignored = 0;
+
+    foreach ($requests as $request) {
+        if (!is_array($request)) {
+            $ignored++;
+            continue;
+        }
+        $filename = invocean_path_basename($request['quote_filename'] ?? '');
+        $quoteRow = $filename !== '' ? ($quoteByFilename[$filename] ?? null) : null;
+        try {
+            $payload = invocean_nautisign_internal_payload($request, is_array($quoteRow) ? $quoteRow : null);
+            $quote = invocean_normalize_quote_payload($payload, 'nautisign');
+            $seen++;
+            $result = invocean_upsert_signed_quote($pdo, $quote);
+            if ($result === 'created') {
+                $created++;
+            } elseif ($result === 'updated') {
+                $updated++;
+            }
+        } catch (InvalidArgumentException) {
+            $ignored++;
+        }
+    }
+
+    return [
+        'seen' => $seen,
+        'created' => $created,
+        'updated' => $updated,
+        'ignored' => $ignored,
+        'message' => sprintf('%d devis Nautisign signe(s) lu(s), %d cree(s), %d mis a jour.', $seen, $created, $updated),
+        'mode' => 'internal',
+    ];
+}
+
 function invocean_sync_nautisign_quotes(PDO $pdo): array
 {
+    $internal = invocean_sync_nautisign_internal_quotes($pdo);
+    if ($internal !== null) {
+        return $internal;
+    }
+
     $settings = invocean_get_settings($pdo, true);
     [$url, $token] = invocean_require_nautisign_settings($settings);
     $decoded = invocean_http_get_json($url, $token);

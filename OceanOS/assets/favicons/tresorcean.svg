@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Tresorcean">
+  <rect width="64" height="64" rx="12" fill="#18221d"/>
+  <path d="M16 42h32" stroke="#68c0a0" stroke-width="5" stroke-linecap="round"/>
+  <path d="M20 36l9-13 8 8 8-14" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="45" cy="17" r="5" fill="#c98316"/>
+</svg>

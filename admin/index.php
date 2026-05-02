@@ -458,6 +458,11 @@ function oceanos_admin_require_stockcean(): void
     require_once oceanos_admin_root_path('Stockcean', 'api', 'bootstrap.php');
 }
 
+function oceanos_admin_require_tresorcean(): void
+{
+    require_once oceanos_admin_root_path('Tresorcean', 'api', 'bootstrap.php');
+}
+
 function oceanos_admin_create_database_schema(): void
 {
     oceanos_admin_require_oceanos();
@@ -471,6 +476,9 @@ function oceanos_admin_create_database_schema(): void
 
     oceanos_admin_require_stockcean();
     stockcean_pdo();
+
+    oceanos_admin_require_tresorcean();
+    tresorcean_pdo();
 }
 
 function oceanos_admin_create_super_user(string $displayName, string $email, string $password): array

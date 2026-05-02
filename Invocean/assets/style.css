@@ -484,11 +484,19 @@ h2 {
 }
 
 .actions-cell {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
   text-align: right;
   white-space: nowrap;
+}
+
+.actions-cell .table-link + .table-link,
+.actions-cell .primary-button + .table-link,
+.actions-cell .table-link + .primary-button {
+  margin-left: 10px;
+}
+
+.invoice-table th:last-child,
+.invoice-table td:last-child {
+  text-align: right;
 }
 
 .table-link {
@@ -795,9 +803,14 @@ h2 {
     flex-direction: column;
   }
 
-  .button-row,
-  .actions-cell {
+  .button-row {
     justify-content: flex-start;
+  }
+
+  .actions-cell,
+  .invoice-table th:last-child,
+  .invoice-table td:last-child {
+    text-align: left;
   }
 
   .split-fields {
