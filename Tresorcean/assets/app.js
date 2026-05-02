@@ -420,7 +420,8 @@ function canvasContext(canvas) {
   const rect = canvas.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
   const width = Math.max(320, Math.floor(rect.width || canvas.parentElement.clientWidth || 320));
-  const height = Math.max(220, Number(canvas.getAttribute("height") || 240));
+  const fallbackHeight = Number(canvas.getAttribute("height") || 180);
+  const height = Math.max(150, Math.floor(rect.height || fallbackHeight));
   canvas.width = Math.floor(width * ratio);
   canvas.height = Math.floor(height * ratio);
   const context = canvas.getContext("2d");
@@ -733,7 +734,9 @@ function bindEvents() {
   elements.logoutButton.addEventListener("click", logout);
   elements.periodForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    loadDashboard().catch((error) => setMessage(error.message, "error"));
+    loadDashboard()
+      .then(() => setMessage("Filtre de date enregistre pour ce compte.", "success"))
+      .catch((error) => setMessage(error.message, "error"));
   });
   elements.entryForm.addEventListener("submit", saveEntry);
   elements.entryReset.addEventListener("click", resetEntryForm);
@@ -774,6 +777,7 @@ async function init() {
     if (!ok) return;
     await loadDashboard();
     setView("app");
+    window.requestAnimationFrame(renderCharts);
   } catch (error) {
     setView("app");
     setMessage(error.message || "Chargement impossible.", "error");

@@ -25,6 +25,7 @@ www/
   Naviplan/              Agenda administratif, fiscal, social et juridique
   SeoCean/               Google Analytics, Search Console, audit SEO et recommandations
   MeetOcean/             Visioconference, transcription et traduction temps reel
+  Backup/                ZIP du dossier www, export SQL et planification cron
   _backups/              Sauvegardes SQL locales
   index.php              Redirection vers OceanOS
   Lancer_Serveurs.bat    Lanceur local des serveurs applicatifs
@@ -60,6 +61,7 @@ Les applications concernées actuellement sont :
 - Naviplan
 - SeoCean
 - MeetOcean
+- Backup
 
 ## Page de configuration serveur
 
@@ -137,6 +139,29 @@ Sur une installation serveur :
 9. Aller sur `/OceanOS/` pour utiliser le portail.
 
 Important : le fichier `OceanOS/config/server.php` contient les identifiants MySQL du serveur. En production, il doit rester lisible par PHP mais ne doit pas être exposé publiquement.
+
+## Module Backup
+
+Le module Backup se trouve ici :
+
+```text
+/Backup/
+```
+
+Il est reserve aux comptes `super-utilisateur`.
+
+Il cree une archive ZIP contenant :
+
+- le dossier `www`, hors dossiers de sauvegardes et `.git`
+- un export SQL de la base configuree dans `OceanOS/config/server.php`
+
+Pour un export SQL complet, le serveur Ubuntu doit avoir `mysqldump` disponible. Le module utilise alors `--single-transaction`, `--routines`, `--events`, `--triggers` et `--hex-blob`. Si `mysqldump` est absent, un export PDO de secours est tente.
+
+La planification se regle dans `/Backup/`. Le cron Ubuntu doit appeler le runner regulierement, par exemple toutes les 15 minutes :
+
+```text
+*/15 * * * * /usr/bin/php /var/www/html/Backup/api/backup.php run-scheduled >/dev/null 2>&1
+```
 
 ## Base principale
 
@@ -240,6 +265,7 @@ Tables Tresorcean :
 ```text
 tresorcean_settings
 tresorcean_entries
+tresorcean_user_preferences
 ```
 
 Tables Formcean :

@@ -2462,21 +2462,79 @@ function invocean_generate_plain_invoice_pdf_fallback(array $row, array $setting
     return $pdf;
 }
 
+function invocean_nautisign_signed_pdf_path(array $row): string
+{
+    $raw = invocean_invoice_raw($row);
+    $quote = is_array($raw['nautisign_quote'] ?? null) ? $raw['nautisign_quote'] : [];
+    $nautisign = is_array($quote['nautisign'] ?? null) ? $quote['nautisign'] : [];
+    $path = trim((string) ($nautisign['signed_pdf_path'] ?? ''));
+    if ($path === '') {
+        return '';
+    }
+
+    $moduleRoot = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Nautisign';
+    $storageRoot = realpath($moduleRoot . DIRECTORY_SEPARATOR . 'storage');
+    if (!is_string($storageRoot)) {
+        return '';
+    }
+
+    $isAbsolute = preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1 || str_starts_with($path, DIRECTORY_SEPARATOR);
+    $candidate = $isAbsolute
+        ? $path
+        : $moduleRoot . DIRECTORY_SEPARATOR . ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);
+    $realPath = is_file($candidate) ? realpath($candidate) : false;
+    if (!is_string($realPath)) {
+        return '';
+    }
+
+    $storagePrefix = rtrim($storageRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    $realLower = strtolower($realPath);
+    $storageLower = strtolower($storagePrefix);
+    if (!str_starts_with($realLower, $storageLower)) {
+        return '';
+    }
+
+    return $realPath;
+}
+
+function invocean_facturx_additional_attachments(array $row): array
+{
+    $signedPdfPath = invocean_nautisign_signed_pdf_path($row);
+    if ($signedPdfPath === '') {
+        return [];
+    }
+
+    $raw = invocean_invoice_raw($row);
+    $quote = is_array($raw['nautisign_quote'] ?? null) ? $raw['nautisign_quote'] : [];
+    $quoteNumber = trim((string) ($quote['quote_number'] ?? ''));
+    if ($quoteNumber === '') {
+        $quoteNumber = trim((string) ($row['order_reference'] ?? 'devis-signe'));
+    }
+
+    return [[
+        'path' => $signedPdfPath,
+        'name' => invocean_safe_filename($quoteNumber, 'devis-signe') . '-devis-signe.pdf',
+        'desc' => 'Devis signe Nautisign',
+        'mime' => 'application/pdf',
+    ]];
+}
+
 function invocean_generate_facturx_pdf(array $row, string $xml, array $settings): string
 {
     $basePdf = invocean_generate_plain_invoice_pdf($row, $settings);
+    $additionalAttachments = invocean_facturx_additional_attachments($row);
     invocean_load_vendor_autoload();
 
     if (class_exists(\Atgp\FacturX\Writer::class)) {
         $writer = new \Atgp\FacturX\Writer();
 
-        return $writer->generate($basePdf, $xml);
+        return $writer->generate($basePdf, $xml, null, true, $additionalAttachments);
     }
 
-    return invocean_generate_facturx_pdf_fallback($row, $xml, $settings);
+    return invocean_generate_facturx_pdf_fallback($row, $xml, $settings, $additionalAttachments);
 }
 
-function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $settings): string
+function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $settings, array $additionalAttachments = []): string
 {
     $profile = 'EN 16931';
     $xmlFilename = 'factur-x.xml';
@@ -2484,9 +2542,10 @@ function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $
     $content = invocean_facturx_pdf_content_stream($row, $settings);
     $modDate = invocean_pdf_date();
     $checksum = md5($xml);
+    $embeddedFiles = [];
+    $associatedFiles = [];
 
     $objects = [];
-    $objects[1] = '<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R /Names << /EmbeddedFiles << /Names [' . invocean_pdf_literal($xmlFilename) . ' 9 0 R] >> >> /AF [9 0 R] >>';
     $objects[2] = '<< /Type /Pages /Kids [3 0 R] /Count 1 >>';
     $objects[3] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>';
     $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
@@ -2495,7 +2554,40 @@ function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $
     $objects[7] = invocean_pdf_stream_object('/Type /Metadata /Subtype /XML', $xmp);
     $objects[8] = invocean_pdf_stream_object('/Type /EmbeddedFile /Subtype /' . invocean_pdf_name('text/xml') . ' /Params << /Size ' . strlen($xml) . ' /ModDate ' . invocean_pdf_literal($modDate) . ' /CheckSum <' . $checksum . '> >>', $xml);
     $objects[9] = '<< /Type /Filespec /F ' . invocean_pdf_literal($xmlFilename) . ' /UF ' . invocean_pdf_literal($xmlFilename) . ' /Desc ' . invocean_pdf_literal('Factur-X invoice data') . ' /AFRelationship /Alternative /EF << /F 8 0 R /UF 8 0 R >> >>';
-    $objects[10] = '<< /Producer ' . invocean_pdf_literal('Invocean') . ' /CreationDate ' . invocean_pdf_literal($modDate) . ' /ModDate ' . invocean_pdf_literal($modDate) . ' >>';
+    $embeddedFiles[] = invocean_pdf_literal($xmlFilename) . ' 9 0 R';
+    $associatedFiles[] = '9 0 R';
+
+    $nextObjectId = 10;
+    foreach ($additionalAttachments as $attachment) {
+        $attachmentPath = (string) ($attachment['path'] ?? '');
+        if ($attachmentPath === '' || !is_file($attachmentPath)) {
+            continue;
+        }
+
+        $attachmentContent = file_get_contents($attachmentPath);
+        if (!is_string($attachmentContent)) {
+            continue;
+        }
+
+        $attachmentFilename = invocean_safe_filename((string) ($attachment['name'] ?? basename($attachmentPath)), 'devis-signe.pdf');
+        if (!str_ends_with(strtolower($attachmentFilename), '.pdf')) {
+            $attachmentFilename .= '.pdf';
+        }
+        $attachmentDesc = trim((string) ($attachment['desc'] ?? 'Devis signe Nautisign')) ?: 'Devis signe Nautisign';
+        $attachmentMime = trim((string) ($attachment['mime'] ?? 'application/pdf')) ?: 'application/pdf';
+        $streamObjectId = $nextObjectId++;
+        $fileSpecObjectId = $nextObjectId++;
+
+        $objects[$streamObjectId] = invocean_pdf_stream_object('/Type /EmbeddedFile /Subtype /' . invocean_pdf_name($attachmentMime) . ' /Params << /Size ' . strlen($attachmentContent) . ' /ModDate ' . invocean_pdf_literal($modDate) . ' /CheckSum <' . md5($attachmentContent) . '> >>', $attachmentContent);
+        $objects[$fileSpecObjectId] = '<< /Type /Filespec /F ' . invocean_pdf_literal($attachmentFilename) . ' /UF ' . invocean_pdf_literal($attachmentFilename) . ' /Desc ' . invocean_pdf_literal($attachmentDesc) . ' /AFRelationship /Supplement /EF << /F ' . $streamObjectId . ' 0 R /UF ' . $streamObjectId . ' 0 R >> >>';
+        $embeddedFiles[] = invocean_pdf_literal($attachmentFilename) . ' ' . $fileSpecObjectId . ' 0 R';
+        $associatedFiles[] = $fileSpecObjectId . ' 0 R';
+    }
+
+    $infoObjectId = $nextObjectId++;
+    $objects[1] = '<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R /Names << /EmbeddedFiles << /Names [' . implode(' ', $embeddedFiles) . '] >> >> /AF [' . implode(' ', $associatedFiles) . '] >>';
+    $objects[$infoObjectId] = '<< /Producer ' . invocean_pdf_literal('Invocean') . ' /CreationDate ' . invocean_pdf_literal($modDate) . ' /ModDate ' . invocean_pdf_literal($modDate) . ' >>';
+    ksort($objects);
 
     $pdf = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
     $offsets = [0];
@@ -2510,7 +2602,7 @@ function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $
     for ($i = 1; $i <= count($objects); $i++) {
         $pdf .= sprintf('%010d 00000 n ', $offsets[$i]) . "\n";
     }
-    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R /Info 10 0 R >>\n";
+    $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R /Info " . $infoObjectId . " 0 R >>\n";
     $pdf .= "startxref\n" . $xrefOffset . "\n%%EOF\n";
 
     return $pdf;

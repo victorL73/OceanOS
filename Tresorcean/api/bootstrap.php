@@ -74,6 +74,17 @@ function tresorcean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS tresorcean_user_preferences (
+            user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            period_start DATE NULL,
+            period_end DATE NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_tresorcean_preferences_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     $pdo->exec('INSERT IGNORE INTO tresorcean_settings (id) VALUES (1)');
 }
 
@@ -160,19 +171,73 @@ function tresorcean_save_settings(PDO $pdo, array $input): array
     return tresorcean_settings($pdo);
 }
 
-function tresorcean_period(array $query): array
+function tresorcean_valid_date(string $value): bool
+{
+    return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1;
+}
+
+function tresorcean_user_preferences(PDO $pdo, int $userId): array
+{
+    $statement = $pdo->prepare('SELECT period_start, period_end, updated_at FROM tresorcean_user_preferences WHERE user_id = :user_id LIMIT 1');
+    $statement->execute(['user_id' => $userId]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        return [
+            'periodStart' => '',
+            'periodEnd' => '',
+            'updatedAt' => '',
+        ];
+    }
+
+    return [
+        'periodStart' => (string) ($row['period_start'] ?? ''),
+        'periodEnd' => (string) ($row['period_end'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
+function tresorcean_period_requested(array $query): bool
+{
+    return array_key_exists('start', $query) || array_key_exists('end', $query);
+}
+
+function tresorcean_save_user_period(PDO $pdo, int $userId, array $period): array
+{
+    $statement = $pdo->prepare(
+        'INSERT INTO tresorcean_user_preferences (user_id, period_start, period_end)
+         VALUES (:user_id, :period_start, :period_end)
+         ON DUPLICATE KEY UPDATE
+            period_start = VALUES(period_start),
+            period_end = VALUES(period_end),
+            updated_at = CURRENT_TIMESTAMP'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+        'period_start' => $period['start'],
+        'period_end' => $period['end'],
+    ]);
+
+    return tresorcean_user_preferences($pdo, $userId);
+}
+
+function tresorcean_period(array $query, array $preferences = []): array
 {
     $today = new DateTimeImmutable('today');
     $defaultStart = $today->modify('first day of this month');
 
-    $start = trim((string) ($query['start'] ?? $defaultStart->format('Y-m-d')));
-    $end = trim((string) ($query['end'] ?? $today->format('Y-m-d')));
+    $preferredStart = trim((string) ($preferences['periodStart'] ?? ''));
+    $preferredEnd = trim((string) ($preferences['periodEnd'] ?? ''));
+    $startFallback = tresorcean_valid_date($preferredStart) ? $preferredStart : $defaultStart->format('Y-m-d');
+    $endFallback = tresorcean_valid_date($preferredEnd) ? $preferredEnd : $today->format('Y-m-d');
 
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) {
-        $start = $defaultStart->format('Y-m-d');
+    $start = trim((string) ($query['start'] ?? $startFallback));
+    $end = trim((string) ($query['end'] ?? $endFallback));
+
+    if (!tresorcean_valid_date($start)) {
+        $start = $startFallback;
     }
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $end)) {
-        $end = $today->format('Y-m-d');
+    if (!tresorcean_valid_date($end)) {
+        $end = $endFallback;
     }
     if ($start > $end) {
         [$start, $end] = [$end, $start];
@@ -888,7 +953,11 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
 
 function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
 {
-    $period = tresorcean_period($query);
+    $preferences = tresorcean_user_preferences($pdo, (int) $user['id']);
+    $period = tresorcean_period($query, $preferences);
+    if (tresorcean_period_requested($query)) {
+        $preferences = tresorcean_save_user_period($pdo, (int) $user['id'], $period);
+    }
     $settings = tresorcean_settings($pdo);
     $orders = [];
     $states = [];
@@ -925,6 +994,11 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
         'period' => [
             'start' => $period['start'],
             'end' => $period['end'],
+        ],
+        'preferences' => [
+            'periodStart' => $preferences['periodStart'],
+            'periodEnd' => $preferences['periodEnd'],
+            'updatedAt' => $preferences['updatedAt'],
         ],
         'settings' => $settings,
         'prestashop' => $prestashopStatus,

@@ -41,3 +41,5 @@ NautiCloud/storage/*
 !NautiCloud/storage/.htaccess
 Nautisign/storage/*
 !Nautisign/storage/.htaccess
+Backup/storage/*
+!Backup/storage/.htaccess
