@@ -1430,6 +1430,26 @@ function stockcean_update_purchase_order_status(PDO $pdo, array $input, array $u
     return $order;
 }
 
+function stockcean_delete_purchase_order(PDO $pdo, int $orderId): void
+{
+    if ($orderId <= 0) {
+        throw new InvalidArgumentException('Commande fournisseur invalide.');
+    }
+
+    $statement = $pdo->prepare('SELECT id, status, order_number FROM stockcean_purchase_orders WHERE id = :id LIMIT 1');
+    $statement->execute(['id' => $orderId]);
+    $order = $statement->fetch();
+    if (!is_array($order)) {
+        throw new InvalidArgumentException('Commande fournisseur introuvable.');
+    }
+    if ((string) ($order['status'] ?? '') !== 'cancelled') {
+        throw new InvalidArgumentException('Seules les commandes annulees peuvent etre supprimees.');
+    }
+
+    $delete = $pdo->prepare('DELETE FROM stockcean_purchase_orders WHERE id = :id AND status = "cancelled"');
+    $delete->execute(['id' => $orderId]);
+}
+
 function stockcean_get_sync_run(PDO $pdo, int $runId): ?array
 {
     $statement = $pdo->prepare(

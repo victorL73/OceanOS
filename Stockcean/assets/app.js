@@ -608,6 +608,7 @@ function renderOrders() {
         </select>
         <button class="ghost-button" data-order-save="${order.id}" type="button"${isAdmin() ? "" : " disabled"}>Sauver</button>
         <button class="ghost-button" data-order-open="${order.id}" type="button">Historique</button>
+        ${order.status === "cancelled" ? `<button class="danger-button" data-order-delete="${order.id}" type="button"${isAdmin() ? "" : " disabled"}>Supprimer</button>` : ""}
       </div>
     </article>
   `).join("");
@@ -709,6 +710,7 @@ function renderOrderHistoryList(orders) {
           )).join("")}
         </select>
         <button class="ghost-button" data-order-save="${order.id}" type="button"${isAdmin() ? "" : " disabled"}>Sauver</button>
+        ${order.status === "cancelled" ? `<button class="danger-button" data-order-delete="${order.id}" type="button"${isAdmin() ? "" : " disabled"}>Supprimer</button>` : ""}
       </div>
     </article>
   `).join("");
@@ -870,6 +872,32 @@ async function saveOrderStatus(orderId, context = document) {
   }
 }
 
+async function deleteOrder(orderId) {
+  const order = state.purchaseOrders.find((item) => Number(item.id) === Number(orderId));
+  if (!order || order.status !== "cancelled") {
+    showMessage("Seules les commandes annulees peuvent etre supprimees.", "error");
+    return;
+  }
+  const label = order.orderNumber || `commande #${orderId}`;
+  if (!window.confirm(`Supprimer definitivement ${label} ?`)) {
+    return;
+  }
+
+  try {
+    const payload = await apiRequest(API.stock, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_purchase_order",
+        id: Number(orderId),
+      }),
+    });
+    applyDashboard(payload.dashboard || {});
+    showMessage(payload.message || "Commande supprimee.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression de commande impossible.", "error");
+  }
+}
+
 async function logout() {
   try {
     await apiRequest(API.auth, { method: "DELETE" });
@@ -970,12 +998,20 @@ function installListeners() {
       setActiveView("order-history");
       renderOrderHistory();
     }
+    const deleteButton = event.target.closest("[data-order-delete]");
+    if (deleteButton) {
+      void deleteOrder(deleteButton.dataset.orderDelete);
+    }
   });
 
   elements.orderHistory.addEventListener("click", (event) => {
     const button = event.target.closest("[data-order-save]");
     if (button) {
       void saveOrderStatus(button.dataset.orderSave, button.closest(".history-card") || elements.orderHistory);
+    }
+    const deleteButton = event.target.closest("[data-order-delete]");
+    if (deleteButton) {
+      void deleteOrder(deleteButton.dataset.orderDelete);
     }
   });
 }

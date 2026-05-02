@@ -197,12 +197,13 @@ function applyDashboard(payload) {
   elements.connectionChip.classList.toggle("muted-pill", !connected);
 
   const summary = payload.summary || {};
-  elements.metricCash.textContent = formatMoney(summary.cashBalance);
+  const cashAfterVat = Number(summary.cashBalance || 0) - Math.max(0, Number(summary.vatDue || 0));
+  elements.metricCash.textContent = formatMoney(cashAfterVat);
   elements.metricRevenue.textContent = formatMoney(summary.revenueTaxExcl);
   elements.metricSuppliers.textContent = formatMoney(summary.supplierOrdersTaxExcl);
   elements.metricProfit.textContent = formatMoney(summary.estimatedProfitTaxExcl);
   elements.metricVat.textContent = formatMoney(summary.vatDue);
-  elements.metricCash.closest(".metric-card").classList.toggle("negative", Number(summary.cashBalance || 0) < 0);
+  elements.metricCash.closest(".metric-card").classList.toggle("negative", cashAfterVat < 0);
   elements.metricProfit.closest(".metric-card").classList.toggle("negative", Number(summary.estimatedProfitTaxExcl || 0) < 0);
   elements.metricVat.closest(".metric-card").classList.toggle("negative", Number(summary.vatDue || 0) < 0);
 
@@ -220,29 +221,29 @@ function applyDashboard(payload) {
 
 function renderFundsSpotlight() {
   const summary = state.dashboard?.summary || {};
-  const available = Number(summary.cashBalance || 0);
+  const grossAvailable = Number(summary.cashBalance || 0);
   const vatReserve = Math.max(0, Number(summary.vatDue || 0));
-  const afterVat = available - vatReserve;
+  const afterVat = grossAvailable - vatReserve;
   const cashOut = Number(summary.cashOut || 0);
-  const totalForRail = Math.max(1, Math.abs(available) + vatReserve);
-  const availablePct = available > 0 ? Math.max(4, Math.min(100, (available / totalForRail) * 100)) : 0;
+  const totalForRail = Math.max(1, Math.abs(afterVat) + vatReserve);
+  const availablePct = afterVat > 0 ? Math.max(4, Math.min(100, (afterVat / totalForRail) * 100)) : 0;
   const vatPct = vatReserve > 0 ? Math.max(4, Math.min(100 - availablePct, (vatReserve / totalForRail) * 100)) : 0;
 
-  elements.fundsAvailable.textContent = formatMoney(available);
-  elements.fundsAfterVat.textContent = formatMoney(afterVat);
+  elements.fundsAvailable.textContent = formatMoney(afterVat);
+  elements.fundsAfterVat.textContent = formatMoney(grossAvailable);
   elements.fundsVatReserve.textContent = formatMoney(vatReserve);
   elements.fundsOut.textContent = formatMoney(cashOut);
   elements.fundsBar.style.width = `${availablePct}%`;
   elements.fundsVatBar.style.width = `${vatPct}%`;
-  elements.fundsSpotlight.classList.toggle("negative", available < 0);
-  elements.fundsSpotlight.classList.toggle("caution", available >= 0 && afterVat < 0);
+  elements.fundsSpotlight.classList.toggle("negative", afterVat < 0);
+  elements.fundsSpotlight.classList.toggle("caution", afterVat >= 0 && grossAvailable < vatReserve);
 
-  if (available < 0) {
-    elements.fundsCaption.textContent = `Solde negatif de ${formatMoney(Math.abs(available))}.`;
+  if (afterVat < 0) {
+    elements.fundsCaption.textContent = `Apres TVA, il manque ${formatMoney(Math.abs(afterVat))}.`;
   } else if (vatReserve > 0) {
-    elements.fundsCaption.textContent = `${formatMoney(afterVat)} prudent apres TVA estimee.`;
+    elements.fundsCaption.textContent = `${formatMoney(grossAvailable)} brut, dont ${formatMoney(vatReserve)} de TVA a reserver.`;
   } else {
-    elements.fundsCaption.textContent = "Disponible maintenant sur la periode selectionnee.";
+    elements.fundsCaption.textContent = "Disponible apres TVA sur la periode selectionnee.";
   }
 }
 

@@ -87,6 +87,16 @@ try {
             ]);
         }
 
+        if ($action === 'delete_purchase_order') {
+            $admin = stockcean_require_admin($pdo);
+            stockcean_delete_purchase_order($pdo, (int) ($input['id'] ?? 0));
+            stockcean_json_response([
+                'ok' => true,
+                'message' => 'Commande annulee supprimee.',
+                'dashboard' => stockcean_dashboard($pdo, [], $admin),
+            ]);
+        }
+
         stockcean_json_response([
             'ok' => false,
             'error' => 'unsupported_action',

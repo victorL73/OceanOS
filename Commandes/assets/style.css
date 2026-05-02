@@ -415,6 +415,69 @@ select:disabled {
   background: var(--surface-soft);
 }
 
+.shipment-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.shipment-head,
+.shipment-list,
+.shipment-card {
+  display: grid;
+  gap: 10px;
+}
+
+.shipment-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.shipment-head span,
+.shipment-card span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.shipment-list {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.shipment-card {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #08131d;
+}
+
+.shipment-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.shipment-card a {
+  color: var(--teal);
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.shipment-card strong {
+  overflow-wrap: anywhere;
+}
+
+.shipment-empty {
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
 .field {
   flex: 1 1 260px;
   display: grid;

@@ -32,6 +32,8 @@ const elements = {
   detailDate: $("detail-date"),
   detailTotal: $("detail-total"),
   detailShipping: $("detail-shipping"),
+  shipmentTitle: $("shipment-title"),
+  shipmentList: $("shipment-list"),
   statusForm: $("status-form"),
   nextState: $("next-state"),
   statusButton: $("status-button"),
@@ -238,6 +240,7 @@ function renderDetail() {
   elements.detailTotal.textContent = money.format(Number(order.totalPaid || 0));
   elements.detailShipping.textContent = `Livraison ${money.format(Number(order.totalShipping || 0))}`;
   elements.nextState.value = String(currentState.id || order.currentStateId || "");
+  renderShipments(order.shipments || []);
 
   elements.linesBody.innerHTML = "";
   const lines = Array.isArray(order.lines) ? order.lines : [];
@@ -256,6 +259,49 @@ function renderDetail() {
       <td class="numeric">${money.format(Number(line.totalTaxIncl || line.totalTaxExcl || 0))}</td>
     `;
     elements.linesBody.appendChild(tr);
+  });
+}
+
+function renderShipments(shipments) {
+  const items = Array.isArray(shipments) ? shipments : [];
+  elements.shipmentTitle.textContent = items.length > 0
+    ? `${items.length} expedition${items.length > 1 ? "s" : ""}`
+    : "Aucune expedition";
+  elements.shipmentList.innerHTML = "";
+
+  if (items.length === 0) {
+    elements.shipmentList.innerHTML = '<div class="shipment-empty">Aucun colis ou numero de suivi remonte par PrestaShop.</div>';
+    return;
+  }
+
+  items.forEach((shipment) => {
+    const card = document.createElement("article");
+    card.className = "shipment-card";
+
+    const trackingNumber = shipment.trackingNumber || "";
+    const tracking = shipment.trackingUrl && trackingNumber
+      ? `<a href="${escapeHtml(shipment.trackingUrl)}" target="_blank" rel="noreferrer">${escapeHtml(trackingNumber)}</a>`
+      : `<strong>${escapeHtml(trackingNumber || "Suivi non renseigne")}</strong>`;
+
+    card.innerHTML = `
+      <div>
+        <span>Transporteur</span>
+        <strong>${escapeHtml(shipment.carrierName || "Transporteur")}</strong>
+      </div>
+      <div>
+        <span>Numero de suivi</span>
+        ${tracking}
+      </div>
+      <div>
+        <span>Expedition</span>
+        <strong>${escapeHtml(formatDateTime(shipment.dateAdd) || "-")}</strong>
+      </div>
+      <div>
+        <span>Frais TTC</span>
+        <strong>${money.format(Number(shipment.shippingCostTaxIncl || 0))}</strong>
+      </div>
+    `;
+    elements.shipmentList.appendChild(card);
   });
 }
 

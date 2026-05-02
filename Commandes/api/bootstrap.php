@@ -124,6 +124,105 @@ function commandes_float(string $value): float
     return is_numeric($normalized) ? (float) $normalized : 0.0;
 }
 
+function commandes_fetch_carrier_summary(string $shopUrl, string $apiKey, int $carrierId, string $trackingNumber = ''): array
+{
+    if ($carrierId <= 0) {
+        return [
+            'id' => 0,
+            'name' => 'Transporteur',
+            'trackingUrl' => '',
+        ];
+    }
+
+    try {
+        $xml = oceanos_load_xml(oceanos_prestashop_get($shopUrl, $apiKey, 'carriers/' . $carrierId));
+        $carrier = $xml->carrier ?? null;
+        if (!$carrier instanceof SimpleXMLElement) {
+            throw new RuntimeException('Transporteur introuvable.');
+        }
+
+        $name = oceanos_xml_text($carrier, 'name') ?: ('Transporteur #' . $carrierId);
+        $url = trim(oceanos_xml_text($carrier, 'url'));
+        $trackingUrl = '';
+        if ($url !== '' && $trackingNumber !== '') {
+            $trackingUrl = str_contains($url, '@')
+                ? str_replace('@', rawurlencode($trackingNumber), $url)
+                : $url;
+        }
+
+        return [
+            'id' => $carrierId,
+            'name' => $name,
+            'url' => $url,
+            'trackingUrl' => $trackingUrl,
+        ];
+    } catch (Throwable) {
+        return [
+            'id' => $carrierId,
+            'name' => 'Transporteur #' . $carrierId,
+            'url' => '',
+            'trackingUrl' => '',
+        ];
+    }
+}
+
+function commandes_public_order_carrier(SimpleXMLElement $node, array &$carriers, string $shopUrl, string $apiKey): array
+{
+    $carrierId = (int) oceanos_xml_text($node, 'id_carrier');
+    $trackingNumber = trim(oceanos_xml_text($node, 'tracking_number'));
+    $cacheKey = $carrierId . ':' . $trackingNumber;
+    if (!array_key_exists($cacheKey, $carriers)) {
+        $carriers[$cacheKey] = commandes_fetch_carrier_summary($shopUrl, $apiKey, $carrierId, $trackingNumber);
+    }
+
+    $carrier = $carriers[$cacheKey];
+
+    return [
+        'id' => (int) oceanos_xml_text($node, 'id'),
+        'orderId' => (int) oceanos_xml_text($node, 'id_order'),
+        'carrierId' => $carrierId,
+        'carrierName' => (string) ($carrier['name'] ?? 'Transporteur'),
+        'trackingNumber' => $trackingNumber,
+        'trackingUrl' => (string) ($carrier['trackingUrl'] ?? ''),
+        'weight' => commandes_float(oceanos_xml_text($node, 'weight')),
+        'shippingCostTaxExcl' => commandes_float(oceanos_xml_text($node, 'shipping_cost_tax_excl')),
+        'shippingCostTaxIncl' => commandes_float(oceanos_xml_text($node, 'shipping_cost_tax_incl')),
+        'invoiceId' => (int) oceanos_xml_text($node, 'id_order_invoice'),
+        'dateAdd' => oceanos_xml_text($node, 'date_add'),
+    ];
+}
+
+function commandes_fetch_order_shipments(string $shopUrl, string $apiKey, int $orderId): array
+{
+    if ($orderId <= 0) {
+        return [];
+    }
+
+    $filters = [
+        'filter[id_order]' => '[' . $orderId . ']',
+        'display' => '[id,id_order,id_carrier,id_order_invoice,weight,shipping_cost_tax_excl,shipping_cost_tax_incl,tracking_number,date_add]',
+        'sort' => '[id_DESC]',
+        'limit' => '0,20',
+    ];
+
+    try {
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'order_carriers', 'order_carriers', 'order_carrier', $filters);
+    } catch (OceanosPrestashopException $exception) {
+        if (!in_array($exception->statusCode, [400, 500], true)) {
+            throw $exception;
+        }
+
+        $filters['display'] = '[id,id_order,id_carrier,tracking_number]';
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'order_carriers', 'order_carriers', 'order_carrier', $filters);
+    }
+
+    $carriers = [];
+    return array_map(
+        static fn(SimpleXMLElement $node): array => commandes_public_order_carrier($node, $carriers, $shopUrl, $apiKey),
+        $nodes
+    );
+}
+
 function commandes_fetch_order_states(string $shopUrl, string $apiKey): array
 {
     $query = [
@@ -452,6 +551,7 @@ function commandes_fetch_order_detail(PDO $pdo, int $orderId): array
         'totalDiscounts' => commandes_float(oceanos_xml_text($order, 'total_discounts_tax_incl') ?: oceanos_xml_text($order, 'total_discounts')),
         'conversionRate' => commandes_float(oceanos_xml_text($order, 'conversion_rate')),
         'giftMessage' => oceanos_xml_text($order, 'gift_message'),
+        'shipments' => commandes_fetch_order_shipments($shopUrl, $apiKey, $orderId),
         'lines' => commandes_order_rows($order),
     ];
 }
