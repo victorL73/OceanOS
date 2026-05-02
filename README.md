@@ -1,4 +1,4 @@
-# OceanOS CRM
+﻿# OceanOS CRM
 
 OceanOS est le portail principal du dossier `www`. Il centralise la connexion, les comptes, les droits utilisateurs, les informations entreprise et les configurations communes aux applications.
 
@@ -16,7 +16,6 @@ www/
   SAV/                   Demandes clients PrestaShop et reponses support
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Tresorcean/            Finance, tresorerie, benefices et TVA
-  Mobywork/              CRM e-commerce, commandes, emails et finance
   NautiCRM/              CRM clients, contacts, relances et opportunites
   NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
   NautiPost/             Campagnes, messages et outils marketing
@@ -40,7 +39,7 @@ OceanOS est la passerelle d'entrée du CRM.
 - Les pages applicatives affichent un bouton de retour vers OceanOS.
 - La gestion des comptes et des droits se fait dans OceanOS.
 - La clé IA Groq est configurée dans le menu utilisateur OceanOS et partagée avec les applications qui en ont besoin.
-- Les informations entreprise sont configurées dans le menu utilisateur OceanOS et partagées avec les modules, notamment Mobywork, Invocean et Devis.
+- Les informations entreprise sont configurées dans le menu utilisateur OceanOS et partagées avec les modules, notamment Invocean et Devis.
 
 Les applications concernées actuellement sont :
 
@@ -52,7 +51,6 @@ Les applications concernées actuellement sont :
 - SAV
 - Stockcean
 - Tresorcean
-- Mobywork
 - NautiCRM
 - NautiMail
 - NautiPost
@@ -124,7 +122,6 @@ Ce fichier contient :
 - mot de passe MySQL
 
 Flowcean, Invocean, Devis, Commandes, SAV et Stockcean lisent aussi cette configuration partagee.
-Mobywork utilise OceanOS pour la connexion et les informations entreprise, mais garde ses parametres metier, mails, tris, dossiers et devis en SQLite. En local, le fichier par defaut est `Mobywork/backend/emails.db`. Sur le serveur Ubuntu, le script configure `MOBYWORK_SQLITE_PATH` vers `Mobywork/storage/emails.db` pour garder la base dans un dossier persistant.
 
 Sur une installation serveur :
 
@@ -227,11 +224,6 @@ Tables Devis :
 devis_quotes
 ```
 
-Tables Mobywork, si l'application les initialise dans MySQL :
-
-```text
-mobywork_*
-```
 
 Tables NautiCRM :
 
@@ -349,7 +341,6 @@ OceanOS > menu utilisateur > IA Groq
 Elle est partagée avec les modules qui en ont besoin, notamment :
 
 - Flowcean
-- Mobywork
 - NautiMail
 - NautiPost
 - MeetOcean
@@ -371,7 +362,6 @@ Elle est partagee par :
 - Invocean
 - Devis
 - Stockcean
-- Mobywork
 - NautiCRM
 
 La cle Webservice n'est pas stockee en clair dans l'interface. Elle est chiffree cote serveur avant stockage.
@@ -388,11 +378,10 @@ Elles sont communes a toutes les sessions utilisateur. Les membres peuvent les c
 
 Ces informations alimentent notamment :
 
-- les devis Mobywork
 - les devis PDF du module Devis
 - les factures et exports Factur-X Invocean
 
-Les conditions de paiement, la validite des devis et la note de pied de page restent dans les parametres Mobywork pour Mobywork. Le module Devis reprend les coordonnees OceanOS et applique ses propres valeurs par defaut pour les PDF.
+Le module Devis reprend les coordonnees OceanOS et applique ses propres valeurs par defaut pour les PDF.
 
 ## Devis
 
@@ -555,7 +544,7 @@ Le lanceur local est à la racine :
 www/Lancer_Serveurs.bat
 ```
 
-Il est placé à la racine pour pouvoir lancer plusieurs applications à l'avenir, pas seulement Mobywork.
+Il est place a la racine pour pouvoir lancer plusieurs applications OceanOS.
 
 Sur un serveur de production, ce fichier n'est généralement pas utilisé. Le lancement doit plutôt être géré par le service web, un service Node, un gestionnaire de processus ou la configuration d'hébergement.
 
@@ -595,7 +584,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, Mobywork, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -606,7 +595,7 @@ Points à vérifier avant production :
 
 - Ne pas exposer `admin/storage/`.
 - Ne pas exposer `NautiCloud/storage/`.
-- Ne pas exposer `Invocean/storage/`, `Devis/storage/`, `Mobywork/storage/` ni `Mobywork/backend/`.
+- Ne pas exposer `Invocean/storage/` ni `Devis/storage/`.
 - Ne pas exposer `OceanOS/config/server.php`.
 - Ne jamais versionner les fichiers `.env`, `*.secret`, les bases locales, les logs, les uploads ou les exports generes.
 - Regenerer les cles Groq, SMTP/IMAP, PrestaShop et secrets de pont si elles ont deja ete stockees dans le depot.
@@ -632,7 +621,7 @@ chmod +x scripts/ubuntu/oceanos-ubuntu.sh
 sudo APP_ROOT=/var/www/oceanos DOMAIN=votre-domaine.fr scripts/ubuntu/oceanos-ubuntu.sh install
 ```
 
-Il installe les dependances systeme, les dependances Composer/npm, genere le build Mobywork, configure Apache, installe le service systemd `mobywork-backend` et installe un wrapper limite pour piloter les services depuis OceanOS.
+Il installe les dependances systeme, les dependances Composer, configure Apache, installe le cron NautiMail et installe un wrapper limite pour piloter les services depuis OceanOS.
 
 Les administrateurs et super-utilisateurs voient ensuite l'onglet `Serveurs` dans le menu utilisateur OceanOS. Cet onglet interroge :
 
@@ -653,15 +642,6 @@ Ces fichiers sont crees par :
 sudo scripts/ubuntu/oceanos-ubuntu.sh control
 ```
 
-Si le service Mobywork reste en `auto-restart`, verifier les logs puis relancer la preparation Node et les permissions :
-
-```bash
-sudo journalctl -u mobywork-backend -n 80 --no-pager
-sudo scripts/ubuntu/oceanos-ubuntu.sh node-deps
-sudo scripts/ubuntu/oceanos-ubuntu.sh permissions
-sudo scripts/ubuntu/oceanos-ubuntu.sh service
-sudo systemctl restart mobywork-backend
-```
 
 ## URLs utiles en local
 
@@ -672,7 +652,6 @@ http://localhost/Flowcean/
 http://localhost/Invocean/
 http://localhost/Devis/
 http://localhost/Stockcean/
-http://localhost/Mobywork/
 http://localhost/NautiCRM/
 http://localhost/NautiMail/
 http://localhost/NautiPost/

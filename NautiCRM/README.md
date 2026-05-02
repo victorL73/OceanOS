@@ -1,4 +1,4 @@
-# NautiCRM
+﻿# NautiCRM
 
 Module OceanOS pour gerer les clients, prospects, contacts, relances, taches et opportunites.
 
@@ -36,8 +36,6 @@ nauticrm_tasks
 nauticrm_opportunities
 nauticrm_sync_runs
 ```
-
-Le module ne modifie pas Mobywork.
 
 ## Droits PrestaShop conseilles
 

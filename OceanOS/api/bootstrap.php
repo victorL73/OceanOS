@@ -211,6 +211,7 @@ function oceanos_ensure_schema(PDO $pdo): void
     oceanos_import_legacy_flowcean_users($pdo);
     oceanos_migrate_legacy_prestashop_settings($pdo);
     oceanos_company_settings_row($pdo);
+    oceanos_cleanup_removed_mobywork($pdo);
 }
 
 function oceanos_table_exists(PDO $pdo, string $table): bool
@@ -244,6 +245,72 @@ function oceanos_column_exists(PDO $pdo, string $table, string $column): bool
     ]);
 
     return (int) $statement->fetchColumn() > 0;
+}
+
+function oceanos_cleanup_removed_mobywork(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    try {
+        if (oceanos_table_exists($pdo, 'oceanos_notifications')) {
+            $pdo->exec(
+                "DELETE FROM oceanos_notifications
+                 WHERE module = 'Mobywork'
+                    OR type LIKE 'mobywork%'
+                    OR dedupe_key LIKE 'mobywork%'
+                    OR action_url LIKE '/Mobywork/%'
+                    OR payload_json LIKE '%Mobywork%'
+                    OR title LIKE '%Mobywork%'
+                    OR body LIKE '%Mobywork%'"
+            );
+        }
+
+        if (oceanos_table_exists($pdo, 'oceanos_users') && oceanos_column_exists($pdo, 'oceanos_users', 'visible_modules_json')) {
+            $rows = $pdo->query('SELECT id, visible_modules_json FROM oceanos_users')->fetchAll();
+            $update = $pdo->prepare('UPDATE oceanos_users SET visible_modules_json = :modules WHERE id = :id');
+            foreach ($rows as $row) {
+                $json = trim((string) ($row['visible_modules_json'] ?? ''));
+                if ($json === '') {
+                    continue;
+                }
+                $modules = json_decode($json, true);
+                if (!is_array($modules)) {
+                    continue;
+                }
+                $filtered = array_values(array_filter(
+                    $modules,
+                    static fn(mixed $module): bool => strtolower(trim((string) $module)) !== 'mobywork'
+                ));
+                if ($filtered !== $modules) {
+                    $update->execute([
+                        'modules' => json_encode($filtered, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'id' => (int) $row['id'],
+                    ]);
+                }
+            }
+        }
+
+        $config = oceanos_config();
+        $statement = $pdo->prepare(
+            "SELECT TABLE_NAME
+             FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = :db_name
+               AND TABLE_NAME LIKE 'mobywork\\_%' ESCAPE '\\\\'"
+        );
+        $statement->execute(['db_name' => (string) $config['db_name']]);
+        foreach ($statement->fetchAll(PDO::FETCH_COLUMN) ?: [] as $table) {
+            if (preg_match('/^mobywork_[A-Za-z0-9_]+$/', (string) $table) !== 1) {
+                continue;
+            }
+            $pdo->exec('DROP TABLE IF EXISTS `' . str_replace('`', '``', (string) $table) . '`');
+        }
+    } catch (Throwable) {
+        // Le nettoyage sera retente lors d'une prochaine initialisation OceanOS.
+    }
 }
 
 function oceanos_import_legacy_flowcean_users(PDO $pdo): void
