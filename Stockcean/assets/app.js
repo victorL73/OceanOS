@@ -333,8 +333,25 @@ function productById(productId) {
   return productList().find((item) => Number(item.id) === Number(productId)) || null;
 }
 
-function productPurchasePrice(product) {
-  return Number(product?.purchasePriceTaxExcl || 0);
+function selectedPurchaseSupplierId() {
+  return Number(elements.purchaseSupplier?.value || 0);
+}
+
+function productPurchasePrice(product, supplierId = null) {
+  const prices = Array.isArray(product?.supplierPurchasePrices) ? product.supplierPurchasePrices : [];
+  const selectedSupplierId = Number(supplierId || 0);
+  if (selectedSupplierId > 0) {
+    const supplierPrice = prices.find((entry) => Number(entry.supplierId || 0) === selectedSupplierId);
+    if (supplierPrice && Number(supplierPrice.priceTaxExcl || 0) > 0) {
+      return Number(supplierPrice.priceTaxExcl || 0);
+    }
+  }
+
+  const defaultPrice = Number(product?.purchasePriceTaxExcl || 0);
+  if (defaultPrice > 0) return defaultPrice;
+
+  const firstSupplierPrice = prices.find((entry) => Number(entry.priceTaxExcl || 0) > 0);
+  return firstSupplierPrice ? Number(firstSupplierPrice.priceTaxExcl || 0) : 0;
 }
 
 function productOptions(selectedId = null) {
@@ -346,7 +363,7 @@ function productOptions(selectedId = null) {
   return products.map((product) => {
     const selected = Number(selectedId || 0) === Number(product.id) ? " selected" : "";
     const label = product.reference ? `${product.reference} - ${product.name}` : product.name;
-    return `<option value="${product.id}" data-price="${productPurchasePrice(product)}"${selected}>${escapeHtml(label)}</option>`;
+    return `<option value="${product.id}" data-price="${productPurchasePrice(product, selectedPurchaseSupplierId())}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
 }
 
@@ -357,7 +374,7 @@ function createPurchaseLine(productId = null) {
     id,
     productId: product ? Number(product.id) : 0,
     quantity: 1,
-    unitPriceTaxExcl: product ? productPurchasePrice(product) : 0,
+    unitPriceTaxExcl: product ? productPurchasePrice(product, selectedPurchaseSupplierId()) : 0,
   };
 }
 
@@ -403,7 +420,7 @@ function renderProducts() {
         <td><span class="stock-badge ${stockClass}">${product.quantity}</span></td>
         <td><input class="threshold-input" data-product-threshold type="number" min="0" value="${product.minStockAlert}"${disabled}></td>
         <td><select class="supplier-select" data-product-supplier${disabled}>${supplierOptions(product.supplierId)}</select></td>
-        <td>${money.format(productPurchasePrice(product))}</td>
+        <td>${money.format(productPurchasePrice(product, product.supplierId))}</td>
         <td><button class="ghost-button" data-product-save="${product.id}" type="button"${disabled}>Sauver</button></td>
       </tr>
     `;
@@ -538,7 +555,7 @@ function renderSupplierCatalog() {
     }
     const group = groups.get(key);
     group.products.push(product);
-    group.stockValue += Number(product.quantity || 0) * productPurchasePrice(product);
+    group.stockValue += Number(product.quantity || 0) * productPurchasePrice(product, product.supplierId);
     if (product.isLowStock) group.lowCount += 1;
   });
 
@@ -582,7 +599,7 @@ function renderSupplierCatalogGroups(groups) {
                     <td>${escapeHtml(product.reference || "-")}</td>
                     <td><span class="stock-badge ${stockClass}">${product.quantity}</span></td>
                     <td>${product.minStockAlert}</td>
-                    <td>${money.format(productPurchasePrice(product))}</td>
+                    <td>${money.format(productPurchasePrice(product, product.supplierId))}</td>
                   </tr>
                 `;
               }).join("")}
@@ -937,7 +954,7 @@ function installListeners() {
       const product = productById(event.target.value);
       const price = row.querySelector("[data-line-price]");
       if (product && price) {
-        price.value = productPurchasePrice(product).toFixed(2);
+        price.value = productPurchasePrice(product, selectedPurchaseSupplierId()).toFixed(2);
       }
     }
     syncPurchaseLinesFromDom();
@@ -947,6 +964,17 @@ function installListeners() {
     if (!event.target.matches("[data-line-quantity], [data-line-price]")) return;
     syncPurchaseLinesFromDom();
     elements.purchaseTotal.textContent = `Total achat HT: ${money.format(purchaseTotal())}`;
+  });
+  elements.purchaseSupplier.addEventListener("change", () => {
+    syncPurchaseLinesFromDom();
+    state.purchaseLines = state.purchaseLines.map((line) => {
+      const product = productById(line.productId);
+      return {
+        ...line,
+        unitPriceTaxExcl: product ? productPurchasePrice(product, selectedPurchaseSupplierId()) : Number(line.unitPriceTaxExcl || 0),
+      };
+    });
+    renderPurchaseLines();
   });
   elements.purchaseLines.addEventListener("click", (event) => {
     const button = event.target.closest("[data-line-remove]");

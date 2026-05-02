@@ -60,6 +60,7 @@ function stockcean_ensure_schema(PDO $pdo): void
             active TINYINT(1) NOT NULL DEFAULT 1,
             price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
             purchase_price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            supplier_purchase_prices_json LONGTEXT NULL,
             quantity INT NOT NULL DEFAULT 0,
             reserved_quantity INT NOT NULL DEFAULT 0,
             min_stock_alert INT UNSIGNED NOT NULL DEFAULT 5,
@@ -79,6 +80,9 @@ function stockcean_ensure_schema(PDO $pdo): void
     );
     if (!stockcean_column_exists($pdo, 'stockcean_products', 'purchase_price_tax_excl')) {
         $pdo->exec('ALTER TABLE stockcean_products ADD purchase_price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0 AFTER price_tax_excl');
+    }
+    if (!stockcean_column_exists($pdo, 'stockcean_products', 'supplier_purchase_prices_json')) {
+        $pdo->exec('ALTER TABLE stockcean_products ADD supplier_purchase_prices_json LONGTEXT NULL AFTER purchase_price_tax_excl');
     }
 
     $pdo->exec(
@@ -555,6 +559,112 @@ function stockcean_fetch_suppliers(string $shopUrl, string $apiKey, int $limit =
     }
 }
 
+function stockcean_fetch_product_suppliers(string $shopUrl, string $apiKey, int $limit = 3000): array
+{
+    $query = [
+        'display' => '[id,id_product,id_product_attribute,id_supplier,product_supplier_reference,product_supplier_price_te,id_currency]',
+        'sort' => '[id_product_ASC]',
+        'limit' => '0,' . max(1, min(5000, $limit)),
+    ];
+
+    try {
+        return stockcean_fetch_prestashop_nodes($shopUrl, $apiKey, 'product_suppliers', 'product_suppliers', 'product_supplier', $query);
+    } catch (OceanosPrestashopException $exception) {
+        if (in_array($exception->statusCode, [401, 403, 404], true)) {
+            return [];
+        }
+        if (!in_array($exception->statusCode, [400, 500], true)) {
+            throw $exception;
+        }
+    }
+
+    try {
+        $query['display'] = 'full';
+        return stockcean_fetch_prestashop_nodes($shopUrl, $apiKey, 'product_suppliers', 'product_suppliers', 'product_supplier', $query);
+    } catch (OceanosPrestashopException $exception) {
+        if (in_array($exception->statusCode, [401, 403, 404], true)) {
+            return [];
+        }
+        throw $exception;
+    }
+}
+
+function stockcean_product_supplier_price_map(array $productSupplierNodes): array
+{
+    $map = [];
+    foreach ($productSupplierNodes as $node) {
+        $productId = (int) oceanos_xml_text($node, 'id_product');
+        $supplierId = (int) oceanos_xml_text($node, 'id_supplier');
+        $price = stockcean_money(oceanos_xml_text($node, 'product_supplier_price_te'));
+        if ($productId <= 0 || (float) $price <= 0) {
+            continue;
+        }
+
+        $attributeId = (int) oceanos_xml_text($node, 'id_product_attribute');
+        $entry = [
+            'prestashopSupplierId' => $supplierId,
+            'priceTaxExcl' => $price,
+            'reference' => oceanos_xml_text($node, 'product_supplier_reference'),
+            'score' => $attributeId === 0 ? 2 : 1,
+        ];
+
+        if (!isset($map[$productId])) {
+            $map[$productId] = ['bySupplier' => [], 'fallback' => null];
+        }
+
+        if ($supplierId > 0) {
+            $current = $map[$productId]['bySupplier'][$supplierId] ?? null;
+            if (!is_array($current) || $entry['score'] > (int) ($current['score'] ?? 0)) {
+                $map[$productId]['bySupplier'][$supplierId] = $entry;
+            }
+        }
+
+        $fallback = $map[$productId]['fallback'];
+        if (!is_array($fallback) || $entry['score'] > (int) ($fallback['score'] ?? 0)) {
+            $map[$productId]['fallback'] = $entry;
+        }
+    }
+
+    return $map;
+}
+
+function stockcean_product_purchase_price(array $productSupplierPrices, int $prestashopSupplierId, string $fallbackPrice): string
+{
+    if ($prestashopSupplierId > 0) {
+        $supplierPrice = $productSupplierPrices['bySupplier'][$prestashopSupplierId]['priceTaxExcl'] ?? null;
+        if ($supplierPrice !== null && (float) $supplierPrice > 0) {
+            return stockcean_money((string) $supplierPrice);
+        }
+    }
+
+    $fallbackSupplierPrice = $productSupplierPrices['fallback']['priceTaxExcl'] ?? null;
+    if ($fallbackSupplierPrice !== null && (float) $fallbackSupplierPrice > 0) {
+        return stockcean_money((string) $fallbackSupplierPrice);
+    }
+
+    return $fallbackPrice;
+}
+
+function stockcean_product_supplier_purchase_prices(array $productSupplierPrices, array $supplierMap): array
+{
+    $prices = [];
+    foreach (($productSupplierPrices['bySupplier'] ?? []) as $prestashopSupplierId => $entry) {
+        $price = $entry['priceTaxExcl'] ?? null;
+        if ($price === null || (float) $price <= 0) {
+            continue;
+        }
+
+        $prices[] = [
+            'prestashopSupplierId' => (int) $prestashopSupplierId,
+            'supplierId' => isset($supplierMap[(int) $prestashopSupplierId]) ? (int) $supplierMap[(int) $prestashopSupplierId] : null,
+            'priceTaxExcl' => (float) $price,
+            'reference' => (string) ($entry['reference'] ?? ''),
+        ];
+    }
+
+    return $prices;
+}
+
 function stockcean_stock_map(array $stockNodes): array
 {
     $map = [];
@@ -599,7 +709,7 @@ function stockcean_supplier_map(PDO $pdo): array
     return $map;
 }
 
-function stockcean_normalize_product(SimpleXMLElement $node, array $stockMap, array $supplierMap): array
+function stockcean_normalize_product(SimpleXMLElement $node, array $stockMap, array $supplierMap, array $productSupplierPriceMap): array
 {
     $prestashopProductId = (int) oceanos_xml_text($node, 'id');
     $prestashopSupplierId = (int) oceanos_xml_text($node, 'id_supplier');
@@ -609,13 +719,16 @@ function stockcean_normalize_product(SimpleXMLElement $node, array $stockMap, ar
     }
 
     $raw = stockcean_plain_xml($node);
+    $wholesalePrice = stockcean_money(oceanos_xml_text($node, 'wholesale_price'));
+    $productSupplierPrices = $productSupplierPriceMap[$prestashopProductId] ?? [];
     $payload = [
         'prestashopProductId' => $prestashopProductId,
         'reference' => oceanos_xml_text($node, 'reference'),
         'name' => $name,
         'active' => oceanos_xml_text($node, 'active') !== '0',
         'priceTaxExcl' => stockcean_money(oceanos_xml_text($node, 'price')),
-        'purchasePriceTaxExcl' => stockcean_money(oceanos_xml_text($node, 'wholesale_price')),
+        'purchasePriceTaxExcl' => stockcean_product_purchase_price($productSupplierPrices, $prestashopSupplierId, $wholesalePrice),
+        'supplierPurchasePrices' => stockcean_product_supplier_purchase_prices($productSupplierPrices, $supplierMap),
         'quantity' => (int) ($stockMap[$prestashopProductId] ?? 0),
         'supplierId' => $supplierMap[$prestashopSupplierId] ?? null,
         'prestashopSupplierId' => $prestashopSupplierId > 0 ? $prestashopSupplierId : null,
@@ -634,15 +747,16 @@ function stockcean_upsert_product(PDO $pdo, array $product): string
 
     $upsert = $pdo->prepare(
         'INSERT INTO stockcean_products
-            (prestashop_product_id, reference, name, active, price_tax_excl, purchase_price_tax_excl, quantity, supplier_id, prestashop_supplier_id, raw_json, source_hash, synced_at)
+            (prestashop_product_id, reference, name, active, price_tax_excl, purchase_price_tax_excl, supplier_purchase_prices_json, quantity, supplier_id, prestashop_supplier_id, raw_json, source_hash, synced_at)
          VALUES
-            (:prestashop_product_id, :reference, :name, :active, :price_tax_excl, :purchase_price_tax_excl, :quantity, :supplier_id, :prestashop_supplier_id, :raw_json, :source_hash, NOW())
+            (:prestashop_product_id, :reference, :name, :active, :price_tax_excl, :purchase_price_tax_excl, :supplier_purchase_prices_json, :quantity, :supplier_id, :prestashop_supplier_id, :raw_json, :source_hash, NOW())
          ON DUPLICATE KEY UPDATE
             reference = VALUES(reference),
             name = VALUES(name),
             active = VALUES(active),
             price_tax_excl = VALUES(price_tax_excl),
             purchase_price_tax_excl = VALUES(purchase_price_tax_excl),
+            supplier_purchase_prices_json = VALUES(supplier_purchase_prices_json),
             quantity = VALUES(quantity),
             supplier_id = COALESCE(VALUES(supplier_id), supplier_id),
             prestashop_supplier_id = VALUES(prestashop_supplier_id),
@@ -658,6 +772,7 @@ function stockcean_upsert_product(PDO $pdo, array $product): string
         'active' => $product['active'] ? 1 : 0,
         'price_tax_excl' => $product['priceTaxExcl'],
         'purchase_price_tax_excl' => $product['purchasePriceTaxExcl'],
+        'supplier_purchase_prices_json' => json_encode($product['supplierPurchasePrices'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'quantity' => $product['quantity'],
         'supplier_id' => $product['supplierId'],
         'prestashop_supplier_id' => $product['prestashopSupplierId'],
@@ -800,10 +915,11 @@ function stockcean_sync_prestashop(PDO $pdo, array $user, array $options = []): 
 
         $supplierMap = stockcean_supplier_map($pdo);
         $stockMap = stockcean_stock_map(stockcean_fetch_stock_availables($shopUrl, $apiKey, 1500));
+        $productSupplierPriceMap = stockcean_product_supplier_price_map(stockcean_fetch_product_suppliers($shopUrl, $apiKey));
         $productNodes = stockcean_fetch_products($shopUrl, $apiKey, $limit);
 
         foreach ($productNodes as $node) {
-            $product = stockcean_normalize_product($node, $stockMap, $supplierMap);
+            $product = stockcean_normalize_product($node, $stockMap, $supplierMap, $productSupplierPriceMap);
             if ($product['prestashopProductId'] <= 0) {
                 continue;
             }
@@ -866,6 +982,37 @@ function stockcean_product_filters(array $input): array
     ];
 }
 
+function stockcean_public_supplier_purchase_prices(mixed $json): array
+{
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $prices = [];
+    foreach ($decoded as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $price = (float) ($entry['priceTaxExcl'] ?? 0);
+        if ($price <= 0) {
+            continue;
+        }
+        $prices[] = [
+            'prestashopSupplierId' => isset($entry['prestashopSupplierId']) ? (int) $entry['prestashopSupplierId'] : null,
+            'supplierId' => isset($entry['supplierId']) ? (int) $entry['supplierId'] : null,
+            'priceTaxExcl' => $price,
+            'reference' => (string) ($entry['reference'] ?? ''),
+        ];
+    }
+
+    return $prices;
+}
+
 function stockcean_public_product(array $row): array
 {
     return [
@@ -876,6 +1023,7 @@ function stockcean_public_product(array $row): array
         'active' => (bool) ($row['active'] ?? false),
         'priceTaxExcl' => (float) ($row['price_tax_excl'] ?? 0),
         'purchasePriceTaxExcl' => (float) ($row['purchase_price_tax_excl'] ?? 0),
+        'supplierPurchasePrices' => stockcean_public_supplier_purchase_prices($row['supplier_purchase_prices_json'] ?? null),
         'quantity' => (int) ($row['quantity'] ?? 0),
         'reservedQuantity' => (int) ($row['reserved_quantity'] ?? 0),
         'minStockAlert' => (int) ($row['min_stock_alert'] ?? 5),

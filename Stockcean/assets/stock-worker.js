@@ -2,6 +2,14 @@ function normalizeText(value) {
   return String(value || "").toLowerCase();
 }
 
+function purchasePrice(product) {
+  const directPrice = Number(product?.purchasePriceTaxExcl || 0);
+  if (directPrice > 0) return directPrice;
+  const prices = Array.isArray(product?.supplierPurchasePrices) ? product.supplierPurchasePrices : [];
+  const firstSupplierPrice = prices.find((entry) => Number(entry.priceTaxExcl || 0) > 0);
+  return firstSupplierPrice ? Number(firstSupplierPrice.priceTaxExcl || 0) : 0;
+}
+
 function productMatchesCatalog(product, search, supplierFilter) {
   const matchesSupplier = supplierFilter === ""
     || (supplierFilter === "__none__" && !product.supplierId)
@@ -26,7 +34,7 @@ function buildCatalogGroups(products, search, supplierFilter) {
       }
       const group = groups.get(key);
       group.products.push(product);
-      group.stockValue += Number(product.quantity || 0) * Number(product.purchasePriceTaxExcl || 0);
+      group.stockValue += Number(product.quantity || 0) * purchasePrice(product);
       if (product.isLowStock) group.lowCount += 1;
     });
   return Array.from(groups.values());

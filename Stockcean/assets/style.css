@@ -501,7 +501,7 @@ td span {
 
 .purchase-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(76px, 88px) minmax(92px, 104px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-items: end;
   padding: 10px;
@@ -515,6 +515,12 @@ td span {
 .purchase-line select,
 .purchase-line input {
   min-width: 0;
+  max-width: 100%;
+}
+
+.purchase-line .field span {
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .line-product-field {

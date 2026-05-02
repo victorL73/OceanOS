@@ -36,10 +36,11 @@ Dans le Webservice PrestaShop, activer au minimum la lecture sur :
 products
 stock_availables
 suppliers
+product_suppliers
 ```
 
 Pour envoyer les receptions fournisseur vers PrestaShop, activer aussi l'ecriture sur `stock_availables`.
-Le module continue a synchroniser les produits et stocks si `suppliers` n'est pas disponible.
+Le module continue a synchroniser les produits et stocks si `suppliers` ou `product_suppliers` n'est pas disponible, mais les prix d'achat fournisseur resteront vides sans `product_suppliers`.
 
 ## Tables
 
