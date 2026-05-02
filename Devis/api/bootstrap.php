@@ -326,10 +326,37 @@ function devis_next_reference(PDO $pdo, int $userId): string
     return $prefix . str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
 }
 
+function devis_pdf_absolute_path(mixed $relativePath): string
+{
+    $relativePath = trim((string) $relativePath);
+    if ($relativePath === '') {
+        return '';
+    }
+
+    $relativePath = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
+    $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
+    $storageRoot = realpath(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage');
+    $fileRoot = realpath(dirname($path));
+    if ($storageRoot === false || $fileRoot === false || !str_starts_with($fileRoot, $storageRoot)) {
+        return '';
+    }
+
+    return $path;
+}
+
+function devis_delete_pdf_file(mixed $relativePath): void
+{
+    $path = devis_pdf_absolute_path($relativePath);
+    if ($path !== '' && is_file($path)) {
+        @unlink($path);
+    }
+}
+
 function devis_save_quote(PDO $pdo, array $user, array $input): array
 {
     $userId = (int) $user['id'];
     $quoteId = (int) ($input['id'] ?? 0);
+    $generatedPdf = null;
     $lines = devis_normalize_lines(is_array($input['lines'] ?? null) ? $input['lines'] : []);
     $totals = devis_totals($lines);
     $status = trim((string) ($input['status'] ?? 'Brouillon')) ?: 'Brouillon';
@@ -353,39 +380,38 @@ function devis_save_quote(PDO $pdo, array $user, array $input): array
         throw new InvalidArgumentException('Email client invalide.');
     }
 
-    if ($quoteId > 0) {
-        devis_quote_row($pdo, $quoteId, $userId);
-        $params['id'] = $quoteId;
-        $statement = $pdo->prepare(
-            'UPDATE devis_quotes
-             SET client_id = :client_id,
-                 client_name = :client_name,
-                 client_email = :client_email,
-                 status = :status,
-                 total_ht = :total_ht,
-                 total_ttc = :total_ttc,
-                 lines_json = :lines_json,
-                 date_updated = NOW()
-             WHERE id = :id AND user_id = :user_id'
-        );
-        $statement->execute($params);
-    } else {
-        $params['reference'] = devis_next_reference($pdo, $userId);
-        $statement = $pdo->prepare(
-            'INSERT INTO devis_quotes
-                (user_id, client_id, client_name, client_email, reference, status, total_ht, total_ttc, lines_json)
-             VALUES
-                (:user_id, :client_id, :client_name, :client_email, :reference, :status, :total_ht, :total_ttc, :lines_json)'
-        );
-        $statement->execute($params);
-        $quoteId = (int) $pdo->lastInsertId();
-    }
-
-    $row = devis_quote_row($pdo, $quoteId, $userId);
-    $quote = devis_public_quote($row);
-    $pdfWarning = '';
     try {
-        $pdf = devis_generate_quote_pdf($quote, devis_settings($pdo));
+        $pdo->beginTransaction();
+        if ($quoteId > 0) {
+            devis_quote_row($pdo, $quoteId, $userId);
+            $params['id'] = $quoteId;
+            $statement = $pdo->prepare(
+                'UPDATE devis_quotes
+                 SET client_id = :client_id,
+                     client_name = :client_name,
+                     client_email = :client_email,
+                     status = :status,
+                     total_ht = :total_ht,
+                     total_ttc = :total_ttc,
+                     lines_json = :lines_json,
+                     date_updated = NOW()
+                 WHERE id = :id AND user_id = :user_id'
+            );
+            $statement->execute($params);
+        } else {
+            $params['reference'] = devis_next_reference($pdo, $userId);
+            $statement = $pdo->prepare(
+                'INSERT INTO devis_quotes
+                    (user_id, client_id, client_name, client_email, reference, status, total_ht, total_ttc, lines_json)
+                 VALUES
+                    (:user_id, :client_id, :client_name, :client_email, :reference, :status, :total_ht, :total_ttc, :lines_json)'
+            );
+            $statement->execute($params);
+            $quoteId = (int) $pdo->lastInsertId();
+        }
+
+        $quote = devis_public_quote(devis_quote_row($pdo, $quoteId, $userId));
+        $generatedPdf = devis_generate_quote_pdf($quote, devis_settings($pdo));
         $generatedAt = date('Y-m-d H:i:s');
         $statement = $pdo->prepare(
             'UPDATE devis_quotes
@@ -394,31 +420,23 @@ function devis_save_quote(PDO $pdo, array $user, array $input): array
              WHERE id = :id AND user_id = :user_id'
         );
         $statement->execute([
-            'pdf_file_path' => $pdf['relativePath'],
+            'pdf_file_path' => $generatedPdf['relativePath'],
             'pdf_generated_at' => $generatedAt,
             'id' => $quoteId,
             'user_id' => $userId,
         ]);
+        $pdo->commit();
     } catch (Throwable $exception) {
-        $pdfWarning = $exception->getMessage();
-        $statement = $pdo->prepare(
-            'UPDATE devis_quotes
-             SET pdf_file_path = NULL,
-                 pdf_generated_at = NULL
-             WHERE id = :id AND user_id = :user_id'
-        );
-        $statement->execute([
-            'id' => $quoteId,
-            'user_id' => $userId,
-        ]);
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if (is_array($generatedPdf ?? null) && is_file((string) ($generatedPdf['absolutePath'] ?? ''))) {
+            @unlink((string) $generatedPdf['absolutePath']);
+        }
+        throw new RuntimeException('Devis non enregistre : impossible de generer le PDF local. ' . $exception->getMessage(), 0, $exception);
     }
 
-    $quote = devis_public_quote(devis_quote_row($pdo, $quoteId, $userId));
-    if ($pdfWarning !== '') {
-        $quote['pdf_warning'] = $pdfWarning;
-    }
-
-    return $quote;
+    return devis_public_quote(devis_quote_row($pdo, $quoteId, $userId));
 }
 
 function devis_delete_quote(PDO $pdo, array $user, int $quoteId): void
@@ -427,15 +445,7 @@ function devis_delete_quote(PDO $pdo, array $user, int $quoteId): void
         throw new InvalidArgumentException('Devis invalide.');
     }
     $row = devis_quote_row($pdo, $quoteId, (int) $user['id']);
-    $relative = (string) ($row['pdf_file_path'] ?? '');
-    if ($relative !== '') {
-        $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
-        $storageRoot = realpath(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage');
-        $fileRoot = realpath(dirname($path));
-        if ($storageRoot !== false && $fileRoot !== false && str_starts_with($fileRoot, $storageRoot) && is_file($path)) {
-            @unlink($path);
-        }
-    }
+    devis_delete_pdf_file($row['pdf_file_path'] ?? '');
 
     $statement = $pdo->prepare('DELETE FROM devis_quotes WHERE id = :id AND user_id = :user_id');
     $statement->execute([
@@ -473,48 +483,17 @@ function devis_download_quote_pdf(PDO $pdo, array $user, int $quoteId): void
     }
     $row = devis_quote_row($pdo, $quoteId, (int) $user['id']);
     $quote = devis_public_quote($row);
-    $relative = (string) ($row['pdf_file_path'] ?? '');
-    $path = $relative !== ''
-        ? dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative)
-        : '';
-    $pdfContent = null;
-
+    $path = devis_pdf_absolute_path($row['pdf_file_path'] ?? '');
     if ($path === '' || !is_file($path)) {
-        try {
-            $pdf = devis_generate_quote_pdf($quote, devis_settings($pdo));
-            $path = $pdf['absolutePath'];
-            $relative = $pdf['relativePath'];
-            $statement = $pdo->prepare(
-                'UPDATE devis_quotes
-                 SET pdf_file_path = :pdf_file_path,
-                     pdf_generated_at = NOW()
-                 WHERE id = :id AND user_id = :user_id'
-            );
-            $statement->execute([
-                'pdf_file_path' => $relative,
-                'id' => $quoteId,
-                'user_id' => (int) $user['id'],
-            ]);
-        } catch (Throwable) {
-            $pdfContent = devis_render_quote_pdf($quote, devis_settings($pdo));
-        }
-    }
-
-    if ($pdfContent === null && !is_file($path)) {
-        devis_json_response(['ok' => false, 'message' => 'PDF introuvable.'], 404);
+        devis_json_response(['ok' => false, 'message' => 'PDF introuvable. Reenregistrez le devis pour generer le PDF local.'], 404);
     }
 
     $filename = devis_safe_filename((string) ($quote['reference'] ?? 'devis')) . '.pdf';
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: private, max-age=0, must-revalidate');
-    if ($pdfContent !== null) {
-        header('Content-Length: ' . strlen($pdfContent));
-        echo $pdfContent;
-    } else {
-        header('Content-Length: ' . filesize($path));
-        readfile($path);
-    }
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
     exit;
 }
 

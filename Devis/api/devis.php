@@ -33,7 +33,7 @@ try {
             $quote = devis_save_quote($pdo, $user, is_array($input['quote'] ?? null) ? $input['quote'] : []);
             devis_json_response([
                 'ok' => true,
-                'message' => 'Devis enregistre.',
+                'message' => 'Devis enregistre. PDF genere localement.',
                 'quote' => $quote,
                 'quotes' => devis_list_quotes($pdo, (int) $user['id']),
             ]);

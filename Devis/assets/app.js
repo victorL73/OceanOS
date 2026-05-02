@@ -467,7 +467,7 @@ async function saveQuote(downloadAfter = false) {
     state.draft = cloneQuote(payload.quote || state.quotes.find((quote) => Number(quote.id) === Number(state.selectedId)));
     render();
     await loadDashboard();
-    showMessage(payload.quote?.pdf_warning ? "Devis enregistre. Le PDF sera genere au telechargement." : (payload.message || "Devis enregistre."), "success");
+    showMessage(payload.message || "Devis enregistre. PDF genere localement.", "success");
     if (downloadAfter && payload.quote?.id) {
       window.location.href = `${API.devis}?action=download&id=${encodeURIComponent(payload.quote.id)}`;
     }
