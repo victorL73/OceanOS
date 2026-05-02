@@ -69,6 +69,7 @@ try {
                 $units = (int) ($receipt['unitsPushed'] ?? 0);
                 $movementUnits = (int) ($receipt['unitsMoved'] ?? 0);
                 $movementErrors = is_array($receipt['movementErrors'] ?? null) ? $receipt['movementErrors'] : [];
+                $movementUnsupported = (bool) ($receipt['movementUnsupported'] ?? false);
                 $message = $units > 0
                     ? sprintf('Commande receptionnee. %d unite(s) ajoutee(s) dans PrestaShop.', $units)
                     : 'Commande receptionnee. Aucun stock restant a pousser vers PrestaShop.';
@@ -76,7 +77,9 @@ try {
                     $message .= sprintf(' %d unite(s) journalisee(s) en mouvement.', $movementUnits);
                 }
                 if ($movementErrors !== []) {
-                    $message .= ' Mouvement recent non cree: ' . mb_substr((string) $movementErrors[0], 0, 180);
+                    $message .= $movementUnsupported
+                        ? ' Mouvements recents non supportes par le Webservice PrestaShop de cette boutique.'
+                        : ' Mouvement recent non cree: ' . mb_substr((string) $movementErrors[0], 0, 180);
                 }
             }
             stockcean_json_response([

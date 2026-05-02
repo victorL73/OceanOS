@@ -68,6 +68,7 @@ const state = {
   purchaseOrders: [],
   runs: [],
   currentView: "stock",
+  focusPurchaseOrderId: 0,
   purchaseLines: [],
   nextPurchaseLineId: 1,
 };
@@ -229,6 +230,7 @@ function applyInitialFiltersFromUrl() {
   const active = params.get("active");
   const search = params.get("search");
   const view = params.get("view");
+  const orderId = Number(params.get("order") || params.get("purchaseOrder") || 0);
 
   if (stock === "low" || stock === "out") {
     elements.filterStock.value = stock;
@@ -241,6 +243,11 @@ function applyInitialFiltersFromUrl() {
   }
   if (["stock", "supplier-catalog", "order-history"].includes(view)) {
     setActiveView(view);
+  }
+  if (orderId > 0) {
+    state.focusPurchaseOrderId = orderId;
+    elements.historySearch.value = String(orderId);
+    setActiveView("order-history");
   }
 }
 
@@ -493,6 +500,10 @@ function statusLabel(status) {
   }[status] || status;
 }
 
+function isUnsupportedMovementMessage(value) {
+  return String(value || "").includes("non supportes par le Webservice");
+}
+
 function renderCatalogFilters() {
   const selected = elements.catalogSupplierFilter.value;
   elements.catalogSupplierFilter.innerHTML = [
@@ -646,6 +657,14 @@ function renderOrderHistory() {
   const search = elements.historySearch.value.trim().toLowerCase();
   const status = elements.historyStatusFilter.value;
   const orders = state.purchaseOrders || [];
+  const focusedOrderId = Number(state.focusPurchaseOrderId || 0);
+
+  if (focusedOrderId > 0 && search === String(focusedOrderId)) {
+    renderOrderHistoryList(orders.filter((order) => (
+      Number(order.id) === focusedOrderId && (status === "" || order.status === status)
+    )));
+    return;
+  }
 
   if (shouldUseStockWorker(orders)) {
     const worker = ensureStockWorker();
@@ -676,7 +695,7 @@ function renderOrderHistoryList(orders) {
   }
 
   elements.orderHistory.innerHTML = orders.map((order) => `
-    <article class="history-card">
+    <article class="history-card${Number(order.id) === Number(state.focusPurchaseOrderId) ? " is-focused" : ""}" data-purchase-order-id="${order.id}">
       <div class="history-head">
         <div>
           <strong>${escapeHtml(order.orderNumber)}</strong>
@@ -713,7 +732,7 @@ function renderOrderHistoryList(orders) {
                   <td>
                     <span>${line.prestashopStockDelta || 0} stock</span>
                     <span class="table-meta">${line.prestashopMovementDelta || 0} mouvement</span>
-                    ${line.prestashopMovementError ? `<span class="table-meta danger-text">${escapeHtml(line.prestashopMovementError)}</span>` : ""}
+                    ${line.prestashopMovementError ? `<span class="table-meta ${isUnsupportedMovementMessage(line.prestashopMovementError) ? "" : "danger-text"}">${escapeHtml(line.prestashopMovementError)}</span>` : ""}
                   </td>
                   <td>${money.format(Number(line.unitPriceTaxExcl || 0))}</td>
                   <td>${money.format(Number(line.lineTotalTaxExcl || 0))}</td>
@@ -735,6 +754,7 @@ function renderOrderHistoryList(orders) {
       </div>
     </article>
   `).join("");
+  focusPurchaseOrder();
 }
 
 function renderRuns() {
@@ -750,6 +770,16 @@ function renderRuns() {
       <small>${escapeHtml(run.startedAt || "")}</small>
     </article>
   `).join("");
+}
+
+function focusPurchaseOrder() {
+  if (!state.focusPurchaseOrderId) return;
+  window.requestAnimationFrame(() => {
+    const card = elements.orderHistory.querySelector(`[data-purchase-order-id="${state.focusPurchaseOrderId}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
 }
 
 async function syncStock() {

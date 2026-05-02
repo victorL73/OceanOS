@@ -53,6 +53,7 @@ const state = {
     page: 1,
     limit: 30,
   },
+  focusQuoteId: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -690,6 +691,8 @@ function renderQuotes() {
 
   state.quotes.forEach((quote) => {
     const row = document.createElement("tr");
+    row.dataset.quoteId = String(quote.id);
+    row.classList.toggle("is-focused", Number(quote.id) === Number(state.focusQuoteId));
 
     const quoteCell = document.createElement("td");
     const quoteTitle = document.createElement("strong");
@@ -745,6 +748,7 @@ function renderQuotes() {
     );
     elements.quotesTableBody.append(row);
   });
+  focusQuoteRow();
 }
 
 async function syncQuotes() {
@@ -922,6 +926,29 @@ function switchTab(tab) {
   elements.tabQuotes.classList.toggle("active", showQuotes);
 }
 
+function applyInitialRouteFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const quoteId = Number(params.get("quote") || 0);
+  const tab = params.get("tab");
+
+  if (quoteId > 0) {
+    state.focusQuoteId = quoteId;
+    switchTab("quotes");
+  } else if (tab === "quotes") {
+    switchTab("quotes");
+  }
+}
+
+function focusQuoteRow() {
+  if (!state.focusQuoteId || state.activeTab !== "quotes") return;
+  window.requestAnimationFrame(() => {
+    const row = elements.quotesTableBody.querySelector(`[data-quote-id="${state.focusQuoteId}"]`);
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
+}
+
 function installListeners() {
   elements.authForm.addEventListener("submit", handleAuthSubmit);
   elements.logoutButton.addEventListener("click", logout);
@@ -973,6 +1000,7 @@ async function init() {
   try {
     await fetchAuth();
     if (state.auth.authenticated) {
+      applyInitialRouteFromUrl();
       await loadDashboard();
     }
   } catch (error) {

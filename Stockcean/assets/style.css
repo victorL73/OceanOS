@@ -599,6 +599,11 @@ td span {
   overflow: hidden;
 }
 
+.history-card.is-focused {
+  border-color: rgba(36, 116, 184, 0.62);
+  box-shadow: 0 14px 36px rgba(36, 116, 184, 0.14);
+}
+
 .catalog-group-head,
 .history-head {
   display: flex;

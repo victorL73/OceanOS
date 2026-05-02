@@ -114,6 +114,16 @@ function formatDate(value) {
   }).format(date);
 }
 
+function moduleUrl(path, params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== "" && value !== null && value !== undefined) {
+      search.set(key, String(value));
+    }
+  });
+  return `${path}${search.toString() ? `?${search.toString()}` : ""}`;
+}
+
 function setView(view) {
   elements.loadingView.classList.toggle("hidden", view !== "loading");
   elements.appView.classList.toggle("hidden", view !== "app");
@@ -305,7 +315,7 @@ function renderOrders() {
   }
 
   elements.ordersList.innerHTML = orders.map((order) => `
-    <article class="order-card">
+    <a class="order-card order-link" href="${escapeHtml(moduleUrl("/Commandes/", { order: order.id }))}" title="Ouvrir cette commande dans Commandes">
       <div class="order-head">
         <div>
           <strong>${escapeHtml(order.reference)}</strong>
@@ -320,7 +330,7 @@ function renderOrders() {
         <span><small>Marge HT</small><b>${formatMoney(order.estimatedMarginTaxExcl)}</b></span>
       </div>
       ${order.missingCostLines ? `<p class="muted-note">${order.missingCostLines} cout(s) fournisseur manquant(s).</p>` : ""}
-    </article>
+    </a>
   `).join("");
 }
 
@@ -343,7 +353,7 @@ function renderSupplierOrders() {
   }
 
   elements.supplierOrdersList.innerHTML = orders.map((order) => `
-    <article class="order-card">
+    <a class="order-card order-link" href="${escapeHtml(moduleUrl("/Stockcean/", { view: "order-history", order: order.id }))}" title="Ouvrir cette commande dans Stockcean">
       <div class="order-head">
         <div>
           <strong>${escapeHtml(order.orderNumber)}</strong>
@@ -357,7 +367,7 @@ function renderSupplierOrders() {
         <span><small>Total TTC</small><b>${formatMoney(order.totalTaxIncl)}</b></span>
         <span><small>Lignes</small><b>${numberFormat.format(Number(order.lineCount || 0))}</b></span>
       </div>
-    </article>
+    </a>
   `).join("");
 }
 
@@ -376,7 +386,7 @@ function renderConvertedQuotes() {
     const date = quote.invoiceDate || quote.accountingDate || quote.convertedAt;
 
     return `
-      <article class="order-card">
+      <a class="order-card order-link" href="${escapeHtml(moduleUrl("/Invocean/", { tab: "quotes", quote: quote.id }))}" title="Ouvrir ce devis dans Invocean">
         <div class="order-head">
           <div>
             <strong>${escapeHtml(quote.quoteNumber || `Devis #${quote.id}`)}</strong>
@@ -390,7 +400,7 @@ function renderConvertedQuotes() {
           <span><small>Total TTC</small><b>${formatMoney(quote.totalTaxIncl)}</b></span>
           <span><small>${escapeHtml(invoice)}</small><b>${escapeHtml(quote.source || "Invocean")}</b></span>
         </div>
-      </article>
+      </a>
     `;
   }).join("");
 }

@@ -543,6 +543,30 @@ function stockcean_create_prestashop_stock_movement(string $shopUrl, string $api
     return 0;
 }
 
+function stockcean_stock_movement_unsupported_message(): string
+{
+    return 'Mouvements recents PrestaShop non supportes par le Webservice de cette boutique. Le stock a bien ete ajoute via stock_availables.';
+}
+
+function stockcean_is_stock_movement_unsupported(Throwable|string $error): bool
+{
+    if ($error instanceof OceanosPrestashopException) {
+        return $error->statusCode === 405 && str_starts_with($error->resource, 'stock_movements');
+    }
+
+    $message = $error instanceof Throwable ? $error->getMessage() : (string) $error;
+    return str_contains($message, 'stock_movements HTTP 405')
+        || str_contains($message, 'Method POST is not allowed for the resource stock_movements')
+        || str_contains($message, stockcean_stock_movement_unsupported_message());
+}
+
+function stockcean_public_stock_movement_error(Throwable|string $error): string
+{
+    return stockcean_is_stock_movement_unsupported($error)
+        ? stockcean_stock_movement_unsupported_message()
+        : ($error instanceof Throwable ? $error->getMessage() : (string) $error);
+}
+
 function stockcean_fetch_suppliers(string $shopUrl, string $apiKey, int $limit = 500): array
 {
     try {
@@ -1341,7 +1365,7 @@ function stockcean_public_order_line(array $line): array
         'prestashopReceivedAt' => array_key_exists('prestashop_received_at', $line) && $line['prestashop_received_at'] !== null ? (string) $line['prestashop_received_at'] : null,
         'prestashopMovementDelta' => (int) ($line['prestashop_movement_delta'] ?? 0),
         'prestashopMovementAt' => array_key_exists('prestashop_movement_at', $line) && $line['prestashop_movement_at'] !== null ? (string) $line['prestashop_movement_at'] : null,
-        'prestashopMovementError' => (string) ($line['prestashop_movement_error'] ?? ''),
+        'prestashopMovementError' => stockcean_public_stock_movement_error((string) ($line['prestashop_movement_error'] ?? '')),
         'unitPriceTaxExcl' => (float) ($line['unit_price_tax_excl'] ?? 0),
         'lineTotalTaxExcl' => (float) ($line['quantity_ordered'] ?? 0) * (float) ($line['unit_price_tax_excl'] ?? 0),
     ];
@@ -1456,6 +1480,7 @@ function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $ord
         'movementsCreated' => 0,
         'unitsMoved' => 0,
         'movementErrors' => [],
+        'movementUnsupported' => false,
         'products' => [],
     ];
 
@@ -1508,34 +1533,43 @@ function stockcean_apply_purchase_order_receipt_to_prestashop(PDO $pdo, int $ord
         $movementDelta = max(0, $pushedAfter - $alreadyMoved);
         $movementId = 0;
         $movementError = '';
+        $previousMovementError = (string) ($line['prestashop_movement_error'] ?? '');
         if ($movementDelta > 0) {
-            try {
-                $movementId = stockcean_create_prestashop_stock_movement($shopUrl, $apiKey, $line, $movementDelta, $stockUpdate, $employeeId, $reasonId);
-                $movementUpdate = $pdo->prepare(
-                    'UPDATE stockcean_purchase_order_lines
-                     SET prestashop_movement_delta = prestashop_movement_delta + :delta,
-                         prestashop_movement_at = NOW(),
-                         prestashop_movement_error = NULL
-                     WHERE id = :id'
-                );
-                $movementUpdate->execute([
-                    'id' => (int) $line['id'],
-                    'delta' => $movementDelta,
-                ]);
-                $summary['movementsCreated']++;
-                $summary['unitsMoved'] += $movementDelta;
-            } catch (Throwable $exception) {
-                $movementError = $exception->getMessage();
-                $movementErrorUpdate = $pdo->prepare(
-                    'UPDATE stockcean_purchase_order_lines
-                     SET prestashop_movement_error = :error
-                     WHERE id = :id'
-                );
-                $movementErrorUpdate->execute([
-                    'id' => (int) $line['id'],
-                    'error' => mb_substr($movementError, 0, 1000),
-                ]);
-                $summary['movementErrors'][] = $movementError;
+            if ($stockDelta <= 0 && stockcean_is_stock_movement_unsupported($previousMovementError)) {
+                $movementError = stockcean_stock_movement_unsupported_message();
+                $summary['movementUnsupported'] = true;
+            } else {
+                try {
+                    $movementId = stockcean_create_prestashop_stock_movement($shopUrl, $apiKey, $line, $movementDelta, $stockUpdate, $employeeId, $reasonId);
+                    $movementUpdate = $pdo->prepare(
+                        'UPDATE stockcean_purchase_order_lines
+                         SET prestashop_movement_delta = prestashop_movement_delta + :delta,
+                             prestashop_movement_at = NOW(),
+                             prestashop_movement_error = NULL
+                         WHERE id = :id'
+                    );
+                    $movementUpdate->execute([
+                        'id' => (int) $line['id'],
+                        'delta' => $movementDelta,
+                    ]);
+                    $summary['movementsCreated']++;
+                    $summary['unitsMoved'] += $movementDelta;
+                } catch (Throwable $exception) {
+                    $movementError = stockcean_public_stock_movement_error($exception);
+                    if (stockcean_is_stock_movement_unsupported($exception)) {
+                        $summary['movementUnsupported'] = true;
+                    }
+                    $movementErrorUpdate = $pdo->prepare(
+                        'UPDATE stockcean_purchase_order_lines
+                         SET prestashop_movement_error = :error
+                         WHERE id = :id'
+                    );
+                    $movementErrorUpdate->execute([
+                        'id' => (int) $line['id'],
+                        'error' => mb_substr($movementError, 0, 1000),
+                    ]);
+                    $summary['movementErrors'][] = $movementError;
+                }
             }
         }
 

@@ -41,6 +41,7 @@ product_suppliers
 
 Pour envoyer les receptions fournisseur vers PrestaShop, activer aussi l'ecriture sur `stock_availables`.
 Le module continue a synchroniser les produits et stocks si `suppliers` ou `product_suppliers` n'est pas disponible, mais les prix d'achat fournisseur resteront vides sans `product_suppliers`.
+Certaines boutiques PrestaShop refusent la creation de `stock_movements` en POST: Stockcean met alors le stock a jour via `stock_availables` et conserve l'information dans l'historique, sans bloquer la reception.
 
 ## Tables
 
