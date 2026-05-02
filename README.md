@@ -11,7 +11,7 @@ www/
   Agenda/                Agenda personnel, taches consolidees et reunions MeetOcean
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
-  Devis/                 Devis PDF au format Mobywork depuis les produits PrestaShop
+  Devis/                 Devis PDF Renovboat depuis les produits PrestaShop
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Mobywork/              CRM e-commerce, commandes, emails et finance
   NautiCRM/              CRM clients, contacts, relances et opportunites
@@ -364,7 +364,7 @@ Il utilise OceanOS pour :
 - recuperer les produits PrestaShop depuis le connecteur commun
 - ajouter des frais annexes comme la livraison ou la manutention
 - enregistrer les devis dans MySQL
-- generer des PDF avec le meme gabarit de sortie que les devis Mobywork
+- generer des PDF Renovboat avec le logo de l'entreprise
 - servir les PDF uniquement via une API authentifiee
 
 ## NautiCRM

@@ -559,6 +559,32 @@ function devis_safe_filename(mixed $value): string
     return substr($filename !== '' ? $filename : 'devis', 0, 120);
 }
 
+function devis_logo_path(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'renovboat-logo.jpg';
+}
+
+function devis_pdf_jpeg_info(string $path): ?array
+{
+    if (!is_file($path)) {
+        return null;
+    }
+    $size = @getimagesize($path);
+    if (!is_array($size) || (string) ($size['mime'] ?? '') !== 'image/jpeg') {
+        return null;
+    }
+    $data = @file_get_contents($path);
+    if ($data === false || $data === '') {
+        return null;
+    }
+
+    return [
+        'width' => (int) ($size[0] ?? 0),
+        'height' => (int) ($size[1] ?? 0),
+        'data' => $data,
+    ];
+}
+
 function devis_format_money(mixed $value): string
 {
     $amount = devis_decimal($value);
@@ -602,6 +628,8 @@ final class DevisPdfCanvas
 {
     /** @var array<int, string> */
     private array $pages = [];
+    /** @var array<string, array{width:int, height:int, data:string}> */
+    private array $images = [];
     private string $current = '';
 
     public function addPage(): void
@@ -618,7 +646,7 @@ final class DevisPdfCanvas
             $this->pages[] = $this->current;
         }
 
-        return devis_build_pdf($this->pages);
+        return devis_build_pdf($this->pages, $this->images);
     }
 
     public function fill(array $rgb): void
@@ -659,6 +687,24 @@ final class DevisPdfCanvas
         );
     }
 
+    public function imageJpeg(string $path, float $x, float $y, float $w, float $h, string $name = 'Logo1'): void
+    {
+        $name = preg_replace('/[^A-Za-z0-9]+/', '', $name) ?: 'Logo1';
+        $image = devis_pdf_jpeg_info($path);
+        if ($image === null) {
+            return;
+        }
+        $this->images[$name] = $image;
+        $this->current .= sprintf(
+            "q %.2F 0 0 %.2F %.2F %.2F cm /%s Do Q\n",
+            devis_pdf_mm($w),
+            devis_pdf_mm($h),
+            devis_pdf_mm($x),
+            DEVIS_PDF_PAGE_H - devis_pdf_mm($y + $h),
+            $name
+        );
+    }
+
     public function text(float $x, float $y, mixed $value, float $size = 9, string $font = 'F1', array $rgb = [26, 36, 40]): void
     {
         $this->fill($rgb);
@@ -686,7 +732,7 @@ final class DevisPdfCanvas
     }
 }
 
-function devis_build_pdf(array $pageStreams): string
+function devis_build_pdf(array $pageStreams, array $images = []): string
 {
     $objects = [1 => null, 2 => null];
     $nextId = 3;
@@ -699,11 +745,32 @@ function devis_build_pdf(array $pageStreams): string
     $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
     $regularFont = $addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
     $boldFont = $addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+    $imageObjectIds = [];
+    foreach ($images as $name => $image) {
+        if (!is_array($image) || empty($image['data']) || empty($image['width']) || empty($image['height'])) {
+            continue;
+        }
+        $safeName = preg_replace('/[^A-Za-z0-9]+/', '', (string) $name) ?: 'Logo1';
+        $imageObjectIds[$safeName] = $addObject(
+            '<< /Type /XObject /Subtype /Image /Width ' . (int) $image['width'] .
+            ' /Height ' . (int) $image['height'] .
+            ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' . strlen((string) $image['data']) .
+            " >>\nstream\n" . (string) $image['data'] . "\nendstream"
+        );
+    }
     $pageIds = [];
 
     foreach ($pageStreams as $stream) {
         $contentId = $addObject('<< /Length ' . strlen($stream) . " >>\nstream\n" . $stream . "\nendstream");
-        $pageId = $addObject('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . DEVIS_PDF_PAGE_W . ' ' . DEVIS_PDF_PAGE_H . '] /Resources << /Font << /F1 ' . $regularFont . ' 0 R /F2 ' . $boldFont . ' 0 R >> >> /Contents ' . $contentId . ' 0 R >>');
+        $xObjects = '';
+        if ($imageObjectIds !== []) {
+            $xObjects = ' /XObject << ' . implode(' ', array_map(
+                static fn(string $name, int $id): string => '/' . $name . ' ' . $id . ' 0 R',
+                array_keys($imageObjectIds),
+                array_values($imageObjectIds)
+            )) . ' >>';
+        }
+        $pageId = $addObject('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' . DEVIS_PDF_PAGE_W . ' ' . DEVIS_PDF_PAGE_H . '] /Resources << /Font << /F1 ' . $regularFont . ' 0 R /F2 ' . $boldFont . ' 0 R >>' . $xObjects . ' >> /Contents ' . $contentId . ' 0 R >>');
         $pageIds[] = $pageId;
     }
 
@@ -758,15 +825,19 @@ function devis_draw_header(DevisPdfCanvas $pdf, array $quote, array $settings): 
     $validityDays = max(1, (int) ($settings['quote_validity_days'] ?? 30));
     $validity = date('d/m/Y', time() + ($validityDays * 86400));
 
-    $pdf->text(15, 21, $company, 18, 'F2', [12, 38, 48]);
-    $pdf->text(15, 28, 'Reparation nautique', 9, 'F1', [84, 100, 106]);
+    if (is_file(devis_logo_path())) {
+        $pdf->imageJpeg(devis_logo_path(), 14, 12, 78, 18.3, 'RenovboatLogo');
+    } else {
+        $pdf->text(15, 21, $company, 18, 'F2', [12, 38, 48]);
+        $pdf->text(15, 28, 'Reparation nautique', 9, 'F1', [84, 100, 106]);
+    }
     $pdf->stroke([14, 59, 83]);
     $pdf->lineWidth(0.8);
     $pdf->line(15, 43, 195, 43);
 
     $pdf->textRight(195, 22, 'DEVIS', 25, 'F2', [12, 38, 48]);
     $pdf->textRight(195, 29, 'PROPOSITION COMMERCIALE', 10, 'F2', [249, 86, 20]);
-    $pdf->textRight(195, 36, 'Document genere par Mobywork', 8, 'F1', [84, 100, 106]);
+    $pdf->textRight(195, 36, 'Document genere par Renovboat', 8, 'F1', [84, 100, 106]);
 
     $pdf->fill([243, 248, 249]);
     $pdf->stroke([218, 229, 231]);
@@ -932,7 +1003,7 @@ function devis_render_quote_pdf(array $quote, array $settings = []): string
     $pdf->stroke([222, 231, 232]);
     $pdf->line(15, 281, 195, 281);
     $footerCompany = (string) ($settings['quote_company_name'] ?? 'RenovBoat');
-    $pdf->text(47, 287, $footerCompany . ' - Reparation nautique - Devis genere avec la base graphique Invocean', 7.5, 'F1', [102, 115, 120]);
+    $pdf->text(57, 287, $footerCompany . ' - Reparation nautique - Devis genere par Renovboat', 7.5, 'F1', [102, 115, 120]);
 
     return $pdf->finish();
 }

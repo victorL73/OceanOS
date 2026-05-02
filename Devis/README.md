@@ -7,7 +7,7 @@ Module OceanOS dedie a la creation de devis PDF.
 - recupere les produits PrestaShop via le Webservice
 - ajoute des frais annexes comme la livraison ou la manutention
 - enregistre les devis dans `devis_quotes`
-- genere des PDF dans le meme style que les devis Mobywork
+- genere des PDF Renovboat avec le logo de l'entreprise
 
 URL locale :
 
