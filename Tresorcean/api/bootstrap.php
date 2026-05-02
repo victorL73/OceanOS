@@ -330,6 +330,13 @@ function tresorcean_revenue_state(array $state): bool
         return false;
     }
 
+    $stateName = strtolower((string) ($state['name'] ?? ''));
+    foreach (['rembours', 'refund'] as $excludedStatus) {
+        if (str_contains($stateName, $excludedStatus)) {
+            return false;
+        }
+    }
+
     return !empty($state['paid']) || !empty($state['invoice']) || !empty($state['logable']);
 }
 

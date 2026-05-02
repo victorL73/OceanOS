@@ -124,6 +124,32 @@ function commandes_float(string $value): float
     return is_numeric($normalized) ? (float) $normalized : 0.0;
 }
 
+function commandes_normalize_status_text(string $value): string
+{
+    return strtolower(trim(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value) ?: $value));
+}
+
+function commandes_order_excluded_from_revenue(array $order): bool
+{
+    $state = is_array($order['currentState'] ?? null) ? $order['currentState'] : [];
+    if (!empty($state['deleted'])) {
+        return true;
+    }
+
+    $name = commandes_normalize_status_text((string) ($state['name'] ?? ''));
+    if ($name === '') {
+        return false;
+    }
+
+    foreach (['annul', 'cancel', 'rembours', 'refund'] as $keyword) {
+        if (str_contains($name, $keyword)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function commandes_fetch_carrier_summary(string $shopUrl, string $apiKey, int $carrierId, string $trackingNumber = ''): array
 {
     if ($carrierId <= 0) {
@@ -332,6 +358,7 @@ function commandes_public_order(SimpleXMLElement $node, array $states, array &$c
         'customer' => $customers[$customerId],
         'currentStateId' => $stateId,
         'currentState' => $state,
+        'excludedFromRevenue' => commandes_order_excluded_from_revenue(['currentState' => $state]),
         'payment' => oceanos_xml_text($node, 'payment'),
         'module' => oceanos_xml_text($node, 'module'),
         'totalPaid' => commandes_float(oceanos_xml_text($node, 'total_paid_tax_incl') ?: oceanos_xml_text($node, 'total_paid')),

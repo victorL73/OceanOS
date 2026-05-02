@@ -157,10 +157,10 @@ Il cree une archive ZIP contenant :
 
 Pour un export SQL complet, le serveur Ubuntu doit avoir `mysqldump` disponible. Le module utilise alors `--single-transaction`, `--routines`, `--events`, `--triggers` et `--hex-blob`. Si `mysqldump` est absent, un export PDO de secours est tente.
 
-La planification se regle dans `/Backup/`. Le cron Ubuntu doit appeler le runner regulierement, par exemple toutes les 15 minutes :
+La planification se regle dans `/Backup/`. La ligne cron Ubuntu est generee automatiquement selon la frequence, l'heure et le jour choisis dans l'interface.
 
 ```text
-*/15 * * * * /usr/bin/php /var/www/html/Backup/api/backup.php run-scheduled >/dev/null 2>&1
+0 2 * * * /usr/bin/php /var/www/html/Backup/api/backup.php run-scheduled >/dev/null 2>&1
 ```
 
 Le module supprime automatiquement les archives de plus de 15 jours. Il garde aussi une limite maximale d'archives, reglable dans l'interface Backup.

@@ -374,9 +374,37 @@ function backup_parse_iso_datetime(?string $value, DateTimeZone $timezone): ?Dat
     }
 }
 
-function backup_cron_command(): string
+function backup_cron_php_binary(): string
 {
-    return '*/15 * * * * /usr/bin/php '
+    $configured = trim((string) (getenv('OCEANOS_BACKUP_PHP_PATH') ?: ''));
+    return $configured !== '' ? $configured : '/usr/bin/php';
+}
+
+function backup_cron_expression(array $schedule): string
+{
+    $schedule = backup_normalize_schedule($schedule);
+    [$hour, $minute] = backup_schedule_time_parts($schedule);
+
+    if ($schedule['frequency'] === 'hourly') {
+        return sprintf('%d * * * *', $minute);
+    }
+    if ($schedule['frequency'] === 'daily') {
+        return sprintf('%d %d * * *', $minute, $hour);
+    }
+    if ($schedule['frequency'] === 'weekly') {
+        $cronWeekday = (int) $schedule['weekday'] === 7 ? 0 : (int) $schedule['weekday'];
+        return sprintf('%d %d * * %d', $minute, $hour, $cronWeekday);
+    }
+
+    return sprintf('%d %d %d * *', $minute, $hour, (int) $schedule['monthday']);
+}
+
+function backup_cron_command(?array $schedule = null): string
+{
+    $schedule = backup_normalize_schedule($schedule ?? backup_load_schedule());
+
+    return backup_cron_expression($schedule) . ' '
+        . backup_shell_arg(backup_cron_php_binary()) . ' '
         . backup_shell_arg(backup_module_path('api', 'backup.php'))
         . ' run-scheduled >/dev/null 2>&1';
 }
@@ -409,7 +437,10 @@ function backup_public_schedule(array $schedule): array
         'updatedAt' => $schedule['updated_at'],
         'nextRunAt' => $nextSlot?->format(DateTimeInterface::ATOM),
         'dueRunAt' => $dueSlot?->format(DateTimeInterface::ATOM),
-        'cronCommand' => backup_cron_command(),
+        'cronExpression' => backup_cron_expression($schedule),
+        'cronPhpBinary' => backup_cron_php_binary(),
+        'cronScriptPath' => backup_module_path('api', 'backup.php'),
+        'cronCommand' => backup_cron_command($schedule),
     ];
 }
 

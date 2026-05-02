@@ -103,6 +103,53 @@ function updateScheduleVisibility() {
   elements.monthdayField.classList.toggle("hidden", frequency !== "monthly");
 }
 
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function timeParts(time) {
+  const match = String(time || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return { hour: 2, minute: 0 };
+  return {
+    hour: clampNumber(match[1], 0, 23, 2),
+    minute: clampNumber(match[2], 0, 59, 0),
+  };
+}
+
+function cronExpressionForSchedule(schedule) {
+  const { hour, minute } = timeParts(schedule.time);
+  const frequency = String(schedule.frequency || "daily");
+  if (frequency === "hourly") {
+    return `${minute} * * * *`;
+  }
+  if (frequency === "daily") {
+    return `${minute} ${hour} * * *`;
+  }
+  if (frequency === "weekly") {
+    const weekday = clampNumber(schedule.weekday, 1, 7, 1);
+    return `${minute} ${hour} * * ${weekday === 7 ? 0 : weekday}`;
+  }
+  const monthday = clampNumber(schedule.monthday, 1, 31, 1);
+  return `${minute} ${hour} ${monthday} * *`;
+}
+
+function shellArg(value) {
+  return `'${String(value || "").replace(/'/g, "'\\''")}'`;
+}
+
+function cronCommandForSchedule(schedule) {
+  const phpBinary = state.schedule?.cronPhpBinary || "/usr/bin/php";
+  const scriptPath = state.schedule?.cronScriptPath || "/var/www/oceanos/Backup/api/backup.php";
+  return `${cronExpressionForSchedule(schedule)} ${shellArg(phpBinary)} ${shellArg(scriptPath)} run-scheduled >/dev/null 2>&1`;
+}
+
+function updateSchedulePreview() {
+  updateScheduleVisibility();
+  elements.cronCommand.textContent = cronCommandForSchedule(schedulePayload());
+}
+
 function renderScheduleControls() {
   const schedule = state.schedule;
   if (!schedule) return;
@@ -114,8 +161,7 @@ function renderScheduleControls() {
   elements.scheduleMonthday.value = String(schedule.monthday || 1);
   elements.retentionCount.value = String(schedule.retentionCount || 12);
   elements.retentionDays.value = String(schedule.retentionDays || 15);
-  elements.cronCommand.textContent = schedule.cronCommand || "";
-  updateScheduleVisibility();
+  updateSchedulePreview();
 }
 
 function renderMetrics(payload) {
@@ -320,7 +366,8 @@ elements.refreshButton.addEventListener("click", () => {
   void loadStatus().catch((error) => showMessage(error.message, "error"));
 });
 elements.scheduleForm.addEventListener("submit", saveSchedule);
-elements.scheduleFrequency.addEventListener("change", updateScheduleVisibility);
+elements.scheduleForm.addEventListener("input", updateSchedulePreview);
+elements.scheduleForm.addEventListener("change", updateSchedulePreview);
 elements.runScheduledButton.addEventListener("click", runScheduledNow);
 elements.copyCronButton.addEventListener("click", copyCronCommand);
 elements.logoutButton.addEventListener("click", logout);

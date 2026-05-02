@@ -54,7 +54,7 @@ function backup_h(string $value): string
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
   <link rel="stylesheet" href="assets/style.css?v=20260502">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-backup"></script>
-  <script defer src="assets/app.js?v=20260502-retention15"></script>
+  <script defer src="assets/app.js?v=20260502-cron-auto"></script>
 </head>
 <body>
   <main class="app-shell">
