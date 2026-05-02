@@ -11,11 +11,14 @@ try {
     if ($method === 'GET') {
         $action = strtolower(trim((string) ($_GET['action'] ?? 'dashboard')));
         if ($action === 'attachment') {
-            nautimail_download_attachment($pdo, $user, (int) ($_GET['id'] ?? 0), (int) ($_GET['index'] ?? -1));
+            nautimail_download_attachment($pdo, $user, (int) ($_GET['id'] ?? 0), (int) ($_GET['index'] ?? -1), !empty($_GET['inline']));
         }
 
         if ($action === 'message') {
             $message = nautimail_require_message_access($pdo, $user, (int) ($_GET['id'] ?? 0));
+            if (!empty($_GET['refreshParts']) || nautimail_message_missing_inline_sources($message)) {
+                $message = nautimail_refresh_message_parts($pdo, $user, $message);
+            }
             nautimail_json_response([
                 'ok' => true,
                 'managedBy' => 'OceanOS',

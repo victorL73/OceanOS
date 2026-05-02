@@ -320,6 +320,18 @@ function nautisign_safe_filename_stem(string $value, string $fallback): string
     return mb_substr($stem !== '' ? $stem : $fallback, 0, 80);
 }
 
+function nautisign_quote_display_label(mixed $value): string
+{
+    $filename = nautisign_safe_basename($value);
+    $reference = nautisign_devis_reference_from_filename($filename);
+    if ($reference !== '') {
+        return $reference;
+    }
+
+    $label = basename($filename, '.pdf');
+    return $label !== '' ? $label : 'Devis';
+}
+
 function nautisign_quote_path(string $filename): string
 {
     $quote = nautisign_find_quote_file($filename);
@@ -582,7 +594,7 @@ function nautisign_public_request(array $request, bool $includeToken = true): ar
     $payload = [
         'id' => (int) $request['id'],
         'quoteFilename' => (string) $request['quote_filename'],
-        'quoteLabel' => basename((string) $request['quote_filename'], '.pdf'),
+        'quoteLabel' => nautisign_quote_display_label($request['quote_filename'] ?? ''),
         'status' => $status,
         'signerName' => (string) ($request['signer_name'] ?? ''),
         'signerEmail' => (string) ($request['signer_email'] ?? ''),

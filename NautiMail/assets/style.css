@@ -657,17 +657,27 @@ legend {
   white-space: nowrap;
 }
 
-.attachment-icon {
+.attachment-icon,
+.attachment-thumb {
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
+  border-radius: 8px;
+}
+
+.attachment-icon {
   display: inline-grid;
   place-items: center;
-  border-radius: 8px;
   background: rgba(8, 125, 121, 0.10);
   color: var(--teal);
   font-size: 0.76rem;
   font-weight: 950;
+}
+
+.attachment-thumb {
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
 }
 
 .mail-text-body,

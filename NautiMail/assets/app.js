@@ -232,7 +232,8 @@ async function loadDashboard() {
 }
 
 async function loadMessage(messageId, activate = true) {
-  const payload = await apiRequest(`${API.messages}?action=message&id=${encodeURIComponent(messageId)}`);
+  const refresh = state.imapAvailable ? "&refreshParts=1" : "";
+  const payload = await apiRequest(`${API.messages}?action=message&id=${encodeURIComponent(messageId)}${refresh}`);
   state.selectedMessage = payload.message || null;
   state.replyAll = false;
   renderDetail();
@@ -402,11 +403,13 @@ function renderAttachments(mail) {
       </div>
       <div class="attachments-list">
         ${attachments.map((attachment, index) => `
-          <a class="attachment-card" href="${API.messages}?action=attachment&id=${encodeURIComponent(mail.id)}&index=${encodeURIComponent(attachment.index ?? index)}">
-            <span class="attachment-icon">PJ</span>
+          <a class="attachment-card" href="${escapeHtml(attachment.url || `${API.messages}?action=attachment&id=${encodeURIComponent(mail.id)}&index=${encodeURIComponent(attachment.index ?? index)}`)}">
+            ${String(attachment.contentType || "").startsWith("image/")
+              ? `<img class="attachment-thumb" src="${escapeHtml(attachment.inlineUrl || attachment.url || `${API.messages}?action=attachment&id=${encodeURIComponent(mail.id)}&index=${encodeURIComponent(attachment.index ?? index)}&inline=1`)}" alt="">`
+              : '<span class="attachment-icon">PJ</span>'}
             <span>
               <strong>${escapeHtml(attachment.filename || "piece-jointe")}</strong>
-              <small>${escapeHtml(attachment.contentType || "fichier")} - ${escapeHtml(formatBytes(attachment.size))}</small>
+              <small>${attachment.isInline ? "Image integree" : "Piece jointe"} - ${escapeHtml(attachment.contentType || "fichier")} - ${escapeHtml(formatBytes(attachment.size))}</small>
             </span>
           </a>
         `).join("")}
