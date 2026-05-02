@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
+$nautisignDevisBootstrap = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Devis' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
+if (is_file($nautisignDevisBootstrap)) {
+    require_once $nautisignDevisBootstrap;
+}
+
 const NAUTISIGN_MODULE_ID = 'nautisign';
 
 function nautisign_json_response(array $payload, int $status = 200): void
@@ -143,7 +148,7 @@ function nautisign_quote_sources(): array
             'dir' => nautisign_quotes_dir(),
         ],
         'mobywork' => [
-            'label' => 'Mobywork',
+            'label' => 'Archives',
             'relativePath' => 'Mobywork/storage/quotes',
             'dir' => nautisign_legacy_quotes_dir(),
         ],
@@ -153,6 +158,139 @@ function nautisign_quote_sources(): array
 function nautisign_default_quote_source(): string
 {
     return 'devis';
+}
+
+function nautisign_devis_available(PDO $pdo): bool
+{
+    return function_exists('devis_public_quote')
+        && function_exists('devis_generate_quote_pdf')
+        && function_exists('devis_settings')
+        && oceanos_table_exists($pdo, 'devis_quotes');
+}
+
+function nautisign_devis_pdf_path_from_relative(mixed $relativePath): string
+{
+    $relativePath = trim((string) $relativePath);
+    if ($relativePath === '') {
+        return '';
+    }
+
+    $relativePath = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
+    $path = nautisign_www_root()
+        . DIRECTORY_SEPARATOR . 'Devis'
+        . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
+    $quotesRoot = realpath(nautisign_quotes_dir());
+    $realPath = is_file($path) ? realpath($path) : false;
+    if ($quotesRoot === false || $realPath === false || strpos($realPath, $quotesRoot . DIRECTORY_SEPARATOR) !== 0) {
+        return '';
+    }
+
+    return $realPath;
+}
+
+function nautisign_devis_quote_rows(PDO $pdo, array $user, int $limit = 200): array
+{
+    if (!nautisign_devis_available($pdo)) {
+        return [];
+    }
+
+    $limit = max(1, min(500, $limit));
+    if (nautisign_is_manager($user)) {
+        $statement = $pdo->query('SELECT * FROM devis_quotes ORDER BY date_updated DESC, id DESC LIMIT ' . $limit);
+    } else {
+        $statement = $pdo->prepare('SELECT * FROM devis_quotes WHERE user_id = :user_id ORDER BY date_updated DESC, id DESC LIMIT ' . $limit);
+        $statement->execute(['user_id' => (int) $user['id']]);
+    }
+
+    $rows = $statement ? $statement->fetchAll() : [];
+    return is_array($rows) ? array_values(array_filter($rows, 'is_array')) : [];
+}
+
+function nautisign_devis_metadata_from_row(array $row, string $filename): array
+{
+    return [
+        'quoteId' => (int) ($row['id'] ?? 0),
+        'quoteReference' => (string) ($row['reference'] ?? ''),
+        'clientName' => (string) ($row['client_name'] ?? ''),
+        'clientEmail' => (string) ($row['client_email'] ?? ''),
+        'quoteStatus' => (string) ($row['status'] ?? ''),
+        'filename' => $filename,
+    ];
+}
+
+function nautisign_ensure_devis_quote_pdf(PDO $pdo, array $row, array $settings): string
+{
+    $path = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
+    if ($path !== '') {
+        return basename($path);
+    }
+
+    $pdf = devis_generate_quote_pdf(devis_public_quote($row), $settings);
+    $relativePath = (string) ($pdf['relativePath'] ?? '');
+    $filename = nautisign_safe_basename($pdf['filename'] ?? basename($relativePath));
+    if ($relativePath === '' || $filename === '') {
+        return '';
+    }
+
+    $statement = $pdo->prepare(
+        'UPDATE devis_quotes
+         SET pdf_file_path = :pdf_file_path,
+             pdf_generated_at = NOW()
+         WHERE id = :id AND user_id = :user_id'
+    );
+    $statement->execute([
+        'pdf_file_path' => $relativePath,
+        'id' => (int) ($row['id'] ?? 0),
+        'user_id' => (int) ($row['user_id'] ?? 0),
+    ]);
+
+    return $filename;
+}
+
+function nautisign_devis_quote_metadata(PDO $pdo, array $user): array
+{
+    $metadata = [];
+    if (!nautisign_devis_available($pdo)) {
+        return $metadata;
+    }
+
+    $settings = devis_settings($pdo);
+    foreach (nautisign_devis_quote_rows($pdo, $user) as $row) {
+        try {
+            $filename = nautisign_ensure_devis_quote_pdf($pdo, $row, $settings);
+        } catch (Throwable) {
+            $existingPath = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
+            $filename = $existingPath !== '' ? basename($existingPath) : '';
+        }
+        if ($filename === '') {
+            continue;
+        }
+        $metadata[$filename] = nautisign_devis_metadata_from_row($row, $filename);
+    }
+
+    return $metadata;
+}
+
+function nautisign_devis_quote_contact(PDO $pdo, array $user, string $reference): array
+{
+    $parsed = nautisign_parse_quote_reference($reference);
+    if ((string) ($parsed['source'] ?? '') !== 'devis') {
+        return [];
+    }
+
+    $filename = (string) ($parsed['filename'] ?? '');
+    if ($filename === '') {
+        return [];
+    }
+
+    foreach (nautisign_devis_quote_rows($pdo, $user) as $row) {
+        $path = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
+        if ($path !== '' && basename($path) === $filename) {
+            return nautisign_devis_metadata_from_row($row, $filename);
+        }
+    }
+
+    return [];
 }
 
 function nautisign_signed_dir(): string
@@ -302,9 +440,10 @@ function nautisign_quote_file_payload(string $filename): array
     ];
 }
 
-function nautisign_list_quote_files(): array
+function nautisign_list_quote_files(?PDO $pdo = null, ?array $user = null): array
 {
     $files = [];
+    $devisMetadata = ($pdo !== null && $user !== null) ? nautisign_devis_quote_metadata($pdo, $user) : [];
     foreach (nautisign_quote_sources() as $source => $sourceConfig) {
         $dir = (string) ($sourceConfig['dir'] ?? '');
         if (!is_dir($dir)) {
@@ -318,16 +457,27 @@ function nautisign_list_quote_files(): array
             if (!is_file($path)) {
                 continue;
             }
+            $metadata = (string) $source === 'devis' ? ($devisMetadata[$entry] ?? []) : [];
+            if ((string) $source === 'devis' && $pdo !== null && $user !== null && $metadata === []) {
+                continue;
+            }
             $files[] = [
                 'filename' => nautisign_quote_token((string) $source, $entry),
                 'basename' => $entry,
-                'label' => basename($entry, '.pdf'),
+                'label' => (string) ($metadata['quoteReference'] ?? '') !== ''
+                    ? (string) $metadata['quoteReference']
+                    : basename($entry, '.pdf'),
                 'source' => (string) $source,
                 'sourceLabel' => (string) ($sourceConfig['label'] ?? $source),
                 'sourcePath' => (string) ($sourceConfig['relativePath'] ?? ''),
                 'size' => filesize($path) ?: 0,
                 'modifiedAt' => date('Y-m-d H:i:s', filemtime($path) ?: time()),
                 'hash' => hash_file('sha256', $path) ?: '',
+                'quoteId' => (int) ($metadata['quoteId'] ?? 0),
+                'quoteReference' => (string) ($metadata['quoteReference'] ?? ''),
+                'clientName' => (string) ($metadata['clientName'] ?? ''),
+                'clientEmail' => (string) ($metadata['clientEmail'] ?? ''),
+                'quoteStatus' => (string) ($metadata['quoteStatus'] ?? ''),
             ];
         }
     }
@@ -510,6 +660,15 @@ function nautisign_create_request(PDO $pdo, array $user, array $input): array
     $quote = nautisign_quote_file_payload((string) ($input['quoteFilename'] ?? ''));
     $signerName = nautisign_clean_text($input['signerName'] ?? '', 190, true);
     $signerEmail = strtolower(nautisign_clean_text($input['signerEmail'] ?? '', 190, true));
+    if ($signerName === '' || $signerEmail === '') {
+        $contact = nautisign_devis_quote_contact($pdo, $user, $quote['filename']);
+        if ($signerName === '') {
+            $signerName = nautisign_clean_text($contact['clientName'] ?? '', 190, true);
+        }
+        if ($signerEmail === '') {
+            $signerEmail = strtolower(nautisign_clean_text($contact['clientEmail'] ?? '', 190, true));
+        }
+    }
     if ($signerEmail !== '' && !filter_var($signerEmail, FILTER_VALIDATE_EMAIL)) {
         throw new InvalidArgumentException('Email signataire invalide.');
     }

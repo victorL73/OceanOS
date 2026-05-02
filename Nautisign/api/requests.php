@@ -58,7 +58,7 @@ try {
                     ],
                     nautisign_quote_sources()
                 ),
-                'quotes' => nautisign_list_quote_files(),
+                'quotes' => nautisign_list_quote_files($pdo, $user),
             ]);
         }
 
@@ -69,7 +69,7 @@ try {
                 'user' => nautisign_public_user($user),
                 'requests' => nautisign_list_requests($pdo, $user),
                 'quotesDir' => 'Devis/storage/quotes',
-                'quotes' => nautisign_list_quote_files(),
+                'quotes' => nautisign_list_quote_files($pdo, $user),
             ]);
         }
 

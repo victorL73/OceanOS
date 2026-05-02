@@ -151,6 +151,10 @@ function selectedRequest() {
   return state.requests.find((request) => request.id === state.selectedId) || null;
 }
 
+function selectedQuote() {
+  return state.quotes.find((quote) => quote.filename === elements.quoteSelect.value) || null;
+}
+
 async function copyText(text, successMessage = "Lien copie.") {
   const value = absoluteUrl(text);
   try {
@@ -192,6 +196,7 @@ async function loadWorkspace(selectId = null) {
 }
 
 function renderQuoteSelect() {
+  const previousValue = elements.quoteSelect.value;
   elements.quoteSelect.innerHTML = "";
   if (state.quotes.length === 0) {
     const option = document.createElement("option");
@@ -207,9 +212,25 @@ function renderQuoteSelect() {
     const option = document.createElement("option");
     option.value = quote.filename;
     const source = quote.sourceLabel ? `${quote.sourceLabel} - ` : "";
-    option.textContent = `${source}${quote.label} (${formatBytes(quote.size)})`;
+    const contact = quote.clientEmail ? ` - ${quote.clientEmail}` : "";
+    option.textContent = `${source}${quote.label}${contact} (${formatBytes(quote.size)})`;
     elements.quoteSelect.appendChild(option);
   });
+  if (state.quotes.some((quote) => quote.filename === previousValue)) {
+    elements.quoteSelect.value = previousValue;
+  }
+  syncSignerFieldsFromQuote(false);
+}
+
+function syncSignerFieldsFromQuote(force = false) {
+  const quote = selectedQuote();
+  if (!quote) return;
+  if ((force || elements.signerName.value.trim() === "") && quote.clientName) {
+    elements.signerName.value = quote.clientName;
+  }
+  if ((force || elements.signerEmail.value.trim() === "") && quote.clientEmail) {
+    elements.signerEmail.value = quote.clientEmail;
+  }
 }
 
 function filteredRequests() {
@@ -312,6 +333,7 @@ async function createRequest(event) {
     state.selectedId = payload.request?.id || state.selectedId;
     elements.signerName.value = "";
     elements.signerEmail.value = "";
+    syncSignerFieldsFromQuote(false);
     renderRequestsList();
     renderDetail();
     showMessage("Lien Nautisign cree.", "success");
@@ -499,6 +521,7 @@ function bindEvents() {
     redirectToOceanOS();
   });
   elements.createForm.addEventListener("submit", createRequest);
+  elements.quoteSelect.addEventListener("change", () => syncSignerFieldsFromQuote(true));
   elements.requestSearch.addEventListener("input", () => renderRequestsList());
   elements.copyLinkButton.addEventListener("click", () => {
     const request = selectedRequest();
