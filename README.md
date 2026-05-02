@@ -11,6 +11,7 @@ www/
   Agenda/                Agenda personnel, taches consolidees et reunions MeetOcean
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
+  Devis/                 Devis PDF au format Mobywork depuis les produits PrestaShop
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Mobywork/              CRM e-commerce, commandes, emails et finance
   NautiCRM/              CRM clients, contacts, relances et opportunites
@@ -34,13 +35,14 @@ OceanOS est la passerelle d'entrée du CRM.
 - Les pages applicatives affichent un bouton de retour vers OceanOS.
 - La gestion des comptes et des droits se fait dans OceanOS.
 - La clé IA Groq est configurée dans le menu utilisateur OceanOS et partagée avec les applications qui en ont besoin.
-- Les informations entreprise sont configurées dans le menu utilisateur OceanOS et partagées avec les modules, notamment Mobywork et Invocean.
+- Les informations entreprise sont configurées dans le menu utilisateur OceanOS et partagées avec les modules, notamment Mobywork, Invocean et Devis.
 
 Les applications concernées actuellement sont :
 
 - Agenda
 - Flowcean
 - Invocean
+- Devis
 - Stockcean
 - Mobywork
 - NautiCRM
@@ -111,7 +113,7 @@ Ce fichier contient :
 - utilisateur MySQL
 - mot de passe MySQL
 
-Flowcean, Invocean et Stockcean lisent aussi cette configuration partagee.
+Flowcean, Invocean, Devis et Stockcean lisent aussi cette configuration partagee.
 Mobywork utilise OceanOS pour la connexion et les informations entreprise, mais garde ses parametres metier, mails, tris, dossiers et devis en SQLite. En local, le fichier par defaut est `Mobywork/backend/emails.db`. Sur le serveur Ubuntu, le script configure `MOBYWORK_SQLITE_PATH` vers `Mobywork/storage/emails.db` pour garder la base dans un dossier persistant.
 
 Sur une installation serveur :
@@ -181,6 +183,12 @@ Tables Invocean :
 invocean_invoices
 invocean_settings
 invocean_sync_runs
+```
+
+Tables Devis :
+
+```text
+devis_quotes
 ```
 
 Tables Mobywork, si l'application les initialise dans MySQL :
@@ -305,6 +313,7 @@ Elle contient l'URL de la boutique, la cle Webservice et la fenetre de synchroni
 Elle est partagee par :
 
 - Invocean
+- Devis
 - Stockcean
 - Mobywork
 - NautiCRM
@@ -324,9 +333,26 @@ Elles sont communes a toutes les sessions utilisateur. Les membres peuvent les c
 Ces informations alimentent notamment :
 
 - les devis Mobywork
+- les devis PDF du module Devis
 - les factures et exports Factur-X Invocean
 
-Les conditions de paiement, la validite des devis et la note de pied de page restent dans les parametres Mobywork.
+Les conditions de paiement, la validite des devis et la note de pied de page restent dans les parametres Mobywork pour Mobywork. Le module Devis reprend les coordonnees OceanOS et applique ses propres valeurs par defaut pour les PDF.
+
+## Devis
+
+Devis se trouve au meme niveau que les autres applications :
+
+```text
+www/Devis/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- recuperer les produits PrestaShop depuis le connecteur commun
+- enregistrer les devis dans MySQL
+- generer des PDF avec le meme gabarit de sortie que les devis Mobywork
+- servir les PDF uniquement via une API authentifiee
 
 ## NautiCRM
 
@@ -493,7 +519,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiCRM, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Devis, Stockcean, Mobywork, NautiCRM, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -504,7 +530,7 @@ Points à vérifier avant production :
 
 - Ne pas exposer `admin/storage/`.
 - Ne pas exposer `NautiCloud/storage/`.
-- Ne pas exposer `Invocean/storage/`, `Mobywork/storage/` ni `Mobywork/backend/`.
+- Ne pas exposer `Invocean/storage/`, `Devis/storage/`, `Mobywork/storage/` ni `Mobywork/backend/`.
 - Ne pas exposer `OceanOS/config/server.php`.
 - Ne jamais versionner les fichiers `.env`, `*.secret`, les bases locales, les logs, les uploads ou les exports generes.
 - Regenerer les cles Groq, SMTP/IMAP, PrestaShop et secrets de pont si elles ont deja ete stockees dans le depot.
@@ -568,6 +594,7 @@ http://localhost/admin/
 http://localhost/OceanOS/
 http://localhost/Flowcean/
 http://localhost/Invocean/
+http://localhost/Devis/
 http://localhost/Stockcean/
 http://localhost/Mobywork/
 http://localhost/NautiCRM/

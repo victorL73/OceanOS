@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Devis</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/devis.svg?v=20260502">
+  <meta name="description" content="Devis - creation de devis PDF connectes au catalogue PrestaShop.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="/OceanOS/assets/guard.js?v=20260502-devis"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">DV</div>
+      <p>Chargement Devis...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">DV</span>
+            <span id="connection-chip" class="status-pill muted-pill">PrestaShop non configure</span>
+          </div>
+          <h1>Devis</h1>
+          <p>Creation de devis PDF depuis le catalogue PrestaShop.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <button id="new-quote-button" class="primary-button" type="button">Nouveau devis</button>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Deconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <span>Devis</span>
+          <strong id="metric-quotes">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Catalogue</span>
+          <strong id="metric-products">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Total brouillons</span>
+          <strong id="metric-drafts">0 EUR</strong>
+        </article>
+        <article class="metric-card">
+          <span>Total envoyes</span>
+          <strong id="metric-sent">0 EUR</strong>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <aside class="panel quotes-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Historique</p>
+              <h2>Devis</h2>
+            </div>
+            <input id="quote-search" class="compact-input" type="search" placeholder="Client ou reference">
+          </div>
+          <div id="quotes-list" class="quotes-list"></div>
+        </aside>
+
+        <section class="panel builder-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Document</p>
+              <h2 id="builder-title">Nouveau devis</h2>
+            </div>
+            <div class="builder-actions">
+              <button id="download-pdf-button" class="ghost-button" type="button" disabled>PDF</button>
+              <button id="save-pdf-button" class="primary-button" type="button">Enregistrer + PDF</button>
+              <button id="save-quote-button" class="ghost-button" type="button">Enregistrer</button>
+              <button id="delete-quote-button" class="ghost-button danger-text" type="button" disabled>Supprimer</button>
+            </div>
+          </div>
+
+          <form id="quote-form" class="quote-form">
+            <section class="form-band">
+              <h3>Client</h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span>Nom du client</span>
+                  <input id="client-name" type="text" placeholder="Nom, societe ou chantier">
+                </label>
+                <label class="field">
+                  <span>Email</span>
+                  <input id="client-email" type="email" placeholder="client@example.com">
+                </label>
+                <label class="field">
+                  <span>Statut</span>
+                  <select id="quote-status">
+                    <option value="Brouillon">Brouillon</option>
+                    <option value="Envoye">Envoye</option>
+                    <option value="Accepte">Accepte</option>
+                    <option value="Refuse">Refuse</option>
+                    <option value="Expire">Expire</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="form-band">
+              <div class="product-search-head">
+                <div>
+                  <h3>Produits</h3>
+                  <p id="product-source">Catalogue PrestaShop</p>
+                </div>
+                <label class="product-search">
+                  <span>Rechercher</span>
+                  <input id="product-search" type="search" placeholder="Nom, reference ou ID produit">
+                </label>
+              </div>
+              <div id="product-results" class="product-results hidden"></div>
+              <div class="table-wrap">
+                <table class="lines-table">
+                  <thead>
+                    <tr>
+                      <th>Designation</th>
+                      <th>Qte</th>
+                      <th>PU HT</th>
+                      <th>TVA</th>
+                      <th>Total TTC</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="quote-lines"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="totals-row">
+              <div class="conditions-box">
+                <strong>Conditions</strong>
+                <span id="payment-terms">Virement bancaire a 30 jours</span>
+              </div>
+              <div class="totals-box">
+                <div><span>Total HT</span><strong id="total-ht">0,00 EUR</strong></div>
+                <div><span>TVA</span><strong id="total-vat">0,00 EUR</strong></div>
+                <div class="total-main"><span>Total TTC</span><strong id="total-ttc">0,00 EUR</strong></div>
+              </div>
+            </section>
+          </form>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="assets/app.js?v=20260502-devis"></script>
+</body>
+</html>
