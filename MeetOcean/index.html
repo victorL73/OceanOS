@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/meetocean.svg?v=20260501">
   <meta name="description" content="MeetOcean - reunions video, transcription et traduction en temps reel.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260501-transcript-fix">
+  <link rel="stylesheet" href="assets/style.css?v=20260502-meeting-reminders">
   <script defer src="/OceanOS/assets/guard.js?v=20260501-external-invite"></script>
-  <script defer src="assets/app.js?v=20260501-transcript-fix"></script>
+  <script defer src="assets/app.js?v=20260502-meeting-reminders"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -80,6 +80,10 @@
               <label class="field">
                 <span>Titre</span>
                 <input id="room-title" type="text" maxlength="120" value="Reunion MeetOcean">
+              </label>
+              <label class="field">
+                <span>Date et heure</span>
+                <input id="room-scheduled-start" type="datetime-local">
               </label>
               <div class="language-row single-language">
                 <label class="field">

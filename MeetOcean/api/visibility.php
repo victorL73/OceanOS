@@ -18,6 +18,7 @@ try {
         }
 
         if ($user !== null) {
+            meetocean_dispatch_due_notifications($pdo, (int) ($user['id'] ?? 0));
             oceanos_json_response(meetocean_dashboard($pdo, $user));
         }
 
@@ -57,6 +58,7 @@ try {
             $room = meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken);
             oceanos_json_response(meetocean_guest_dashboard($pdo, $room, $guestName));
         }
+        meetocean_dispatch_due_notifications($pdo, (int) ($actor['id'] ?? 0));
         oceanos_json_response(meetocean_dashboard($pdo, $actor));
     }
 
@@ -64,7 +66,13 @@ try {
         if ($isGuest) {
             throw new InvalidArgumentException('Un invite ne peut pas creer de reunion.');
         }
-        $room = meetocean_create_room($pdo, $actor, (string) ($input['title'] ?? 'Reunion MeetOcean'));
+        $room = meetocean_create_room(
+            $pdo,
+            $actor,
+            (string) ($input['title'] ?? 'Reunion MeetOcean'),
+            $input['scheduledStartAt'] ?? null
+        );
+        meetocean_dispatch_due_notifications($pdo, (int) ($actor['id'] ?? 0));
         $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
         oceanos_json_response([
             ...meetocean_room_state($pdo, $room, $actor, $participant['clientId'], 0, 0, $participant['targetLanguage']),

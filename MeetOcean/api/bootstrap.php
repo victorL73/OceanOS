@@ -78,6 +78,9 @@ function meetocean_ensure_schema(PDO $pdo): void
             invite_token VARCHAR(80) NULL UNIQUE,
             title VARCHAR(190) NOT NULL,
             created_by BIGINT UNSIGNED NULL,
+            scheduled_start_at DATETIME NULL,
+            notified_15_at DATETIME NULL,
+            notified_start_at DATETIME NULL,
             is_locked TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -92,8 +95,17 @@ function meetocean_ensure_schema(PDO $pdo): void
     if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'created_by')) {
         meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER title');
     }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'scheduled_start_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN scheduled_start_at DATETIME NULL AFTER created_by');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'notified_15_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN notified_15_at DATETIME NULL AFTER scheduled_start_at');
+    }
+    if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'notified_start_at')) {
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN notified_start_at DATETIME NULL AFTER notified_15_at');
+    }
     if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'is_locked')) {
-        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER created_by');
+        meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN is_locked TINYINT(1) NOT NULL DEFAULT 0 AFTER notified_start_at');
     }
     if (!oceanos_column_exists($pdo, 'meetocean_rooms', 'created_at')) {
         meetocean_exec($pdo, 'ALTER TABLE meetocean_rooms ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_locked');
@@ -345,6 +357,23 @@ function meetocean_room_title(mixed $title): string
     return mb_substr($title, 0, 120);
 }
 
+function meetocean_parse_scheduled_start(mixed $value): ?string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return null;
+    }
+
+    $value = str_replace('T', ' ', substr($value, 0, 19));
+    try {
+        $date = new DateTimeImmutable($value);
+    } catch (Throwable $exception) {
+        throw new InvalidArgumentException('Date de reunion invalide.');
+    }
+
+    return $date->format('Y-m-d H:i:s');
+}
+
 function meetocean_random_room_slug(PDO $pdo): string
 {
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -426,19 +455,128 @@ function meetocean_invite_url(array $room): string
     ]);
 }
 
-function meetocean_create_room(PDO $pdo, array $user, string $title): array
+function meetocean_internal_room_url(array $room): string
+{
+    $code = trim((string) ($room['slug'] ?? ''));
+    if ($code === '') {
+        return '/MeetOcean/';
+    }
+
+    return '/MeetOcean/?' . http_build_query(['room' => $code]);
+}
+
+function meetocean_format_reminder_time(?string $value): string
+{
+    if ($value === null || trim($value) === '') {
+        return '';
+    }
+
+    try {
+        return (new DateTimeImmutable($value))->format('d/m H:i');
+    } catch (Throwable $exception) {
+        return trim($value);
+    }
+}
+
+function meetocean_notify_room_reminder(PDO $pdo, array $room, string $kind): void
+{
+    $roomId = (int) ($room['id'] ?? 0);
+    $creatorId = (int) ($room['created_by'] ?? 0);
+    if ($roomId <= 0 || $creatorId <= 0) {
+        return;
+    }
+
+    $scheduledAt = (string) ($room['scheduled_start_at'] ?? '');
+    $roomTitle = (string) ($room['title'] ?? 'Reunion MeetOcean');
+    $roomCode = (string) ($room['slug'] ?? '');
+    $timeLabel = meetocean_format_reminder_time($scheduledAt);
+    $isStart = $kind === 'start';
+    $title = $isStart ? 'Reunion MeetOcean maintenant' : 'Reunion MeetOcean dans 15 minutes';
+    $body = $timeLabel !== ''
+        ? sprintf('%s commence %s. Code %s.', $roomTitle, $timeLabel, $roomCode)
+        : sprintf('%s est prevue. Code %s.', $roomTitle, $roomCode);
+
+    oceanos_create_notification(
+        $pdo,
+        $creatorId,
+        null,
+        'MeetOcean',
+        $isStart ? 'meeting_start' : 'meeting_reminder_15',
+        $isStart ? 'success' : 'warning',
+        $title,
+        $body,
+        meetocean_internal_room_url($room),
+        [
+            'roomId' => $roomId,
+            'roomCode' => $roomCode,
+            'scheduledStartAt' => $scheduledAt,
+            'reminder' => $kind,
+        ],
+        'meetocean_' . $kind . '_' . $roomId . '_' . $creatorId
+    );
+}
+
+function meetocean_dispatch_due_notifications(PDO $pdo, ?int $userId = null): void
+{
+    $ownerFilter = $userId !== null && $userId > 0 ? ' AND created_by = :user_id' : '';
+
+    $reminderStatement = $pdo->prepare(
+        "SELECT *
+         FROM meetocean_rooms
+         WHERE scheduled_start_at IS NOT NULL
+           AND notified_15_at IS NULL
+           AND scheduled_start_at > NOW()
+           AND scheduled_start_at <= DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+           {$ownerFilter}
+         LIMIT 30"
+    );
+    if ($ownerFilter !== '') {
+        meetocean_execute($reminderStatement, ['user_id' => $userId]);
+    } else {
+        meetocean_execute($reminderStatement);
+    }
+    foreach ($reminderStatement->fetchAll() ?: [] as $room) {
+        meetocean_notify_room_reminder($pdo, $room, '15');
+        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_15_at = NOW() WHERE id = :id AND notified_15_at IS NULL');
+        meetocean_execute($update, ['id' => (int) $room['id']]);
+    }
+
+    $startStatement = $pdo->prepare(
+        "SELECT *
+         FROM meetocean_rooms
+         WHERE scheduled_start_at IS NOT NULL
+           AND notified_start_at IS NULL
+           AND scheduled_start_at <= NOW()
+           {$ownerFilter}
+         LIMIT 30"
+    );
+    if ($ownerFilter !== '') {
+        meetocean_execute($startStatement, ['user_id' => $userId]);
+    } else {
+        meetocean_execute($startStatement);
+    }
+    foreach ($startStatement->fetchAll() ?: [] as $room) {
+        meetocean_notify_room_reminder($pdo, $room, 'start');
+        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_start_at = NOW() WHERE id = :id AND notified_start_at IS NULL');
+        meetocean_execute($update, ['id' => (int) $room['id']]);
+    }
+}
+
+function meetocean_create_room(PDO $pdo, array $user, string $title, mixed $scheduledStartAt = null): array
 {
     $slug = meetocean_random_room_slug($pdo);
     $token = meetocean_random_invite_token($pdo);
+    $scheduledStart = meetocean_parse_scheduled_start($scheduledStartAt);
     $statement = $pdo->prepare(
-        'INSERT INTO meetocean_rooms (slug, invite_token, title, created_by)
-         VALUES (:slug, :invite_token, :title, :created_by)'
+        'INSERT INTO meetocean_rooms (slug, invite_token, title, created_by, scheduled_start_at)
+         VALUES (:slug, :invite_token, :title, :created_by, :scheduled_start_at)'
     );
     meetocean_execute($statement, [
         'slug' => $slug,
         'invite_token' => $token,
         'title' => meetocean_room_title($title),
         'created_by' => (int) $user['id'],
+        'scheduled_start_at' => $scheduledStart,
     ]);
 
     return meetocean_find_room($pdo, (int) $pdo->lastInsertId());
@@ -555,6 +693,7 @@ function meetocean_public_room(PDO $pdo, array $room, ?array $viewer = null): ar
         'inviteUrl' => meetocean_invite_url($room),
         'canDelete' => $canDelete,
         'participantCount' => (int) $statement->fetchColumn(),
+        'scheduledStartAt' => ($room['scheduled_start_at'] ?? null) !== null ? (string) $room['scheduled_start_at'] : '',
         'createdAt' => (string) ($room['created_at'] ?? ''),
         'updatedAt' => (string) ($room['updated_at'] ?? ''),
         'lastActivityAt' => (string) ($room['last_activity_at'] ?? ''),

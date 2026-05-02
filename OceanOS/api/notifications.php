@@ -3,6 +3,24 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+function oceanos_dispatch_module_notifications(PDO $pdo, int $userId): void
+{
+    $meetOceanBootstrap = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'MeetOcean' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
+    if (!is_file($meetOceanBootstrap)) {
+        return;
+    }
+
+    try {
+        require_once $meetOceanBootstrap;
+        if (function_exists('meetocean_ensure_schema') && function_exists('meetocean_dispatch_due_notifications')) {
+            meetocean_ensure_schema($pdo);
+            meetocean_dispatch_due_notifications($pdo, $userId);
+        }
+    } catch (Throwable $exception) {
+        // Les notifications OceanOS restent disponibles meme si un module optionnel echoue.
+    }
+}
+
 try {
     $pdo = oceanos_pdo();
     $user = oceanos_require_auth($pdo);
@@ -10,6 +28,7 @@ try {
     $userId = (int) $user['id'];
 
     if ($method === 'GET') {
+        oceanos_dispatch_module_notifications($pdo, $userId);
         oceanos_json_response([
             'ok' => true,
             'notifications' => oceanos_list_notifications($pdo, $userId),
@@ -33,6 +52,7 @@ try {
             ], 422);
         }
 
+        oceanos_dispatch_module_notifications($pdo, $userId);
         oceanos_json_response([
             'ok' => true,
             'notifications' => oceanos_list_notifications($pdo, $userId),

@@ -23,6 +23,7 @@ const elements = {
   startPanel: $("start-panel"),
   meetingStage: $("meeting-stage"),
   roomTitle: $("room-title"),
+  roomScheduledStart: $("room-scheduled-start"),
   roomCode: $("room-code"),
   sourceLanguage: $("source-language"),
   targetLanguage: $("target-language"),
@@ -231,6 +232,30 @@ function formatDate(value) {
   }).format(date);
 }
 
+function formatMeetingDate(value) {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function localDatetimeValue(minutesFromNow = 0) {
+  const date = new Date(Date.now() + minutesFromNow * 60000);
+  date.setSeconds(0, 0);
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function syncScheduledStartInput() {
+  if (!elements.roomScheduledStart) return;
+  elements.roomScheduledStart.min = localDatetimeValue(0);
+}
+
 function initials(name) {
   return String(name || "ME")
     .split(/\s+/)
@@ -316,7 +341,11 @@ function renderRecentRooms(rooms = []) {
     const title = document.createElement("strong");
     title.textContent = room.title || "Reunion MeetOcean";
     const meta = document.createElement("span");
-    meta.textContent = `${room.code || ""} - ${room.participantCount || 0} participant${Number(room.participantCount || 0) > 1 ? "s" : ""}`;
+    const scheduled = formatMeetingDate(room.scheduledStartAt);
+    const participantText = `${room.participantCount || 0} participant${Number(room.participantCount || 0) > 1 ? "s" : ""}`;
+    meta.textContent = scheduled
+      ? `${room.code || ""} - ${scheduled} - ${participantText}`
+      : `${room.code || ""} - ${participantText}`;
 
     body.append(title, meta);
     body.addEventListener("click", () => {
@@ -1035,6 +1064,7 @@ async function createRoom() {
     await ensureLocalMedia();
     const payload = await postAction("create_room", {
       title: elements.roomTitle.value,
+      scheduledStartAt: elements.roomScheduledStart?.value || "",
       clientId: state.clientId,
       sourceLanguage: state.sourceLanguage,
       targetLanguage: effectiveTargetLanguage(),
@@ -1527,6 +1557,7 @@ function bindEvents() {
 }
 
 async function loadDashboard(showReadyMessage = true) {
+  syncScheduledStartInput();
   const payload = await requestJson(dashboardUrl());
   renderDashboard(payload);
   setVisible(true);
@@ -1552,6 +1583,7 @@ async function boot() {
   renderParticipants();
   renderTranscripts();
   updateControlButtons();
+  syncScheduledStartInput();
   try {
     await loadDashboard();
   } catch (error) {
