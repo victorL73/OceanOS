@@ -404,7 +404,7 @@ function visiocean_save_settings(PDO $pdo, array $input): array
 function visiocean_http_request(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 35): array
 {
     if (!function_exists('curl_init')) {
-        throw new RuntimeException('L extension PHP cURL est requise pour Visiocean.');
+        throw new RuntimeException('L extension PHP cURL est requise pour SeoCean.');
     }
 
     $curl = curl_init($url);
@@ -495,7 +495,7 @@ function visiocean_oauth_access_token(array $settings): string
     $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
     $refreshToken = trim((string) ($settings['oauthRefreshToken'] ?? ''));
     if ($clientId === '' || $clientSecret === '' || $refreshToken === '') {
-        throw new RuntimeException('Connectez Google OAuth dans Visiocean.');
+        throw new RuntimeException('Connectez Google OAuth dans SeoCean.');
     }
 
     $decoded = visiocean_oauth_token_request([
@@ -573,7 +573,7 @@ function visiocean_oauth_authorization_url(PDO $pdo): string
     $clientId = trim((string) ($settings['oauthClientId'] ?? ''));
     $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
     if ($clientId === '' || $clientSecret === '') {
-        throw new RuntimeException('Renseignez le Client ID et le Client secret OAuth dans Visiocean avant de connecter Google.');
+        throw new RuntimeException('Renseignez le Client ID et le Client secret OAuth dans SeoCean avant de connecter Google.');
     }
 
     oceanos_start_session();
@@ -619,7 +619,7 @@ function visiocean_complete_oauth(PDO $pdo, string $code, string $state): array
     $clientId = trim((string) ($settings['oauthClientId'] ?? ''));
     $clientSecret = trim((string) ($settings['oauthClientSecret'] ?? ''));
     if ($clientId === '' || $clientSecret === '') {
-        throw new RuntimeException('Client OAuth Visiocean incomplet.');
+        throw new RuntimeException('Client OAuth SeoCean incomplet.');
     }
 
     $token = visiocean_oauth_token_request([
@@ -702,7 +702,7 @@ function visiocean_google_analytics(array $settings, int $days): array
         return visiocean_empty_analytics('Ajoutez l ID de propriete GA4 pour lire Google Analytics.');
     }
     if (trim((string) ($settings['oauthRefreshToken'] ?? '')) === '' && trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
-        return visiocean_empty_analytics('Connectez Google OAuth dans Visiocean pour lire la propriete GA4.');
+        return visiocean_empty_analytics('Connectez Google OAuth dans SeoCean pour lire la propriete GA4.');
     }
 
     try {
@@ -799,7 +799,7 @@ function visiocean_search_console(array $settings, int $days): array
         return visiocean_empty_search('Ajoutez la propriete Search Console du site.');
     }
     if (trim((string) ($settings['oauthRefreshToken'] ?? '')) === '' && trim((string) ($settings['serviceAccountJson'] ?? '')) === '') {
-        return visiocean_empty_search('Connectez Google OAuth dans Visiocean pour lire Search Console.');
+        return visiocean_empty_search('Connectez Google OAuth dans SeoCean pour lire Search Console.');
     }
 
     try {
@@ -1306,7 +1306,7 @@ function visiocean_recommendations(array $settings, array $analytics, array $sea
     };
 
     if (trim((string) ($settings['siteUrl'] ?? '')) === '') {
-        $push('high', 'Configuration', 'Renseigner l URL du site', 'Sans l adresse du site, Visiocean ne sait pas quelle presence en ligne analyser.', [
+        $push('high', 'Configuration', 'Renseigner l URL du site', 'Sans l adresse du site, SeoCean ne sait pas quelle presence en ligne analyser.', [
             'Ouvrez Configuration.',
             'Ajoutez l URL publique du site, par exemple https://renovboat.com.',
             'Enregistrez puis relancez un audit.',
@@ -1314,7 +1314,7 @@ function visiocean_recommendations(array $settings, array $analytics, array $sea
     }
     if (trim((string) ($settings['gaMeasurementId'] ?? '')) === '') {
         $push('medium', 'Analytics', 'Installer la balise GA4', 'La balise sert a compter les visites et les actions importantes.', [
-            'Copiez la balise GA4 depuis Visiocean.',
+            'Copiez la balise GA4 depuis SeoCean.',
             'Ajoutez-la dans le head du site public.',
             'Actualisez SeoCean apres quelques visites de test.',
         ], 'Sans balise, les decisions reposent sur trop peu de donnees.');

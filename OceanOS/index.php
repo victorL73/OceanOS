@@ -350,7 +350,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260501-agenda"></script>
-  <script src="assets/oceanos.js?v=20260501-agenda"></script>
+  <script defer src="assets/guard.js?v=20260502-seocean"></script>
+  <script src="assets/oceanos.js?v=20260502-seocean"></script>
 </body>
 </html>
