@@ -6,6 +6,8 @@ const API = {
   sync: "api/sync.php",
 };
 const OCEANOS_URL = "/OceanOS/";
+const AUTO_SYNC_INTERVAL_MS = 120000;
+const AUTO_SYNC_FOCUS_GAP_MS = 30000;
 
 function redirectToOceanOS() {
   const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -54,6 +56,11 @@ const state = {
     limit: 30,
   },
   focusQuoteId: 0,
+  autoSyncTimer: null,
+  autoSyncTimeout: null,
+  autoSyncInProgress: false,
+  autoSyncErrorShown: false,
+  lastAutoSyncAt: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -335,6 +342,7 @@ async function handleAuthSubmit(event) {
     elements.authPassword.value = "";
     renderAuthGate();
     await loadDashboard();
+    startAutoSyncLoop();
   } catch (error) {
     showMessage(elements.authMessage, error.message || "Connexion impossible.", "error");
   } finally {
@@ -343,6 +351,7 @@ async function handleAuthSubmit(event) {
 }
 
 async function logout() {
+  stopAutoSyncLoop();
   try {
     await apiRequest(API.auth, { method: "DELETE" });
   } catch (error) {
@@ -424,7 +433,7 @@ function renderSettings() {
     ? "status-pill success-pill"
     : "status-pill muted-pill";
 
-  elements.syncButton.disabled = !canManage || !settings.shopUrl || !settings.hasWebserviceKey;
+  elements.syncButton.disabled = state.autoSyncInProgress || !canManage || !settings.shopUrl || !settings.hasWebserviceKey;
   elements.syncQuotesButton.disabled = !canManage;
   elements.importQuoteButton.disabled = !canManage;
 }
@@ -469,6 +478,7 @@ async function handleSettingsSubmit(event) {
     });
     state.settings = payload.settings;
     renderSettings();
+    void refreshInvoicesAutomatically({ force: true });
     showMessage(elements.settingsMessage, payload.message || "Configuration enregistrée.", "success");
     toast("Configuration enregistrée.");
   } catch (error) {
@@ -533,6 +543,98 @@ async function loadDashboard() {
   await loadSettings();
   await loadInvoices();
   await loadQuotes();
+}
+
+function canRunPrestashopSync() {
+  const settings = state.settings || {};
+  return Boolean(
+    state.auth.authenticated
+      && settings.canManage
+      && settings.shopUrl
+      && settings.hasWebserviceKey,
+  );
+}
+
+function canDeleteInvoices() {
+  const user = state.auth.user || {};
+  const permissions = user.permissions || {};
+  return user.role === "super" || Boolean(permissions.canDeleteInvoices);
+}
+
+function autoSyncPayload() {
+  return {
+    dateFrom: "",
+    dateTo: "",
+    limit: Number(elements.syncLimit.value || 80),
+  };
+}
+
+async function refreshInvoicesAutomatically({ force = false } = {}) {
+  if (!state.auth.authenticated || state.autoSyncInProgress) {
+    return;
+  }
+  if (!force && document.hidden) {
+    return;
+  }
+
+  state.autoSyncInProgress = true;
+  state.lastAutoSyncAt = Date.now();
+  renderSettings();
+
+  try {
+    let run = null;
+    if (canRunPrestashopSync()) {
+      const payload = await apiRequest(API.sync, {
+        method: "POST",
+        body: JSON.stringify(autoSyncPayload()),
+      });
+      run = payload.run || null;
+      state.runs = payload.runs || state.runs;
+    }
+
+    await loadInvoices();
+    state.autoSyncErrorShown = false;
+
+    if (run && Number(run.invoicesCreated || 0) > 0) {
+      const count = Number(run.invoicesCreated || 0);
+      toast(`${count} nouvelle${count > 1 ? "s" : ""} facture${count > 1 ? "s" : ""} récupérée${count > 1 ? "s" : ""}.`);
+    }
+  } catch (error) {
+    console.warn(error);
+    if (canRunPrestashopSync() && !state.autoSyncErrorShown) {
+      showMessage(elements.syncMessage, error.message || "Synchronisation automatique impossible.", "error");
+      state.autoSyncErrorShown = true;
+    }
+  } finally {
+    state.autoSyncInProgress = false;
+    renderSettings();
+  }
+}
+
+function stopAutoSyncLoop() {
+  if (state.autoSyncTimeout) {
+    window.clearTimeout(state.autoSyncTimeout);
+    state.autoSyncTimeout = null;
+  }
+  if (state.autoSyncTimer) {
+    window.clearInterval(state.autoSyncTimer);
+    state.autoSyncTimer = null;
+  }
+}
+
+function startAutoSyncLoop() {
+  stopAutoSyncLoop();
+  if (!state.auth.authenticated) {
+    return;
+  }
+
+  state.autoSyncTimeout = window.setTimeout(() => {
+    state.autoSyncTimeout = null;
+    void refreshInvoicesAutomatically({ force: true });
+  }, 1500);
+  state.autoSyncTimer = window.setInterval(() => {
+    void refreshInvoicesAutomatically();
+  }, AUTO_SYNC_INTERVAL_MS);
 }
 
 function renderMetrics() {
@@ -649,6 +751,18 @@ function renderInvoices() {
         .catch((error) => toast(error.message || "Téléchargement Factur-X impossible."));
     });
     actionsCell.append(facturxLink);
+
+    if (canDeleteInvoices()) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "table-link table-link-button danger-link";
+      deleteButton.textContent = "Supprimer";
+      deleteButton.disabled = state.autoSyncInProgress;
+      deleteButton.addEventListener("click", () => {
+        void deleteInvoice(invoice);
+      });
+      actionsCell.append(deleteButton);
+    }
 
     row.append(
       invoiceCell,
@@ -834,6 +948,29 @@ async function updateInvoiceStatus(id, status) {
   }
 }
 
+async function deleteInvoice(invoice) {
+  const label = invoice.invoiceNumber || `ID ${invoice.prestashopInvoiceId || invoice.id}`;
+  const confirmed = window.confirm(
+    `Supprimer la facture ${label} d'Invocean ?\n\nElle ne sera plus affichée ni réimportée automatiquement. Les fichiers PDF et Factur-X générés localement seront supprimés.`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await apiRequest(API.invoices, {
+      method: "DELETE",
+      body: JSON.stringify({ id: invoice.id }),
+    });
+    toast("Facture supprimée.");
+    await loadInvoices();
+    await loadQuotes();
+  } catch (error) {
+    toast(error.message || "Suppression impossible.");
+    await loadInvoices().catch(() => {});
+  }
+}
+
 function renderRuns() {
   elements.runsList.innerHTML = "";
 
@@ -865,6 +1002,11 @@ function renderRuns() {
 }
 
 async function syncInvoices() {
+  if (state.autoSyncInProgress) {
+    return;
+  }
+
+  state.autoSyncInProgress = true;
   elements.syncButton.disabled = true;
   showMessage(elements.syncMessage, "Synchronisation en cours...");
 
@@ -880,10 +1022,12 @@ async function syncInvoices() {
     showMessage(elements.syncMessage, payload.message || "Synchronisation terminée.", "success");
     toast("Synchronisation terminée.");
     state.runs = payload.runs || state.runs;
+    state.autoSyncErrorShown = false;
     await loadInvoices();
   } catch (error) {
     showMessage(elements.syncMessage, error.message || "Synchronisation impossible.", "error");
   } finally {
+    state.autoSyncInProgress = false;
     renderSettings();
   }
 }
@@ -993,6 +1137,16 @@ function installListeners() {
       void loadInvoices();
     }
   });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() - state.lastAutoSyncAt > AUTO_SYNC_FOCUS_GAP_MS) {
+      void refreshInvoicesAutomatically({ force: true });
+    }
+  });
+  window.addEventListener("focus", () => {
+    if (Date.now() - state.lastAutoSyncAt > AUTO_SYNC_FOCUS_GAP_MS) {
+      void refreshInvoicesAutomatically({ force: true });
+    }
+  });
 }
 
 async function init() {
@@ -1002,6 +1156,7 @@ async function init() {
     if (state.auth.authenticated) {
       applyInitialRouteFromUrl();
       await loadDashboard();
+      startAutoSyncLoop();
     }
   } catch (error) {
     redirectToOceanOS();

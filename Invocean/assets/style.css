@@ -510,6 +510,17 @@ h2 {
   text-decoration: none;
 }
 
+.table-link-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.danger-link {
+  color: var(--red);
+}
+
 .status-select {
   min-width: 132px;
   min-height: 36px;

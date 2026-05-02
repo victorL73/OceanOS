@@ -197,6 +197,8 @@ function invocean_ensure_schema(PDO $pdo): void
             raw_json LONGTEXT NULL,
             source_hash CHAR(64) NOT NULL,
             synced_at DATETIME NOT NULL,
+            deleted_at DATETIME NULL,
+            deleted_by BIGINT UNSIGNED NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_invocean_prestashop_invoice (prestashop_invoice_id),
@@ -270,6 +272,8 @@ function invocean_ensure_schema(PDO $pdo): void
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_file_path', "ALTER TABLE invocean_invoices ADD COLUMN facturx_file_path VARCHAR(500) NULL AFTER xml_payload");
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_profile', "ALTER TABLE invocean_invoices ADD COLUMN facturx_profile VARCHAR(40) NULL AFTER facturx_file_path");
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_generated_at', "ALTER TABLE invocean_invoices ADD COLUMN facturx_generated_at DATETIME NULL AFTER facturx_profile");
+    invocean_ensure_column($pdo, 'invocean_invoices', 'deleted_at', "ALTER TABLE invocean_invoices ADD COLUMN deleted_at DATETIME NULL AFTER synced_at");
+    invocean_ensure_column($pdo, 'invocean_invoices', 'deleted_by', "ALTER TABLE invocean_invoices ADD COLUMN deleted_by BIGINT UNSIGNED NULL AFTER deleted_at");
     invocean_ensure_invoice_channel_values($pdo);
 
     $pdo->exec('INSERT IGNORE INTO invocean_settings (id, sync_window_days) VALUES (1, 30)');
@@ -377,12 +381,18 @@ function invocean_user_permissions(array $user): array
         'canManageUsers' => in_array($role, ['super', 'admin'], true),
         'canManageInvocean' => in_array($role, ['super', 'admin'], true),
         'canSyncInvoices' => in_array($role, ['super', 'admin'], true),
+        'canDeleteInvoices' => $role === 'super',
     ];
 }
 
 function invocean_is_admin(array $user): bool
 {
     return in_array((string) ($user['role'] ?? ''), ['super', 'admin'], true);
+}
+
+function invocean_is_super(array $user): bool
+{
+    return (string) ($user['role'] ?? '') === 'super';
 }
 
 function invocean_public_user(array $user): array
@@ -577,6 +587,20 @@ function invocean_require_admin(PDO $pdo): array
             'ok' => false,
             'error' => 'forbidden',
             'message' => 'Acces reserve aux administrateurs.',
+        ], 403);
+    }
+
+    return $user;
+}
+
+function invocean_require_super(PDO $pdo): array
+{
+    $user = invocean_require_auth($pdo);
+    if (!invocean_is_super($user)) {
+        invocean_json_response([
+            'ok' => false,
+            'error' => 'forbidden',
+            'message' => 'Acces reserve aux super utilisateurs.',
         ], 403);
     }
 
@@ -2610,7 +2634,7 @@ function invocean_generate_facturx_pdf_fallback(array $row, string $xml, array $
 
 function invocean_get_invoice_row(PDO $pdo, int $invoiceId): array
 {
-    $statement = $pdo->prepare('SELECT * FROM invocean_invoices WHERE id = :id LIMIT 1');
+    $statement = $pdo->prepare('SELECT * FROM invocean_invoices WHERE id = :id AND deleted_at IS NULL LIMIT 1');
     $statement->execute(['id' => $invoiceId]);
     $row = $statement->fetch();
     if (!is_array($row)) {
@@ -2622,7 +2646,7 @@ function invocean_get_invoice_row(PDO $pdo, int $invoiceId): array
 
 function invocean_get_invoice_row_by_prestashop_id(PDO $pdo, int $prestashopInvoiceId): array
 {
-    $statement = $pdo->prepare('SELECT * FROM invocean_invoices WHERE prestashop_invoice_id = :id LIMIT 1');
+    $statement = $pdo->prepare('SELECT * FROM invocean_invoices WHERE prestashop_invoice_id = :id AND deleted_at IS NULL LIMIT 1');
     $statement->execute(['id' => $prestashopInvoiceId]);
     $row = $statement->fetch();
     if (!is_array($row)) {
@@ -2708,11 +2732,18 @@ function invocean_save_invoice_pdf(PDO $pdo, array $row): array
     ];
 }
 
-function invocean_upsert_invoice(PDO $pdo, array $invoice): string
+function invocean_upsert_invoice(PDO $pdo, array $invoice, bool $restoreDeleted = false): string
 {
-    $existingStatement = $pdo->prepare('SELECT id, source_hash FROM invocean_invoices WHERE prestashop_invoice_id = :prestashop_invoice_id LIMIT 1');
+    $existingStatement = $pdo->prepare('SELECT id, source_hash, deleted_at FROM invocean_invoices WHERE prestashop_invoice_id = :prestashop_invoice_id LIMIT 1');
     $existingStatement->execute(['prestashop_invoice_id' => $invoice['prestashopInvoiceId']]);
     $existing = $existingStatement->fetch();
+    if (is_array($existing) && !empty($existing['deleted_at']) && !$restoreDeleted) {
+        return 'deleted';
+    }
+
+    $restoreDeletedSql = $restoreDeleted ? ',
+            deleted_at = NULL,
+            deleted_by = NULL' : '';
 
     $statement = $pdo->prepare(
         "INSERT INTO invocean_invoices (
@@ -2743,7 +2774,7 @@ function invocean_upsert_invoice(PDO $pdo, array $invoice): string
             pdf_url = VALUES(pdf_url),
             raw_json = VALUES(raw_json),
             source_hash = VALUES(source_hash),
-            synced_at = NOW()"
+            synced_at = NOW()" . $restoreDeletedSql
     );
 
     $statement->execute([
@@ -2847,6 +2878,9 @@ function invocean_sync_prestashop(PDO $pdo, array $user, array $options = []): a
             $seen++;
             $invoice = invocean_normalize_remote_invoice($node, $shopUrl, $apiKey, (string) $settings['pdfUrlTemplate'], $cache);
             $result = invocean_upsert_invoice($pdo, $invoice);
+            if ($result === 'deleted') {
+                continue;
+            }
             $savedRow = invocean_get_invoice_row_by_prestashop_id($pdo, (int) $invoice['prestashopInvoiceId']);
             invocean_save_facturx($pdo, $savedRow);
             try {
@@ -3868,7 +3902,7 @@ function invocean_convert_quote_to_invoice(PDO $pdo, int $quoteId): array
         'sourceHash' => hash('sha256', json_encode($invoiceRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
     ];
 
-    invocean_upsert_invoice($pdo, $invoice);
+    invocean_upsert_invoice($pdo, $invoice, true);
     $savedRow = invocean_get_invoice_row_by_prestashop_id($pdo, $syntheticId);
     invocean_save_invoice_pdf($pdo, $savedRow);
     invocean_save_facturx($pdo, $savedRow);
@@ -3894,7 +3928,7 @@ function invocean_invoice_statuses(): array
 
 function invocean_build_invoice_filters(array $input): array
 {
-    $where = [];
+    $where = ['deleted_at IS NULL'];
     $params = [];
 
     $search = trim((string) ($input['search'] ?? ''));
@@ -4021,13 +4055,13 @@ function invocean_update_invoice_status(PDO $pdo, int $invoiceId, string $status
         throw new InvalidArgumentException('Statut de facture invalide.');
     }
 
-    $statement = $pdo->prepare('UPDATE invocean_invoices SET status = :status WHERE id = :id');
+    $statement = $pdo->prepare('UPDATE invocean_invoices SET status = :status WHERE id = :id AND deleted_at IS NULL');
     $statement->execute([
         'id' => $invoiceId,
         'status' => $status,
     ]);
 
-    $fetch = $pdo->prepare('SELECT * FROM invocean_invoices WHERE id = :id LIMIT 1');
+    $fetch = $pdo->prepare('SELECT * FROM invocean_invoices WHERE id = :id AND deleted_at IS NULL LIMIT 1');
     $fetch->execute(['id' => $invoiceId]);
     $row = $fetch->fetch();
     if (!is_array($row)) {
@@ -4035,6 +4069,95 @@ function invocean_update_invoice_status(PDO $pdo, int $invoiceId, string $status
     }
 
     return invocean_public_invoice($row);
+}
+
+function invocean_delete_generated_invoice_file(?string $path): bool
+{
+    $path = trim((string) $path);
+    if ($path === '' || !is_file($path)) {
+        return false;
+    }
+
+    $storageRoot = realpath(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage');
+    $realPath = realpath($path);
+    if (!is_string($storageRoot) || !is_string($realPath)) {
+        return false;
+    }
+
+    $storagePrefix = strtolower(rtrim($storageRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
+    if (!str_starts_with(strtolower($realPath), $storagePrefix)) {
+        return false;
+    }
+
+    if (!unlink($realPath)) {
+        throw new RuntimeException('Impossible de supprimer un fichier genere localement.');
+    }
+
+    return true;
+}
+
+function invocean_delete_invoice(PDO $pdo, int $invoiceId, array $user): array
+{
+    if ($invoiceId <= 0) {
+        throw new InvalidArgumentException('Facture introuvable.');
+    }
+
+    $row = invocean_get_invoice_row($pdo, $invoiceId);
+    if (!empty($row['deleted_at'])) {
+        throw new InvalidArgumentException('Facture deja supprimee.');
+    }
+
+    $deletedFiles = 0;
+    foreach (['pdf_file_path', 'facturx_file_path'] as $pathKey) {
+        if (invocean_delete_generated_invoice_file($row[$pathKey] ?? null)) {
+            $deletedFiles++;
+        }
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $quotes = $pdo->prepare(
+            "UPDATE invocean_signed_quotes
+             SET status = 'signed', invoice_id = NULL
+             WHERE invoice_id = :invoice_id AND status = 'converted'"
+        );
+        $quotes->execute(['invoice_id' => $invoiceId]);
+
+        $statement = $pdo->prepare(
+            'UPDATE invocean_invoices
+             SET deleted_at = NOW(),
+                 deleted_by = :deleted_by,
+                 pdf_file_path = NULL,
+                 pdf_hash = NULL,
+                 pdf_downloaded_at = NULL,
+                 xml_payload = NULL,
+                 facturx_file_path = NULL,
+                 facturx_profile = NULL,
+                 facturx_generated_at = NULL
+             WHERE id = :id AND deleted_at IS NULL'
+        );
+        $statement->execute([
+            'id' => $invoiceId,
+            'deleted_by' => (int) ($user['id'] ?? 0),
+        ]);
+        if ($statement->rowCount() < 1) {
+            throw new InvalidArgumentException('Facture introuvable.');
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+
+    return [
+        'id' => $invoiceId,
+        'invoiceNumber' => (string) ($row['invoice_number'] ?? ''),
+        'prestashopInvoiceId' => (int) ($row['prestashop_invoice_id'] ?? 0),
+        'deletedFiles' => $deletedFiles,
+    ];
 }
 
 function invocean_get_sync_run(PDO $pdo, int $runId): ?array

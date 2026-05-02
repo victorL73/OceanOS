@@ -6,7 +6,7 @@ require_once __DIR__ . '/bootstrap.php';
 try {
     $pdo = invocean_pdo();
     $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-    invocean_require_auth($pdo);
+    $user = invocean_require_auth($pdo);
 
     if ($method === 'GET') {
         if (isset($_GET['download']) && $_GET['download'] === 'pdf') {
@@ -49,6 +49,26 @@ try {
             'ok' => true,
             'message' => 'Statut mis a jour.',
             'invoice' => $invoice,
+        ]);
+    }
+
+    if ($method === 'DELETE') {
+        if (!invocean_is_super($user)) {
+            invocean_json_response([
+                'ok' => false,
+                'error' => 'forbidden',
+                'message' => 'Acces reserve aux super utilisateurs.',
+            ], 403);
+        }
+
+        $input = invocean_read_json_request();
+        $deleted = invocean_delete_invoice($pdo, (int) ($input['id'] ?? 0), $user);
+
+        invocean_json_response([
+            'ok' => true,
+            'message' => 'Facture supprimee.',
+            'deleted' => $deleted,
+            'runs' => invocean_list_sync_runs($pdo),
         ]);
     }
 
