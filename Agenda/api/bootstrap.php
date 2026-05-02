@@ -149,6 +149,13 @@ function agenda_settings_catalog(): array
                 'quote' => 'Devis a suivre',
             ],
         ],
+        'Devis' => [
+            'moduleId' => 'devis',
+            'label' => 'Devis',
+            'types' => [
+                'quote' => 'Devis a suivre',
+            ],
+        ],
         'Stockcean' => [
             'moduleId' => 'stockcean',
             'label' => 'Stockcean',
@@ -946,6 +953,9 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     if (agenda_user_has_module($user, 'mobywork') && agenda_settings_module_enabled($settings, 'Mobywork')) {
         $tasks = array_merge($tasks, agenda_collect_mobywork_tasks($pdo, $user));
     }
+    if (agenda_user_has_module($user, 'devis') && agenda_settings_module_enabled($settings, 'Devis')) {
+        $tasks = array_merge($tasks, agenda_collect_devis_tasks($pdo, $user));
+    }
     if (agenda_user_has_module($user, 'stockcean') && agenda_settings_module_enabled($settings, 'Stockcean')) {
         $tasks = array_merge($tasks, agenda_collect_stockcean_tasks($pdo, $user));
     }
@@ -1219,6 +1229,41 @@ function agenda_collect_mobywork_tasks(PDO $pdo, array $user): array
                 'quote'
             );
         }
+    }
+
+    return $tasks;
+}
+
+function agenda_collect_devis_tasks(PDO $pdo, array $user): array
+{
+    if (!oceanos_table_exists($pdo, 'devis_quotes')) {
+        return [];
+    }
+
+    $statement = $pdo->prepare(
+        "SELECT id, reference, client_name, status, date_updated
+         FROM devis_quotes
+         WHERE user_id = :user_id
+           AND LOWER(COALESCE(status, '')) NOT IN ('accepte', 'signe', 'annule', 'refuse', 'accepted', 'signed', 'cancelled', 'rejected')
+         ORDER BY date_updated DESC
+         LIMIT 30"
+    );
+    $statement->execute(['user_id' => (int) $user['id']]);
+
+    $tasks = [];
+    foreach ($statement->fetchAll() as $row) {
+        $label = agenda_clean_text($row['reference'] ?? '', 100, true);
+        $client = agenda_clean_text($row['client_name'] ?? '', 120, true);
+        $tasks[] = agenda_external_task(
+            'Devis',
+            'quote:' . (int) $row['id'],
+            'Suivre le devis ' . ($label !== '' ? $label : '#' . (int) $row['id']),
+            agenda_parse_due_datetime($row['date_updated'] ?? ''),
+            $client,
+            'normal',
+            '/Devis/',
+            'quote'
+        );
     }
 
     return $tasks;

@@ -441,6 +441,7 @@ textarea:focus {
 .module-agenda { background: var(--accent); }
 .module-flowcean { background: #2f77b5; }
 .module-mobywork { background: #b57a1b; }
+.module-devis { background: #2c8bb8; }
 .module-stockcean { background: #528b42; }
 .module-invocean { background: #188b86; }
 .module-nautisign { background: #247c89; }

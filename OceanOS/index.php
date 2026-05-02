@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean et MeetOcean.">
+  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Devis, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean et MeetOcean.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
 </head>
@@ -30,6 +30,7 @@
           <span>Agenda</span>
           <span>Flowcean</span>
           <span>Invocean</span>
+          <span>Devis</span>
           <span>Stockcean</span>
           <span>Mobywork</span>
           <span>NautiCloud</span>
@@ -251,7 +252,7 @@
               <section class="user-menu-section" data-user-section="prestashop">
                 <div class="user-control-heading">
                   <h3>Connecteur PrestaShop</h3>
-                  <p>Cette configuration est utilisee par Invocean, Stockcean, Mobywork et les futurs modules e-commerce.</p>
+                  <p>Cette configuration est utilisee par Invocean, Devis, Stockcean, Mobywork et les futurs modules e-commerce.</p>
                 </div>
 
                 <form class="prestashop-form" id="prestashop-form">
@@ -342,7 +343,7 @@
           <p class="eyebrow">Applications</p>
           <h2>Passerelle principale</h2>
         </div>
-        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean et MeetOcean.</p>
+        <p class="muted">Votre session OceanOS est partagee avec Flowcean, Invocean, Devis, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean et MeetOcean.</p>
       </section>
 
       <section class="app-grid" id="app-grid"></section>
@@ -350,7 +351,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260502-nauticrm"></script>
-  <script src="assets/oceanos.js?v=20260502-git-update-fallback"></script>
+  <script defer src="assets/guard.js?v=20260502-devis"></script>
+  <script src="assets/oceanos.js?v=20260502-devis"></script>
 </body>
 </html>

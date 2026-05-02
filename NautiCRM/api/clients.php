@@ -30,7 +30,11 @@ try {
         $bundle = [];
         $message = 'Donnees enregistrees.';
 
-        if ($action === 'save_client') {
+        if ($action === 'ai_clean_import') {
+            nauticrm_json_response(nauticrm_ai_clean_import($pdo, $user, $input));
+        } elseif ($action === 'import_ai_clients') {
+            nauticrm_json_response(nauticrm_import_ai_clients($pdo, $user, $input));
+        } elseif ($action === 'save_client') {
             $bundle = nauticrm_save_client($pdo, $user, $input);
             $message = 'Client enregistre.';
         } elseif ($action === 'save_contact') {

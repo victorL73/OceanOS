@@ -27,6 +27,17 @@ const elements = {
   filterSearch: $("filter-search"),
   filterType: $("filter-type"),
   filterStatus: $("filter-status"),
+  aiSearch: $("ai-search"),
+  aiRaw: $("ai-raw"),
+  aiCleanButton: $("ai-clean-button"),
+  aiCsvFile: $("ai-csv-file"),
+  aiCsvButton: $("ai-csv-button"),
+  aiCategory: $("ai-category"),
+  aiRegion: $("ai-region"),
+  aiCount: $("ai-count"),
+  aiImportButton: $("ai-import-button"),
+  aiClearButton: $("ai-clear-button"),
+  aiPreview: $("ai-preview"),
   clientsBody: $("clients-body"),
   clientForm: $("client-form"),
   clientFormTitle: $("client-form-title"),
@@ -106,6 +117,9 @@ const state = {
   opportunities: [],
   selectedBundle: null,
   currentView: "clients",
+  aiImport: {
+    clients: [],
+  },
 };
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -326,6 +340,7 @@ function render() {
   renderMetrics();
   renderUsersInForms();
   renderClients();
+  renderAiPreview();
   renderDetail();
   renderGlobalTasks();
   renderGlobalOpportunities();
@@ -405,6 +420,159 @@ function renderClients() {
       </td>
     </tr>
   `).join("");
+}
+
+function aiSearchText(client) {
+  return [
+    client.companyName,
+    client.firstName,
+    client.lastName,
+    client.email,
+    client.phone,
+    client.website,
+    client.city,
+    client.country,
+    client.segment,
+    client.source,
+    client.notes,
+  ].join(" ").toLowerCase();
+}
+
+function filteredAiClients() {
+  const search = (elements.aiSearch?.value || "").trim().toLowerCase();
+  const clients = state.aiImport.clients || [];
+  if (search === "") return clients;
+  return clients.filter((client) => aiSearchText(client).includes(search));
+}
+
+function renderAiPreview() {
+  const clients = filteredAiClients();
+  const total = state.aiImport.clients.length;
+  elements.aiCount.textContent = `${total} client${total > 1 ? "s" : ""}`;
+  elements.aiImportButton.disabled = total === 0;
+
+  if (total === 0) {
+    elements.aiPreview.innerHTML = '<div class="empty-state">Collez une liste de clients puis lancez le nettoyage IA.</div>';
+    return;
+  }
+
+  if (clients.length === 0) {
+    elements.aiPreview.innerHTML = '<div class="empty-state">Aucun client ne correspond a la recherche.</div>';
+    return;
+  }
+
+  elements.aiPreview.innerHTML = clients.map((client, index) => {
+    const originalIndex = state.aiImport.clients.indexOf(client);
+    const name = client.companyName || [client.firstName, client.lastName].filter(Boolean).join(" ") || client.email || "Client IA";
+    const contact = [client.firstName, client.lastName].filter(Boolean).join(" ");
+    const segment = [client.segment, client.source].filter(Boolean).join(" - ");
+    return `
+      <article class="ai-preview-card">
+        <div class="ai-preview-title">
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            <small class="detail-meta">${escapeHtml(contact || client.email || "Contact a completer")}</small>
+          </div>
+          <button class="ghost-button danger-text" data-ai-remove="${originalIndex}" type="button">Retirer</button>
+        </div>
+        <div class="ai-preview-meta">
+          <span>${escapeHtml(client.email || "-")}<br>${escapeHtml(client.phone || "")}</span>
+          <span>${escapeHtml(client.website || "-")}<br>${escapeHtml(client.city || "")}</span>
+          <span>${escapeHtml(segment || "Import IA")}<br>${escapeHtml(client.country || "")}</span>
+        </div>
+        ${client.notes ? `<p class="ai-preview-notes">${escapeHtml(client.notes)}</p>` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
+async function cleanAiImport() {
+  const rawData = elements.aiRaw.value.trim();
+  if (rawData === "") {
+    showMessage("Collez des donnees client avant de lancer l IA.", "error");
+    return;
+  }
+
+  elements.aiCleanButton.disabled = true;
+  showMessage("Nettoyage IA en cours...");
+  try {
+    const payload = await apiRequest(API.clients, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "ai_clean_import",
+        rawData,
+        category: elements.aiCategory.value,
+        region: elements.aiRegion.value,
+      }),
+    });
+    state.aiImport.clients = payload.clients || [];
+    renderAiPreview();
+    showMessage(payload.message || `${state.aiImport.clients.length} client(s) prepare(s).`, "success");
+  } catch (error) {
+    showMessage(error.message || "Nettoyage IA impossible.", "error");
+  } finally {
+    elements.aiCleanButton.disabled = false;
+  }
+}
+
+function readAiCsvFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
+    reader.readAsText(file);
+  });
+}
+
+async function handleAiCsvFile() {
+  const file = elements.aiCsvFile.files?.[0];
+  if (!file) return;
+  try {
+    elements.aiRaw.value = await readAiCsvFile(file);
+    state.aiImport.clients = [];
+    renderAiPreview();
+    showMessage("CSV charge. Lancez le nettoyage IA pour preparer les clients.", "success");
+  } catch (error) {
+    showMessage(error.message || "Import CSV impossible.", "error");
+  } finally {
+    elements.aiCsvFile.value = "";
+  }
+}
+
+async function importAiClients() {
+  const clients = state.aiImport.clients || [];
+  if (clients.length === 0) return;
+
+  elements.aiImportButton.disabled = true;
+  showMessage("Import des clients IA en cours...");
+  try {
+    const payload = await apiRequest(API.clients, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import_ai_clients",
+        clients,
+        category: elements.aiCategory.value,
+        region: elements.aiRegion.value,
+      }),
+    });
+    state.aiImport.clients = [];
+    elements.aiRaw.value = "";
+    applyDashboard(payload.dashboard || payload);
+    renderAiPreview();
+    showMessage(payload.message || "Clients importes dans NautiCRM.", "success");
+    setActiveView("clients");
+  } catch (error) {
+    showMessage(error.message || "Import IA impossible.", "error");
+  } finally {
+    elements.aiImportButton.disabled = state.aiImport.clients.length === 0;
+  }
+}
+
+function clearAiImport() {
+  state.aiImport.clients = [];
+  elements.aiRaw.value = "";
+  elements.aiSearch.value = "";
+  renderAiPreview();
 }
 
 function resetClientForm() {
@@ -908,6 +1076,12 @@ function installListeners() {
     event.preventDefault();
     void loadDashboard().catch((error) => showMessage(error.message, "error"));
   });
+  elements.aiCleanButton.addEventListener("click", () => { void cleanAiImport(); });
+  elements.aiCsvButton.addEventListener("click", () => elements.aiCsvFile.click());
+  elements.aiCsvFile.addEventListener("change", () => { void handleAiCsvFile(); });
+  elements.aiSearch.addEventListener("input", renderAiPreview);
+  elements.aiImportButton.addEventListener("click", () => { void importAiClients(); });
+  elements.aiClearButton.addEventListener("click", clearAiImport);
   elements.clientForm.addEventListener("submit", saveClient);
   elements.clientResetButton.addEventListener("click", resetClientForm);
   elements.clientArchiveButton.addEventListener("click", () => { void archiveCurrentClient(); });
@@ -955,6 +1129,15 @@ function installListeners() {
     const taskDone = event.target.closest("[data-task-done]");
     if (taskDone) {
       void completeTask(taskDone.dataset.taskDone);
+    }
+
+    const aiRemove = event.target.closest("[data-ai-remove]");
+    if (aiRemove) {
+      const index = Number(aiRemove.dataset.aiRemove);
+      if (Number.isInteger(index) && index >= 0) {
+        state.aiImport.clients.splice(index, 1);
+        renderAiPreview();
+      }
     }
 
     const opportunityEdit = event.target.closest("[data-opportunity-edit]");

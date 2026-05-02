@@ -549,13 +549,10 @@ function nauticrm_find_client_for_prestashop_customer(PDO $pdo, array $customer)
     return is_array($row) ? $row : null;
 }
 
-function nauticrm_merge_existing_text(?string $existing, string $incoming, bool $force = false): ?string
+function nauticrm_merge_existing_text(?string $existing, string $incoming): ?string
 {
     $existing = trim((string) $existing);
     $incoming = trim($incoming);
-    if ($force && $incoming !== '') {
-        return $incoming;
-    }
 
     return $existing !== '' ? $existing : ($incoming !== '' ? $incoming : null);
 }
@@ -585,10 +582,10 @@ function nauticrm_upsert_prestashop_contact(PDO $pdo, int $clientId, array $cust
     if ($contactId > 0) {
         $statement = $pdo->prepare(
             'UPDATE nauticrm_contacts
-             SET first_name = COALESCE(:first_name, first_name),
-                 last_name = COALESCE(:last_name, last_name),
-                 email = COALESCE(:email, email),
-                 phone = COALESCE(:phone, phone),
+             SET first_name = COALESCE(NULLIF(first_name, \'\'), :first_name),
+                 last_name = COALESCE(NULLIF(last_name, \'\'), :last_name),
+                 email = COALESCE(NULLIF(email, \'\'), :email),
+                 phone = COALESCE(NULLIF(phone, \'\'), :phone),
                  is_primary = 1
              WHERE id = :id AND client_id = :client_id'
         );
@@ -734,7 +731,6 @@ function nauticrm_sync_prestashop_customers(PDO $pdo, array $user, int $limit = 
                 $ordersByCustomer[$customerId] ?? []
             );
             $existing = nauticrm_find_client_for_prestashop_customer($pdo, $customer);
-            $force = is_array($existing) && (int) ($existing['prestashop_customer_id'] ?? 0) === $customerId;
             $clientType = $customer['active'] ? 'client' : 'inactive';
             $status = is_array($existing) && (string) ($existing['status'] ?? '') === 'archived' ? 'archived' : 'active';
 
@@ -747,18 +743,8 @@ function nauticrm_sync_prestashop_customers(PDO $pdo, array $user, int $limit = 
                          prestashop_total_paid_tax_incl = :prestashop_total_paid_tax_incl,
                          prestashop_last_order_at = :prestashop_last_order_at,
                          prestashop_synced_at = NOW(),
-                         company_name = :company_name,
-                         client_type = :client_type,
-                         status = :status,
-                         segment = :segment,
-                         source = :source,
-                         email = :email,
-                         phone = :phone,
-                         website = :website,
-                         address = :address,
-                         city = :city,
-                         siret = :siret,
-                         vat_number = :vat_number,
+                         segment = COALESCE(NULLIF(segment, \'\'), :segment),
+                         source = COALESCE(NULLIF(source, \'\'), :source),
                          updated_by_user_id = :updated_by_user_id
                      WHERE id = :id'
                 );
@@ -769,18 +755,8 @@ function nauticrm_sync_prestashop_customers(PDO $pdo, array $user, int $limit = 
                     'prestashop_orders_count' => $customer['ordersCount'],
                     'prestashop_total_paid_tax_incl' => number_format((float) $customer['totalPaidTaxIncl'], 2, '.', ''),
                     'prestashop_last_order_at' => nauticrm_mysql_datetime_or_null($customer['lastOrderAt']),
-                    'company_name' => nauticrm_merge_existing_text($existing['company_name'] ?? '', $customer['companyName'], $force) ?? $customer['companyName'],
-                    'client_type' => $clientType,
-                    'status' => $status,
-                    'segment' => nauticrm_merge_existing_text($existing['segment'] ?? '', 'PrestaShop'),
-                    'source' => nauticrm_merge_existing_text($existing['source'] ?? '', 'PrestaShop'),
-                    'email' => $customer['email'] !== '' ? $customer['email'] : ($existing['email'] ?? null),
-                    'phone' => nauticrm_merge_existing_text($existing['phone'] ?? '', $customer['phone'], $force),
-                    'website' => nauticrm_merge_existing_text($existing['website'] ?? '', $customer['website'], $force),
-                    'address' => nauticrm_merge_existing_text($existing['address'] ?? '', $customer['address'], $force),
-                    'city' => nauticrm_merge_existing_text($existing['city'] ?? '', $customer['city'], $force),
-                    'siret' => nauticrm_merge_existing_text($existing['siret'] ?? '', $customer['siret'], $force),
-                    'vat_number' => nauticrm_merge_existing_text($existing['vat_number'] ?? '', $customer['vatNumber'], $force),
+                    'segment' => 'PrestaShop',
+                    'source' => 'PrestaShop',
                     'updated_by_user_id' => (int) $user['id'],
                 ]);
                 $clientId = (int) $existing['id'];
@@ -1171,6 +1147,413 @@ function nauticrm_dashboard(PDO $pdo, array $query, array $user): array
         'recentInteractions' => nauticrm_list_recent_interactions($pdo),
         'tasks' => nauticrm_list_open_tasks($pdo),
         'opportunities' => nauticrm_list_opportunities($pdo),
+    ];
+}
+
+function nauticrm_ai_first_value(array $row, array $keys): mixed
+{
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $row) || is_array($row[$key]) || is_object($row[$key])) {
+            continue;
+        }
+        if (trim((string) $row[$key]) !== '') {
+            return $row[$key];
+        }
+    }
+
+    return '';
+}
+
+function nauticrm_ai_email(mixed $value): ?string
+{
+    try {
+        return nauticrm_email($value);
+    } catch (InvalidArgumentException) {
+        return null;
+    }
+}
+
+function nauticrm_is_list_array(array $value): bool
+{
+    return $value === [] || array_keys($value) === range(0, count($value) - 1);
+}
+
+function nauticrm_ai_json_object(string $content): array
+{
+    $decoded = json_decode($content, true);
+    if (is_array($decoded)) {
+        return $decoded;
+    }
+
+    $start = strpos($content, '{');
+    $end = strrpos($content, '}');
+    if ($start !== false && $end !== false && $end > $start) {
+        $decoded = json_decode(substr($content, $start, $end - $start + 1), true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+    }
+
+    throw new RuntimeException('Reponse IA invalide.');
+}
+
+function nauticrm_normalize_ai_client(array $row, string $category = '', string $region = ''): array
+{
+    $companyName = nauticrm_clean_text(nauticrm_ai_first_value($row, ['companyName', 'company_name', 'company', 'nomEntreprise', 'entreprise', 'name', 'nom']), 190, true);
+    $firstName = nauticrm_clean_text(nauticrm_ai_first_value($row, ['firstName', 'first_name', 'firstname', 'prenom', 'first']), 120, true);
+    $lastName = nauticrm_clean_text(nauticrm_ai_first_value($row, ['lastName', 'last_name', 'lastname', 'nomContact', 'last']), 120, true);
+    $email = nauticrm_ai_email(nauticrm_ai_first_value($row, ['email', 'mail', 'e-mail', 'courriel'])) ?? '';
+    $phone = nauticrm_clean_text(nauticrm_ai_first_value($row, ['phone', 'telephone', 'tel', 'mobile']), 80, true);
+    $website = nauticrm_clean_text(nauticrm_ai_first_value($row, ['website', 'site', 'siteWeb', 'url', 'domain', 'domaine']), 255, true);
+    $address = nauticrm_clean_text(nauticrm_ai_first_value($row, ['address', 'adresse']), 255, true);
+    $city = nauticrm_clean_text(nauticrm_ai_first_value($row, ['city', 'ville', 'region']), 160, true);
+    $country = nauticrm_clean_text(nauticrm_ai_first_value($row, ['country', 'pays']), 100, true);
+    $segment = nauticrm_clean_text(nauticrm_ai_first_value($row, ['segment', 'category', 'categorie', 'type']), 120, true);
+    $source = nauticrm_clean_text(nauticrm_ai_first_value($row, ['source', 'origine']), 120, true);
+    $notes = nauticrm_clean_text(nauticrm_ai_first_value($row, ['notes', 'note', 'commentaire', 'commentaires']), 4000, false);
+    $jobTitle = nauticrm_clean_text(nauticrm_ai_first_value($row, ['jobTitle', 'job_title', 'fonction', 'poste']), 160, true);
+
+    $hasData = trim(implode('', [$companyName, $firstName, $lastName, $email, $phone, $website, $address, $city, $notes])) !== '';
+    if (!$hasData) {
+        return [];
+    }
+
+    if ($companyName === '') {
+        $companyName = nauticrm_first_text([
+            trim($firstName . ' ' . $lastName),
+            $email,
+            $phone,
+            'Prospect IA',
+        ]);
+    }
+    if ($segment === '' && $category !== '') {
+        $segment = $category;
+    }
+    if ($city === '' && $region !== '') {
+        $city = $region;
+    }
+    if ($country === '') {
+        $country = 'France';
+    }
+    if ($source === '') {
+        $source = 'IA';
+    }
+
+    return [
+        'companyName' => $companyName,
+        'clientType' => nauticrm_enum($row['clientType'] ?? $row['client_type'] ?? '', ['prospect', 'client', 'partner', 'inactive'], 'prospect'),
+        'status' => nauticrm_enum($row['status'] ?? '', ['new', 'active', 'follow_up', 'won', 'lost', 'archived'], 'new'),
+        'priority' => nauticrm_enum($row['priority'] ?? '', ['low', 'normal', 'high'], 'normal'),
+        'firstName' => $firstName,
+        'lastName' => $lastName,
+        'jobTitle' => $jobTitle,
+        'email' => $email,
+        'phone' => $phone,
+        'website' => $website,
+        'address' => $address,
+        'city' => $city,
+        'country' => $country,
+        'segment' => $segment,
+        'source' => $source,
+        'notes' => $notes,
+    ];
+}
+
+function nauticrm_ai_clients_from_payload(array $payload, string $category = '', string $region = ''): array
+{
+    $rows = $payload['clients'] ?? $payload['customers'] ?? $payload['prospects'] ?? $payload['items'] ?? [];
+    if (!is_array($rows) || $rows === []) {
+        $rows = nauticrm_is_list_array($payload) ? $payload : [$payload];
+    } elseif (!nauticrm_is_list_array($rows)) {
+        $rows = [$rows];
+    }
+
+    $clients = [];
+    $seen = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $client = nauticrm_normalize_ai_client($row, $category, $region);
+        if ($client === []) {
+            continue;
+        }
+        $key = $client['email'] !== ''
+            ? 'email:' . mb_strtolower($client['email'])
+            : 'client:' . mb_strtolower($client['companyName'] . '|' . $client['phone']);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $clients[] = $client;
+        if (count($clients) >= 100) {
+            break;
+        }
+    }
+
+    return $clients;
+}
+
+function nauticrm_ai_clean_import(PDO $pdo, array $user, array $input): array
+{
+    $rawData = nauticrm_clean_text($input['rawData'] ?? '', 60000, false);
+    if ($rawData === '') {
+        throw new InvalidArgumentException('Ajoutez des donnees client a nettoyer.');
+    }
+
+    $category = nauticrm_clean_text($input['category'] ?? '', 120, true);
+    $region = nauticrm_clean_text($input['region'] ?? '', 160, true);
+    $settings = oceanos_ai_private_settings($pdo, (int) $user['id']);
+    $apiKey = trim((string) ($settings['apiKey'] ?? ''));
+    if ($apiKey === '') {
+        throw new InvalidArgumentException('Configurez votre cle Groq dans OceanOS avant d utiliser l ajout IA.');
+    }
+
+    $model = trim((string) ($settings['model'] ?? ''));
+    if ($model === '') {
+        $model = 'llama-3.3-70b-versatile';
+    }
+
+    $systemPrompt = 'Tu nettoies des donnees CRM brutes pour NautiCRM. Reponds uniquement avec un objet JSON valide. Le schema attendu est {"clients":[{"companyName":"","firstName":"","lastName":"","jobTitle":"","email":"","phone":"","website":"","address":"","city":"","country":"","segment":"","source":"","notes":""}]}. Garde seulement les informations presentes ou raisonnablement deduites. N invente pas d email, de telephone ou de site web.';
+    $userPrompt = "Categorie par defaut: " . ($category !== '' ? $category : 'aucune') . "\n"
+        . "Zone geographique par defaut: " . ($region !== '' ? $region : 'aucune') . "\n"
+        . "Donnees a nettoyer:\n" . $rawData;
+
+    $aiPayload = [
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => $userPrompt],
+        ],
+        'temperature' => 0.1,
+        'max_tokens' => 2500,
+        'response_format' => ['type' => 'json_object'],
+    ];
+
+    try {
+        $result = oceanos_ai_post_json('https://api.groq.com/openai/v1/chat/completions', $apiKey, $aiPayload);
+    } catch (RuntimeException $exception) {
+        if (!str_contains(mb_strtolower($exception->getMessage()), 'response_format')) {
+            throw $exception;
+        }
+        unset($aiPayload['response_format']);
+        $result = oceanos_ai_post_json('https://api.groq.com/openai/v1/chat/completions', $apiKey, $aiPayload);
+    }
+
+    $content = (string) ($result['choices'][0]['message']['content'] ?? '');
+    $clients = nauticrm_ai_clients_from_payload(nauticrm_ai_json_object($content), $category, $region);
+    if ($clients === []) {
+        throw new RuntimeException('Aucun client exploitable trouve par l IA.');
+    }
+
+    return [
+        'ok' => true,
+        'managedBy' => 'OceanOS',
+        'message' => sprintf('%d client(s) prepare(s) par l IA.', count($clients)),
+        'clients' => $clients,
+    ];
+}
+
+function nauticrm_find_client_for_ai_import(PDO $pdo, array $client): ?array
+{
+    if ($client['email'] !== '') {
+        $statement = $pdo->prepare('SELECT * FROM nauticrm_clients WHERE email = :email ORDER BY id ASC LIMIT 1');
+        $statement->execute(['email' => $client['email']]);
+        $row = $statement->fetch();
+        if (is_array($row)) {
+            return $row;
+        }
+    }
+
+    if ($client['companyName'] !== '' && $client['phone'] !== '') {
+        $statement = $pdo->prepare('SELECT * FROM nauticrm_clients WHERE company_name = :company_name AND phone = :phone ORDER BY id ASC LIMIT 1');
+        $statement->execute([
+            'company_name' => $client['companyName'],
+            'phone' => $client['phone'],
+        ]);
+        $row = $statement->fetch();
+        if (is_array($row)) {
+            return $row;
+        }
+    }
+
+    return null;
+}
+
+function nauticrm_upsert_ai_contact(PDO $pdo, int $clientId, array $client): int
+{
+    $firstName = nauticrm_nullable_text($client['firstName'] ?? '', 120, true);
+    $lastName = nauticrm_nullable_text($client['lastName'] ?? '', 120, true);
+    $jobTitle = nauticrm_nullable_text($client['jobTitle'] ?? '', 160, true);
+    $email = nauticrm_ai_email($client['email'] ?? '');
+    $phone = nauticrm_nullable_text($client['phone'] ?? '', 80, true);
+    if ($firstName === null && $lastName === null && $email === null && $phone === null) {
+        return 0;
+    }
+
+    $contactId = 0;
+    if ($email !== null) {
+        $statement = $pdo->prepare('SELECT id FROM nauticrm_contacts WHERE client_id = :client_id AND email = :email LIMIT 1');
+        $statement->execute(['client_id' => $clientId, 'email' => $email]);
+        $contactId = (int) ($statement->fetchColumn() ?: 0);
+    }
+    if ($contactId <= 0) {
+        $statement = $pdo->prepare('SELECT id FROM nauticrm_contacts WHERE client_id = :client_id AND is_primary = 1 LIMIT 1');
+        $statement->execute(['client_id' => $clientId]);
+        $contactId = (int) ($statement->fetchColumn() ?: 0);
+    }
+
+    if ($contactId > 0) {
+        $statement = $pdo->prepare(
+            'UPDATE nauticrm_contacts
+             SET first_name = COALESCE(NULLIF(first_name, \'\'), :first_name),
+                 last_name = COALESCE(NULLIF(last_name, \'\'), :last_name),
+                 job_title = COALESCE(NULLIF(job_title, \'\'), :job_title),
+                 email = COALESCE(NULLIF(email, \'\'), :email),
+                 phone = COALESCE(NULLIF(phone, \'\'), :phone),
+                 is_primary = 1
+             WHERE id = :id AND client_id = :client_id'
+        );
+        $statement->execute([
+            'id' => $contactId,
+            'client_id' => $clientId,
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'job_title' => $jobTitle,
+            'email' => $email,
+            'phone' => $phone,
+        ]);
+        return 1;
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO nauticrm_contacts (client_id, first_name, last_name, job_title, email, phone, is_primary)
+         VALUES (:client_id, :first_name, :last_name, :job_title, :email, :phone, 1)'
+    );
+    $statement->execute([
+        'client_id' => $clientId,
+        'first_name' => $firstName,
+        'last_name' => $lastName,
+        'job_title' => $jobTitle,
+        'email' => $email,
+        'phone' => $phone,
+    ]);
+
+    return 1;
+}
+
+function nauticrm_import_ai_clients(PDO $pdo, array $user, array $input): array
+{
+    $rows = $input['clients'] ?? [];
+    if (!is_array($rows)) {
+        throw new InvalidArgumentException('Liste de clients IA invalide.');
+    }
+
+    $category = nauticrm_clean_text($input['category'] ?? '', 120, true);
+    $region = nauticrm_clean_text($input['region'] ?? '', 160, true);
+    $summary = [
+        'clientsCreated' => 0,
+        'clientsUpdated' => 0,
+        'contactsUpserted' => 0,
+        'clientsSkipped' => 0,
+    ];
+
+    $pdo->beginTransaction();
+    try {
+        foreach (array_slice($rows, 0, 200) as $row) {
+            if (!is_array($row)) {
+                $summary['clientsSkipped']++;
+                continue;
+            }
+
+            $client = nauticrm_normalize_ai_client($row, $category, $region);
+            if ($client === []) {
+                $summary['clientsSkipped']++;
+                continue;
+            }
+
+            $existing = nauticrm_find_client_for_ai_import($pdo, $client);
+            if (is_array($existing)) {
+                $statement = $pdo->prepare(
+                    'UPDATE nauticrm_clients
+                     SET segment = COALESCE(NULLIF(segment, \'\'), :segment),
+                         source = COALESCE(NULLIF(source, \'\'), :source),
+                         email = COALESCE(NULLIF(email, \'\'), :email),
+                         phone = COALESCE(NULLIF(phone, \'\'), :phone),
+                         website = COALESCE(NULLIF(website, \'\'), :website),
+                         address = COALESCE(NULLIF(address, \'\'), :address),
+                         city = COALESCE(NULLIF(city, \'\'), :city),
+                         country = COALESCE(NULLIF(country, \'\'), :country),
+                         notes = COALESCE(NULLIF(notes, \'\'), :notes),
+                         updated_by_user_id = :updated_by_user_id
+                     WHERE id = :id'
+                );
+                $statement->execute([
+                    'id' => (int) $existing['id'],
+                    'segment' => $client['segment'] !== '' ? $client['segment'] : null,
+                    'source' => $client['source'] !== '' ? $client['source'] : null,
+                    'email' => $client['email'] !== '' ? $client['email'] : null,
+                    'phone' => $client['phone'] !== '' ? $client['phone'] : null,
+                    'website' => $client['website'] !== '' ? $client['website'] : null,
+                    'address' => $client['address'] !== '' ? $client['address'] : null,
+                    'city' => $client['city'] !== '' ? $client['city'] : null,
+                    'country' => $client['country'] !== '' ? $client['country'] : null,
+                    'notes' => $client['notes'] !== '' ? $client['notes'] : null,
+                    'updated_by_user_id' => (int) $user['id'],
+                ]);
+                $clientId = (int) $existing['id'];
+                $summary['clientsUpdated']++;
+            } else {
+                $statement = $pdo->prepare(
+                    'INSERT INTO nauticrm_clients
+                        (company_name, client_type, status, priority, segment, source, email, phone, website, address, city, country, created_by_user_id, updated_by_user_id, notes)
+                     VALUES
+                        (:company_name, :client_type, :status, :priority, :segment, :source, :email, :phone, :website, :address, :city, :country, :created_by_user_id, :updated_by_user_id, :notes)'
+                );
+                $statement->execute([
+                    'company_name' => $client['companyName'],
+                    'client_type' => $client['clientType'],
+                    'status' => $client['status'],
+                    'priority' => $client['priority'],
+                    'segment' => $client['segment'] !== '' ? $client['segment'] : null,
+                    'source' => $client['source'] !== '' ? $client['source'] : null,
+                    'email' => $client['email'] !== '' ? $client['email'] : null,
+                    'phone' => $client['phone'] !== '' ? $client['phone'] : null,
+                    'website' => $client['website'] !== '' ? $client['website'] : null,
+                    'address' => $client['address'] !== '' ? $client['address'] : null,
+                    'city' => $client['city'] !== '' ? $client['city'] : null,
+                    'country' => $client['country'] !== '' ? $client['country'] : null,
+                    'created_by_user_id' => (int) $user['id'],
+                    'updated_by_user_id' => (int) $user['id'],
+                    'notes' => $client['notes'] !== '' ? $client['notes'] : null,
+                ]);
+                $clientId = (int) $pdo->lastInsertId();
+                $summary['clientsCreated']++;
+            }
+
+            $summary['contactsUpserted'] += nauticrm_upsert_ai_contact($pdo, $clientId, $client);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
+
+    $message = sprintf(
+        '%d client(s) IA cree(s), %d complete(s).',
+        (int) $summary['clientsCreated'],
+        (int) $summary['clientsUpdated']
+    );
+
+    return [
+        'ok' => true,
+        'managedBy' => 'OceanOS',
+        'message' => $message,
+        'summary' => $summary,
+        'dashboard' => nauticrm_dashboard($pdo, [], $user),
     ];
 }
 

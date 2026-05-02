@@ -32,6 +32,14 @@ const apps = [
     color: "#1fd1b2",
   },
   {
+    id: "devis",
+    title: "Devis",
+    subtitle: "Devis PDF connectes aux produits PrestaShop.",
+    href: "/Devis/",
+    mark: "DV",
+    color: "#35b6e8",
+  },
+  {
     id: "stockcean",
     title: "Stockcean",
     subtitle: "Stocks, achats et fournisseurs connectes a PrestaShop.",

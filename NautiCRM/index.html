@@ -65,6 +65,7 @@
 
       <nav class="view-tabs" aria-label="Navigation NautiCRM">
         <button class="view-tab is-active" data-view="clients" type="button">Clients</button>
+        <button class="view-tab" data-view="ai-import" type="button">Ajout IA</button>
         <button class="view-tab" data-view="detail" type="button">Fiche client</button>
         <button class="view-tab" data-view="tasks" type="button">Taches</button>
         <button class="view-tab" data-view="opportunities" type="button">Opportunites</button>
@@ -230,6 +231,69 @@
             </form>
           </section>
         </aside>
+      </section>
+
+      <section id="view-ai-import" class="view-section hidden ai-import-grid" data-view-section="ai-import">
+        <aside class="panel ai-import-sidebar">
+          <section class="ai-sidebar-section">
+            <p class="eyebrow">Recherche rapide</p>
+            <label class="field">
+              <span>Filtrer la liste</span>
+              <input id="ai-search" type="search" placeholder="Nom, email, domaine...">
+            </label>
+          </section>
+
+          <section class="ai-sidebar-section">
+            <p class="eyebrow">Import de donnees</p>
+            <div class="ai-import-box">
+              <textarea id="ai-raw" rows="8" placeholder="Collez ici (ex: Nom, email, ville...)"></textarea>
+              <button id="ai-clean-button" class="primary-button" type="button">Nettoyer via IA</button>
+              <input id="ai-csv-file" class="hidden" type="file" accept=".csv,text/csv,text/plain">
+              <button id="ai-csv-button" class="ghost-button" type="button">Importer CSV</button>
+            </div>
+            <small class="field-hint">Format libre ou CSV supporte</small>
+          </section>
+
+          <section class="ai-sidebar-section">
+            <p class="eyebrow">Categories</p>
+            <label class="field">
+              <span>Segment</span>
+              <select id="ai-category">
+                <option value="">Toutes les categories</option>
+                <option value="Prospect nautisme">Prospect nautisme</option>
+                <option value="Client boutique">Client boutique</option>
+                <option value="Chantier naval">Chantier naval</option>
+                <option value="Port / marina">Port / marina</option>
+                <option value="Partenaire">Partenaire</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="ai-sidebar-section">
+            <p class="eyebrow">Zone geographique</p>
+            <label class="field">
+              <span>Region / Ville</span>
+              <input id="ai-region" type="text" placeholder="Ex: PACA, Marseille...">
+            </label>
+          </section>
+        </aside>
+
+        <section class="panel ai-preview-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Ajout par IA</p>
+              <h2>Clients prepares</h2>
+            </div>
+            <div class="card-actions">
+              <span id="ai-count" class="status-pill muted-pill">0 client</span>
+              <button id="ai-import-button" class="primary-button" type="button" disabled>Importer dans NautiCRM</button>
+              <button id="ai-clear-button" class="ghost-button" type="button">Vider</button>
+            </div>
+          </div>
+          <div id="ai-preview" class="ai-preview-list">
+            <div class="empty-state">Collez une liste de clients puis lancez le nettoyage IA.</div>
+          </div>
+        </section>
       </section>
 
       <section id="view-detail" class="view-section hidden" data-view-section="detail">

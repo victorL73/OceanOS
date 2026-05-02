@@ -21,6 +21,7 @@ NautiCRM utilise la session OceanOS et les droits de modules visibles.
 - opportunites commerciales avec etape, montant HT, probabilite et date de cloture
 - synchronisation des clients PrestaShop depuis la configuration OceanOS
 - rapprochement par identifiant PrestaShop puis par email pour eviter les doublons
+- ajout par IA depuis texte libre ou CSV, avec previsualisation avant import
 - archivage des clients sans suppression physique
 
 ## Tables

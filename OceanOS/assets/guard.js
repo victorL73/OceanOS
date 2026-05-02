@@ -15,6 +15,7 @@
     ["/agenda/", "agenda"],
     ["/flowcean/", "flowcean"],
     ["/invocean/", "invocean"],
+    ["/devis/", "devis"],
     ["/stockcean/", "stockcean"],
     ["/nauticrm/", "nauticrm"],
     ["/nautipost/", "nautipost"],
