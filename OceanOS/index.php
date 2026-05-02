@@ -350,7 +350,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260502-seocean"></script>
-  <script src="assets/oceanos.js?v=20260502-seocean"></script>
+  <script defer src="assets/guard.js?v=20260502-nauticrm"></script>
+  <script src="assets/oceanos.js?v=20260502-git-update-fallback"></script>
 </body>
 </html>

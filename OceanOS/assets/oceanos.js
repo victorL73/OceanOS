@@ -4,7 +4,7 @@ const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
 const COMPANY_URL = "/OceanOS/api/company.php";
-const SERVICES_URL = "/OceanOS/api/services.php?v=20260427-update-services";
+const SERVICES_URL = "/OceanOS/api/services.php?v=20260502-git-update-fallback";
 
 const apps = [
   {
@@ -46,6 +46,14 @@ const apps = [
     href: "/Mobywork/",
     mark: "MW",
     color: "#f2b84b",
+  },
+  {
+    id: "nauticrm",
+    title: "NautiCRM",
+    subtitle: "CRM clients, contacts, relances et opportunites.",
+    href: "/NautiCRM/",
+    mark: "CRM",
+    color: "#087d79",
   },
   {
     id: "nautipost",
@@ -202,6 +210,7 @@ let prestashopSettings = null;
 let companySettings = null;
 let servicesState = [];
 let servicesControlAvailable = false;
+let servicesUpdateAvailable = false;
 
 function setVisible(view) {
   elements.loadingView.classList.toggle("hidden", view !== "loading");
@@ -675,24 +684,32 @@ async function loadServices() {
     const payload = await requestJson(SERVICES_URL);
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
-    elements.updateServices.disabled = !servicesControlAvailable;
+    servicesUpdateAvailable = Boolean(payload.updateAvailable);
+    elements.updateServices.disabled = !servicesUpdateAvailable;
     renderServices();
-    showServicesStatus(payload.message || "Etat des services charge.", servicesControlAvailable ? "success" : "");
+    const updateHint = servicesUpdateAvailable && !servicesControlAvailable
+      ? " Mise a jour Git disponible, mais le redemarrage des services reste desactive sur cet environnement."
+      : "";
+    showServicesStatus(`${payload.message || "Etat des services charge."}${updateHint}`, servicesUpdateAvailable ? "success" : "");
   } catch (error) {
     servicesState = [];
     elements.updateServices.disabled = true;
+    servicesUpdateAvailable = false;
     elements.servicesList.innerHTML = "";
     showServicesStatus(error.message || "Impossible de charger les services.", "error");
   }
 }
 
 async function runServerUpdate() {
-  const ok = window.confirm("Mettre a jour OceanOS depuis Git puis relancer Apache et le backend Mobywork ?");
+  const confirmMessage = servicesControlAvailable
+    ? "Mettre a jour OceanOS depuis Git puis relancer Apache et le backend Mobywork ?"
+    : "Mettre a jour OceanOS depuis Git ? Les services ne seront pas relances depuis cet environnement.";
+  const ok = window.confirm(confirmMessage);
   if (!ok) return;
 
   elements.updateServices.disabled = true;
   elements.reloadServices.disabled = true;
-  showServicesStatus("Mise a jour Git en cours, puis relance Mobywork...");
+  showServicesStatus(servicesControlAvailable ? "Mise a jour Git en cours, puis relance Mobywork..." : "Mise a jour Git en cours...");
   try {
     const payload = await requestJson(SERVICES_URL, {
       method: "POST",
@@ -700,6 +717,7 @@ async function runServerUpdate() {
     });
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
+    servicesUpdateAvailable = Boolean(payload.updateAvailable);
     renderServices();
     const result = payload.actionResult || {};
     const suffix = result.before && result.after ? ` (${result.before} -> ${result.after})` : "";
@@ -712,7 +730,7 @@ async function runServerUpdate() {
     await loadServices();
   } finally {
     elements.reloadServices.disabled = false;
-    elements.updateServices.disabled = !servicesControlAvailable;
+    elements.updateServices.disabled = !servicesUpdateAvailable;
   }
 }
 

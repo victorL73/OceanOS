@@ -3,7 +3,12 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-04-30-update-restarts-mobywork';
+const OCEANOS_SERVICES_API_VERSION = '2026-05-02-git-update-fallback';
+
+function oceanos_app_root(): string
+{
+    return dirname(__DIR__, 2);
+}
 
 function oceanos_service_control_path(): string
 {
@@ -54,6 +59,67 @@ function oceanos_systemctl_path(): string
 function oceanos_can_run_process(): bool
 {
     return function_exists('proc_open') || function_exists('shell_exec');
+}
+
+function oceanos_git_candidates(): array
+{
+    $candidates = ['git'];
+    if (PHP_OS_FAMILY === 'Windows') {
+        $userProfile = (string) (getenv('USERPROFILE') ?: '');
+        $localAppData = (string) (getenv('LOCALAPPDATA') ?: ($userProfile !== '' ? $userProfile . '\\AppData\\Local' : ''));
+        $candidates = array_merge($candidates, [
+            'C:\\Program Files\\Git\\cmd\\git.exe',
+            'C:\\Program Files\\Git\\bin\\git.exe',
+            'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+            $userProfile !== '' ? $userProfile . '\\AppData\\Local\\Programs\\Git\\cmd\\git.exe' : '',
+            $userProfile !== '' ? $userProfile . '\\AppData\\Local\\Programs\\Git\\bin\\git.exe' : '',
+        ]);
+        if ($localAppData !== '') {
+            foreach (glob($localAppData . '\\GitHubDesktop\\app-*\\resources\\app\\git\\cmd\\git.exe') ?: [] as $path) {
+                $candidates[] = $path;
+            }
+            foreach (glob($localAppData . '\\GitHubDesktop\\app-*\\resources\\app\\git\\mingw64\\bin\\git.exe') ?: [] as $path) {
+                $candidates[] = $path;
+            }
+        }
+    } else {
+        $candidates = array_merge($candidates, ['/usr/bin/git', '/usr/local/bin/git', '/bin/git']);
+    }
+
+    return array_values(array_unique(array_filter($candidates)));
+}
+
+function oceanos_git_path(): string
+{
+    foreach (oceanos_git_candidates() as $candidate) {
+        if ($candidate === 'git') {
+            continue;
+        }
+        if (is_file($candidate) && is_executable($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return 'git';
+}
+
+function oceanos_git_available(): bool
+{
+    if (!oceanos_can_run_process()) {
+        return false;
+    }
+    foreach (oceanos_git_candidates() as $candidate) {
+        if ($candidate !== 'git' && is_file($candidate) && is_executable($candidate)) {
+            return true;
+        }
+    }
+
+    try {
+        $result = oceanos_run_process(['git', '--version']);
+        return (int) ($result['status'] ?? 1) === 0;
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 function oceanos_run_process(array $parts): array
@@ -214,9 +280,71 @@ function oceanos_run_service_control(string $action, string $service = 'all'): a
     return $decoded;
 }
 
+function oceanos_run_git_command(array $args): array
+{
+    if (!oceanos_git_available()) {
+        throw new RuntimeException('Git est introuvable pour PHP. Installez Git ou ajoutez git.exe au PATH de WAMP/Apache.');
+    }
+
+    return oceanos_run_process(array_merge([oceanos_git_path(), '-C', oceanos_app_root()], $args));
+}
+
+function oceanos_git_output(array $args, bool $allowFailure = false): array
+{
+    $result = oceanos_run_git_command($args);
+    $status = (int) ($result['status'] ?? 1);
+    if ($status !== 0 && !$allowFailure) {
+        $details = trim((string) ($result['stderr'] ?? '')) ?: trim((string) ($result['stdout'] ?? ''));
+        throw new RuntimeException($details !== '' ? $details : 'Commande Git refusee.');
+    }
+
+    return $result;
+}
+
+function oceanos_git_short_head(): string
+{
+    try {
+        $result = oceanos_git_output(['rev-parse', '--short', 'HEAD'], true);
+        return trim(strtok((string) ($result['stdout'] ?? ''), "\r\n") ?: '');
+    } catch (Throwable) {
+        return '';
+    }
+}
+
+function oceanos_run_git_update_direct(): array
+{
+    $root = oceanos_app_root();
+    if (!is_dir($root . DIRECTORY_SEPARATOR . '.git')) {
+        throw new RuntimeException('Depot Git introuvable dans ' . $root . '.');
+    }
+
+    $before = oceanos_git_short_head();
+    $result = oceanos_git_output(['pull', '--ff-only'], true);
+    $status = (int) ($result['status'] ?? 1);
+    $output = trim(trim((string) ($result['stdout'] ?? '')) . "\n" . trim((string) ($result['stderr'] ?? '')));
+    if ($status !== 0) {
+        throw new RuntimeException($output !== '' ? $output : 'Mise a jour Git refusee.');
+    }
+
+    $after = oceanos_git_short_head();
+
+    return [
+        'ok' => true,
+        'message' => $before !== '' && $after !== '' && $before === $after
+            ? 'Depot Git deja a jour.'
+            : 'Mise a jour Git terminee.',
+        'before' => $before,
+        'after' => $after,
+        'output' => $output,
+        'servicesRestarted' => false,
+    ];
+}
+
 function oceanos_service_status_payload(): array
 {
     $controlAvailable = oceanos_service_control_available();
+    $gitAvailable = oceanos_git_available();
+    $updateAvailable = $controlAvailable || $gitAvailable;
     if (!$controlAvailable) {
         if (PHP_OS_FAMILY === 'Linux' && oceanos_can_run_process()) {
             $message = 'Etats lus via systemctl. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control pour activer les boutons.';
@@ -226,6 +354,8 @@ function oceanos_service_status_payload(): array
                 'managedBy' => 'OceanOS',
                 'version' => OCEANOS_SERVICES_API_VERSION,
                 'controlAvailable' => false,
+                'gitAvailable' => $gitAvailable,
+                'updateAvailable' => $updateAvailable,
                 'controller' => oceanos_service_control_path(),
                 'services' => oceanos_read_service_status_direct($message),
                 'message' => $message,
@@ -241,6 +371,8 @@ function oceanos_service_status_payload(): array
             'managedBy' => 'OceanOS',
             'version' => OCEANOS_SERVICES_API_VERSION,
             'controlAvailable' => false,
+            'gitAvailable' => $gitAvailable,
+            'updateAvailable' => $updateAvailable,
             'controller' => oceanos_service_control_path(),
             'services' => oceanos_unknown_services($message),
             'message' => $message,
@@ -258,6 +390,8 @@ function oceanos_service_status_payload(): array
         'managedBy' => 'OceanOS',
         'version' => OCEANOS_SERVICES_API_VERSION,
         'controlAvailable' => true,
+        'gitAvailable' => $gitAvailable,
+        'updateAvailable' => $updateAvailable,
         'controller' => oceanos_service_control_path(),
         'services' => $services,
         'message' => 'Etat des services charge.',
@@ -266,6 +400,10 @@ function oceanos_service_status_payload(): array
 
 function oceanos_restart_mobywork_after_update(array $actionResult): array
 {
+    if (!oceanos_service_control_available()) {
+        return $actionResult;
+    }
+
     $restartResult = oceanos_run_service_control('restart', 'mobywork');
     $message = trim((string) ($actionResult['message'] ?? 'Mise a jour terminee.'));
     if ($message === '') {
@@ -333,9 +471,13 @@ try {
             throw new InvalidArgumentException('Choisissez un service precis pour cette action.');
         }
 
-        $actionResult = $action === 'status'
-            ? ['ok' => true]
-            : oceanos_run_service_control($action, $service);
+        if ($action === 'status') {
+            $actionResult = ['ok' => true];
+        } elseif ($action === 'update' && !oceanos_service_control_available()) {
+            $actionResult = oceanos_run_git_update_direct();
+        } else {
+            $actionResult = oceanos_run_service_control($action, $service);
+        }
 
         if ($action === 'update' && in_array($service, ['all', 'mobywork'], true)) {
             $actionResult = oceanos_restart_mobywork_after_update($actionResult);

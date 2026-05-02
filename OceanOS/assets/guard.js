@@ -16,6 +16,7 @@
     ["/flowcean/", "flowcean"],
     ["/invocean/", "invocean"],
     ["/stockcean/", "stockcean"],
+    ["/nauticrm/", "nauticrm"],
     ["/nautipost/", "nautipost"],
     ["/nauticloud/", "nauticloud"],
     ["/mobywork/", "mobywork"],
