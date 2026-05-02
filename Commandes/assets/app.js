@@ -138,6 +138,7 @@ function stateLabelMarkup(order) {
     <span class="state-label" title="${escapeHtml(orderState.name || "Statut")}">
       <span class="state-dot" style="--state-color:${escapeHtml(color)}"></span>
       ${escapeHtml(orderState.name || "Sans statut")}
+      ${order?.excludedFromRevenue ? '<em>hors CA</em>' : ""}
     </span>
   `;
 }

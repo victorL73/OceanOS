@@ -368,6 +368,15 @@ select:disabled {
   font-weight: 850;
 }
 
+.state-label em {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--red);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
 .detail-content {
   display: grid;
   gap: 18px;

@@ -331,7 +331,7 @@ function tresorcean_revenue_state(array $state): bool
     }
 
     $stateName = strtolower((string) ($state['name'] ?? ''));
-    foreach (['rembours', 'refund'] as $excludedStatus) {
+    foreach (['rembours', 'refund', 'annul', 'cancel'] as $excludedStatus) {
         if (str_contains($stateName, $excludedStatus)) {
             return false;
         }
