@@ -162,10 +162,7 @@ function nautisign_default_quote_source(): string
 
 function nautisign_devis_available(PDO $pdo): bool
 {
-    return function_exists('devis_public_quote')
-        && function_exists('devis_generate_quote_pdf')
-        && function_exists('devis_settings')
-        && oceanos_table_exists($pdo, 'devis_quotes');
+    return oceanos_table_exists($pdo, 'devis_quotes');
 }
 
 function nautisign_devis_pdf_path_from_relative(mixed $relativePath): string
@@ -218,33 +215,14 @@ function nautisign_devis_metadata_from_row(array $row, string $filename): array
     ];
 }
 
-function nautisign_ensure_devis_quote_pdf(PDO $pdo, array $row, array $settings): string
+function nautisign_devis_reference_from_filename(string $filename): string
 {
-    $path = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
-    if ($path !== '') {
-        return basename($path);
+    $stem = preg_replace('/\.pdf$/i', '', nautisign_safe_basename($filename)) ?: '';
+    if (preg_match('/^(DEV-\d{4}-\d+)/i', $stem, $matches)) {
+        return strtoupper((string) $matches[1]);
     }
 
-    $pdf = devis_generate_quote_pdf(devis_public_quote($row), $settings);
-    $relativePath = (string) ($pdf['relativePath'] ?? '');
-    $filename = nautisign_safe_basename($pdf['filename'] ?? basename($relativePath));
-    if ($relativePath === '' || $filename === '') {
-        return '';
-    }
-
-    $statement = $pdo->prepare(
-        'UPDATE devis_quotes
-         SET pdf_file_path = :pdf_file_path,
-             pdf_generated_at = NOW()
-         WHERE id = :id AND user_id = :user_id'
-    );
-    $statement->execute([
-        'pdf_file_path' => $relativePath,
-        'id' => (int) ($row['id'] ?? 0),
-        'user_id' => (int) ($row['user_id'] ?? 0),
-    ]);
-
-    return $filename;
+    return '';
 }
 
 function nautisign_devis_quote_metadata(PDO $pdo, array $user): array
@@ -254,18 +232,17 @@ function nautisign_devis_quote_metadata(PDO $pdo, array $user): array
         return $metadata;
     }
 
-    $settings = devis_settings($pdo);
     foreach (nautisign_devis_quote_rows($pdo, $user) as $row) {
-        try {
-            $filename = nautisign_ensure_devis_quote_pdf($pdo, $row, $settings);
-        } catch (Throwable) {
-            $existingPath = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
-            $filename = $existingPath !== '' ? basename($existingPath) : '';
-        }
-        if ($filename === '') {
+        $path = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
+        if ($path === '') {
             continue;
         }
-        $metadata[$filename] = nautisign_devis_metadata_from_row($row, $filename);
+        $filename = basename($path);
+        $rowMetadata = nautisign_devis_metadata_from_row($row, $filename);
+        $metadata[$filename] = $rowMetadata;
+        if ((string) ($row['reference'] ?? '') !== '') {
+            $metadata['ref:' . strtoupper((string) $row['reference'])] = $rowMetadata;
+        }
     }
 
     return $metadata;
@@ -286,6 +263,9 @@ function nautisign_devis_quote_contact(PDO $pdo, array $user, string $reference)
     foreach (nautisign_devis_quote_rows($pdo, $user) as $row) {
         $path = nautisign_devis_pdf_path_from_relative($row['pdf_file_path'] ?? '');
         if ($path !== '' && basename($path) === $filename) {
+            return nautisign_devis_metadata_from_row($row, $filename);
+        }
+        if (strtoupper((string) ($row['reference'] ?? '')) === nautisign_devis_reference_from_filename($filename)) {
             return nautisign_devis_metadata_from_row($row, $filename);
         }
     }
@@ -457,7 +437,14 @@ function nautisign_list_quote_files(?PDO $pdo = null, ?array $user = null): arra
             if (!is_file($path)) {
                 continue;
             }
-            $metadata = (string) $source === 'devis' ? ($devisMetadata[$entry] ?? []) : [];
+            $metadata = [];
+            if ((string) $source === 'devis') {
+                $metadata = $devisMetadata[$entry] ?? [];
+                if ($metadata === []) {
+                    $referenceKey = 'ref:' . nautisign_devis_reference_from_filename($entry);
+                    $metadata = $devisMetadata[$referenceKey] ?? [];
+                }
+            }
             if ((string) $source === 'devis' && $pdo !== null && $user !== null && $metadata === []) {
                 continue;
             }

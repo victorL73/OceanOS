@@ -224,7 +224,18 @@ function renderQuoteSelect() {
 
 function syncSignerFieldsFromQuote(force = false) {
   const quote = selectedQuote();
-  if (!quote) return;
+  if (!quote) {
+    if (force) {
+      elements.signerName.value = "";
+      elements.signerEmail.value = "";
+    }
+    return;
+  }
+  if (force) {
+    elements.signerName.value = quote.clientName || "";
+    elements.signerEmail.value = quote.clientEmail || "";
+    return;
+  }
   if ((force || elements.signerName.value.trim() === "") && quote.clientName) {
     elements.signerName.value = quote.clientName;
   }

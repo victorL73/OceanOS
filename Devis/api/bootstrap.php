@@ -909,7 +909,7 @@ function devis_render_quote_pdf(array $quote, array $settings = []): string
     $pdf->addPage();
     devis_draw_header($pdf, $quote, $settings);
     devis_draw_party_box($pdf, 15, 92, 'Vendeur', devis_build_seller_lines($settings));
-    devis_draw_party_box($pdf, 111, 92, 'Client facture', devis_build_buyer_lines($quote));
+    devis_draw_party_box($pdf, 111, 92, 'Client', devis_build_buyer_lines($quote));
 
     $y = 150.0;
     devis_draw_table_header($pdf, $y);
