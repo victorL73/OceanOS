@@ -57,6 +57,8 @@ const elements = {
   ordersList: $("orders-list"),
   supplierCount: $("supplier-count"),
   supplierOrdersList: $("supplier-orders-list"),
+  convertedCount: $("converted-count"),
+  convertedQuotesList: $("converted-quotes-list"),
   vatCards: $("vat-cards"),
   settingsForm: $("settings-form"),
   settingSalesRate: $("setting-sales-rate"),
@@ -210,6 +212,7 @@ function applyDashboard(payload) {
   renderEntries();
   renderOrders();
   renderSupplierOrders();
+  renderConvertedQuotes();
   renderVatCards();
   renderSettings();
   renderCharts();
@@ -248,9 +251,12 @@ function renderSummary() {
   const items = [
     ["Entrees TTC", summary.cashIn],
     ["Sorties TTC", summary.cashOut],
-    ["Marge produits HT", summary.grossMarginTaxExcl],
+    ["CA PrestaShop HT", summary.prestashopRevenueTaxExcl],
+    ["Devis Invocean HT", summary.invoceanQuotesTaxExcl],
+    ["Marge brute HT", summary.grossMarginTaxExcl],
     ["Couts produits estimes", summary.estimatedCostOfGoodsTaxExcl],
     ["Commandes incluses", summary.includedOrders, "number"],
+    ["Devis convertis", summary.convertedQuotes, "number"],
     ["Mouvements manuels", summary.manualEntries, "number"],
   ];
 
@@ -354,6 +360,40 @@ function renderSupplierOrders() {
   `).join("");
 }
 
+function renderConvertedQuotes() {
+  const quotes = state.dashboard?.convertedQuotes || [];
+  elements.convertedCount.textContent = `${quotes.length} devis`;
+
+  if (quotes.length === 0) {
+    elements.convertedQuotesList.innerHTML = '<div class="empty-state">Aucun devis Invocean converti sur la periode.</div>';
+    return;
+  }
+
+  elements.convertedQuotesList.innerHTML = quotes.map((quote) => {
+    const customer = quote.customerCompany || quote.customerName || "Client";
+    const invoice = quote.invoiceNumber ? `Facture ${quote.invoiceNumber}` : "Facture creee";
+    const date = quote.invoiceDate || quote.accountingDate || quote.convertedAt;
+
+    return `
+      <article class="order-card">
+        <div class="order-head">
+          <div>
+            <strong>${escapeHtml(quote.quoteNumber || `Devis #${quote.id}`)}</strong>
+            <span>${escapeHtml(customer)} - ${formatDate(date)}</span>
+          </div>
+          <span class="status-pill success">Converti</span>
+        </div>
+        <div class="order-values">
+          <span><small>CA HT</small><b>${formatMoney(quote.totalTaxExcl)}</b></span>
+          <span><small>TVA</small><b>${formatMoney(quote.vatAmount)}</b></span>
+          <span><small>Total TTC</small><b>${formatMoney(quote.totalTaxIncl)}</b></span>
+          <span><small>${escapeHtml(invoice)}</small><b>${escapeHtml(quote.source || "Invocean")}</b></span>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
 function entryTypeLabel(type) {
   return {
     fund: "Fonds",
@@ -402,7 +442,7 @@ function renderVatCards() {
   const vat = state.dashboard?.vat || {};
   const due = Number(vat.due || 0);
   const cards = [
-    ["TVA collectee", vat.collected?.total, `PrestaShop ${formatMoney(vat.collected?.prestashop)} - manuel ${formatMoney(vat.collected?.manual)}`],
+    ["TVA collectee", vat.collected?.total, `PrestaShop ${formatMoney(vat.collected?.prestashop)} - Invocean ${formatMoney(vat.collected?.invocean)} - manuel ${formatMoney(vat.collected?.manual)}`],
     ["TVA deductible", vat.deductible?.total, `Fournisseurs ${formatMoney(vat.deductible?.supplierOrders)} - manuel ${formatMoney(vat.deductible?.manual)}`],
     [due >= 0 ? "A reverser" : "Credit TVA", due, due >= 0 ? "Montant estime pour l Etat" : "Credit estime a reporter"],
   ];

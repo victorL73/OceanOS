@@ -48,15 +48,18 @@ function backup_lock_path(): string
 
 function backup_ensure_storage(): void
 {
-    foreach ([backup_storage_path(), backup_backups_path(), backup_tmp_path()] as $path) {
+    $paths = [backup_storage_path(), backup_backups_path(), backup_tmp_path()];
+    foreach ($paths as $path) {
         if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
             throw new RuntimeException('Impossible de creer le dossier de stockage Backup.');
         }
     }
 
-    $htaccess = backup_storage_path('.htaccess');
-    if (!is_file($htaccess)) {
-        file_put_contents($htaccess, "Require all denied\nDeny from all\n");
+    foreach ($paths as $path) {
+        $htaccess = $path . DIRECTORY_SEPARATOR . '.htaccess';
+        if (!is_file($htaccess)) {
+            file_put_contents($htaccess, "Require all denied\nDeny from all\n");
+        }
     }
 }
 
@@ -168,9 +171,7 @@ function backup_load_schedule(): array
     backup_ensure_storage();
     $path = backup_schedule_path();
     if (!is_file($path)) {
-        $schedule = backup_default_schedule();
-        backup_write_php_config($path, $schedule);
-        return $schedule;
+        return backup_default_schedule();
     }
 
     $loaded = require $path;

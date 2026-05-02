@@ -284,6 +284,24 @@ select:disabled {
   width: 190px;
 }
 
+.orders-panel .panel-header {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.orders-panel .filters-form {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+}
+
+.orders-panel .filters-form input,
+.orders-panel .filters-form select,
+.orders-panel .filters-form button {
+  width: 100%;
+}
+
 .orders-list {
   display: grid;
   gap: 8px;

@@ -5,19 +5,47 @@ require_once __DIR__ . '/bootstrap.php';
 
 function oceanos_dispatch_module_notifications(PDO $pdo, int $userId): void
 {
-    $meetOceanBootstrap = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'MeetOcean' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
-    if (!is_file($meetOceanBootstrap)) {
-        return;
-    }
+    $modules = [
+        [
+            'path' => dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'MeetOcean' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php',
+            'ensure' => 'meetocean_ensure_schema',
+            'dispatch' => 'meetocean_dispatch_due_notifications',
+            'with_user' => true,
+        ],
+        [
+            'path' => dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'Commandes' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php',
+            'ensure' => 'commandes_ensure_schema',
+            'dispatch' => 'commandes_dispatch_new_order_notifications',
+            'with_user' => false,
+        ],
+        [
+            'path' => dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'SAV' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php',
+            'ensure' => 'sav_ensure_schema',
+            'dispatch' => 'sav_dispatch_new_message_notifications',
+            'with_user' => false,
+        ],
+    ];
 
-    try {
-        require_once $meetOceanBootstrap;
-        if (function_exists('meetocean_ensure_schema') && function_exists('meetocean_dispatch_due_notifications')) {
-            meetocean_ensure_schema($pdo);
-            meetocean_dispatch_due_notifications($pdo, $userId);
+    foreach ($modules as $module) {
+        if (!is_file($module['path'])) {
+            continue;
         }
-    } catch (Throwable $exception) {
-        // Les notifications OceanOS restent disponibles meme si un module optionnel echoue.
+
+        try {
+            require_once $module['path'];
+            $ensure = (string) $module['ensure'];
+            $dispatch = (string) $module['dispatch'];
+            if (function_exists($ensure)) {
+                $ensure($pdo);
+            }
+            if (function_exists($dispatch)) {
+                !empty($module['with_user'])
+                    ? $dispatch($pdo, $userId)
+                    : $dispatch($pdo);
+            }
+        } catch (Throwable $exception) {
+            // Les notifications OceanOS restent disponibles meme si un module optionnel echoue.
+        }
     }
 }
 

@@ -349,6 +349,10 @@ async function boot() {
     if (!authenticated) return;
     setView("app");
     await loadDashboard();
+    const targetOrderId = Number(new URLSearchParams(window.location.search).get("order") || 0);
+    if (targetOrderId > 0) {
+      await selectOrder(targetOrderId);
+    }
   } catch (error) {
     setView("app");
     showMessage(error.message || "Commandes est indisponible.", "error");

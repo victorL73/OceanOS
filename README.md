@@ -216,6 +216,7 @@ Tables Invocean :
 invocean_invoices
 invocean_settings
 invocean_sync_runs
+invocean_signed_quotes
 ```
 
 Tables Devis :
@@ -267,6 +268,8 @@ tresorcean_settings
 tresorcean_entries
 tresorcean_user_preferences
 ```
+
+Tresorcean consolide les fonds manuels, les commandes PrestaShop, les achats Stockcean et les devis Invocean signes uniquement lorsqu'ils sont passes au statut `converted`.
 
 Tables Formcean :
 

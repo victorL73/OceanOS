@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/tresorcean.svg?v=20260502">
   <meta name="description" content="Tresorcean - finance, tresorerie, benefices et TVA dans OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260502-compact-charts">
+  <link rel="stylesheet" href="assets/style.css?v=20260502-invocean-quotes">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-tresorcean"></script>
 </head>
 <body>
@@ -81,7 +81,7 @@
           <strong id="metric-cash">0 EUR</strong>
         </article>
         <article class="metric-card">
-          <span>CA HT PrestaShop</span>
+          <span>CA HT comptabilise</span>
           <strong id="metric-revenue">0 EUR</strong>
         </article>
         <article class="metric-card">
@@ -235,7 +235,7 @@
       </section>
 
       <section class="view-section hidden orders-layout" data-view-section="orders">
-        <section class="panel">
+        <section class="panel orders-primary">
           <div class="panel-header">
             <div>
               <p class="eyebrow">PrestaShop</p>
@@ -255,6 +255,17 @@
             <span id="supplier-count" class="status-pill">0 achat</span>
           </div>
           <div id="supplier-orders-list" class="orders-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Invocean</p>
+              <h2>Devis convertis</h2>
+            </div>
+            <span id="converted-count" class="status-pill">0 devis</span>
+          </div>
+          <div id="converted-quotes-list" class="orders-list"></div>
         </section>
       </section>
 
@@ -296,6 +307,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260502-compact-charts"></script>
+  <script src="assets/app.js?v=20260502-invocean-quotes"></script>
 </body>
 </html>

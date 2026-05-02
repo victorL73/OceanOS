@@ -29,7 +29,39 @@ function commandes_read_json_request(): array
 
 function commandes_pdo(): PDO
 {
-    return oceanos_pdo();
+    $pdo = oceanos_pdo();
+    commandes_ensure_schema($pdo);
+    return $pdo;
+}
+
+function commandes_ensure_schema(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS commandes_notification_state (
+            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+            last_order_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            checked_at DATETIME NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+}
+
+function commandes_notification_state(PDO $pdo): ?array
+{
+    commandes_ensure_schema($pdo);
+    $row = $pdo->query('SELECT * FROM commandes_notification_state WHERE id = 1 LIMIT 1')->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function commandes_save_notification_state(PDO $pdo, int $lastOrderId): void
+{
+    commandes_ensure_schema($pdo);
+    $statement = $pdo->prepare(
+        'INSERT INTO commandes_notification_state (id, last_order_id, checked_at)
+         VALUES (1, :last_order_id, NOW())
+         ON DUPLICATE KEY UPDATE last_order_id = VALUES(last_order_id), checked_at = NOW()'
+    );
+    $statement->execute(['last_order_id' => max(0, $lastOrderId)]);
 }
 
 function commandes_collect_nodes(SimpleXMLElement $xml, string $container, string $nodeName): array
@@ -57,6 +89,20 @@ function commandes_fetch_prestashop_nodes(string $shopUrl, string $apiKey, strin
 {
     $xml = oceanos_load_xml(oceanos_prestashop_get($shopUrl, $apiKey, $resource, $query));
     return commandes_collect_nodes($xml, $container, $nodeName);
+}
+
+function commandes_module_user_ids(PDO $pdo): array
+{
+    $rows = $pdo->query('SELECT * FROM oceanos_users WHERE is_active = 1 ORDER BY id ASC')->fetchAll();
+    $userIds = [];
+    foreach ($rows ?: [] as $row) {
+        $modules = oceanos_decode_visible_modules($row['visible_modules_json'] ?? null);
+        if (in_array('commandes', $modules, true)) {
+            $userIds[] = (int) $row['id'];
+        }
+    }
+
+    return $userIds;
 }
 
 function commandes_prestashop_context(PDO $pdo): array
@@ -268,6 +314,114 @@ function commandes_fetch_orders(PDO $pdo, array $query = []): array
     }
 
     return [$orders, array_values($states), $states];
+}
+
+function commandes_latest_remote_order_id(string $shopUrl, string $apiKey): int
+{
+    $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', [
+        'display' => '[id]',
+        'sort' => '[id_DESC]',
+        'limit' => '0,1',
+    ]);
+    if ($nodes === []) {
+        return 0;
+    }
+
+    return (int) oceanos_xml_text($nodes[0], 'id');
+}
+
+function commandes_recent_remote_orders_for_notifications(string $shopUrl, string $apiKey, int $afterOrderId, int $limit = 100): array
+{
+    $filters = [
+        'display' => '[id,reference,id_customer,current_state,payment,module,total_paid,total_paid_tax_incl,id_currency]',
+        'sort' => '[id_DESC]',
+        'limit' => '0,' . max(1, min(200, $limit)),
+    ];
+
+    try {
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', $filters);
+    } catch (OceanosPrestashopException $exception) {
+        if (!in_array($exception->statusCode, [400, 500], true)) {
+            throw $exception;
+        }
+
+        $filters['display'] = '[id,id_customer,current_state,module,id_currency]';
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', $filters);
+    }
+
+    $states = commandes_fetch_order_states($shopUrl, $apiKey);
+    $customers = [];
+    $orders = [];
+    foreach ($nodes as $node) {
+        if ((int) oceanos_xml_text($node, 'id') <= $afterOrderId) {
+            continue;
+        }
+        $orders[] = commandes_public_order($node, $states, $customers, $shopUrl, $apiKey);
+    }
+
+    usort($orders, static fn(array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
+    return $orders;
+}
+
+function commandes_dispatch_new_order_notifications(PDO $pdo): void
+{
+    commandes_ensure_schema($pdo);
+    [$shopUrl, $apiKey] = commandes_prestashop_context($pdo);
+    $latestOrderId = commandes_latest_remote_order_id($shopUrl, $apiKey);
+    if ($latestOrderId <= 0) {
+        commandes_save_notification_state($pdo, 0);
+        return;
+    }
+
+    $state = commandes_notification_state($pdo);
+    if ($state === null) {
+        commandes_save_notification_state($pdo, $latestOrderId);
+        return;
+    }
+
+    $lastOrderId = (int) ($state['last_order_id'] ?? 0);
+    if ($latestOrderId <= $lastOrderId) {
+        commandes_save_notification_state($pdo, $lastOrderId);
+        return;
+    }
+
+    $orders = commandes_recent_remote_orders_for_notifications($shopUrl, $apiKey, $lastOrderId);
+    $userIds = commandes_module_user_ids($pdo);
+    foreach ($orders as $order) {
+        $orderId = (int) ($order['id'] ?? 0);
+        if ($orderId <= 0) {
+            continue;
+        }
+
+        $customer = is_array($order['customer'] ?? null) ? $order['customer'] : [];
+        $customerName = (string) ($customer['name'] ?? 'Client');
+        $reference = (string) ($order['reference'] ?? ('Commande #' . $orderId));
+        $total = (float) ($order['totalPaid'] ?? 0);
+        $body = trim($customerName . ' - ' . number_format($total, 2, ',', ' ') . ' EUR');
+
+        foreach ($userIds as $userId) {
+            oceanos_create_notification(
+                $pdo,
+                $userId,
+                null,
+                'Commandes',
+                'new_order',
+                'success',
+                'Nouvelle commande PrestaShop',
+                $body,
+                '/Commandes/?order=' . $orderId,
+                [
+                    'orderId' => $orderId,
+                    'reference' => $reference,
+                    'customerName' => $customerName,
+                    'totalPaid' => $total,
+                ],
+                'commandes_new_order_' . $orderId . '_' . $userId
+            );
+        }
+    }
+
+    commandes_save_notification_state($pdo, $latestOrderId);
 }
 
 function commandes_fetch_order_detail(PDO $pdo, int $orderId): array

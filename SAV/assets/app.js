@@ -395,6 +395,10 @@ async function boot() {
     if (!authenticated) return;
     setView("app");
     await loadDashboard();
+    const targetThreadId = Number(new URLSearchParams(window.location.search).get("thread") || 0);
+    if (targetThreadId > 0) {
+      await selectThread(targetThreadId);
+    }
   } catch (error) {
     setView("app");
     showMessage(error.message || "SAV est indisponible.", "error");

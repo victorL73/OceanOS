@@ -300,6 +300,24 @@ textarea:disabled {
   width: 220px;
 }
 
+.threads-panel .panel-header {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.threads-panel .filters-form {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+}
+
+.threads-panel .filters-form input,
+.threads-panel .filters-form select,
+.threads-panel .filters-form button {
+  width: 100%;
+}
+
 .threads-list {
   display: grid;
   gap: 8px;

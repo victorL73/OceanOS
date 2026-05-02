@@ -573,6 +573,67 @@ function tresorcean_supplier_orders(PDO $pdo, array $period, float $purchaseTaxR
     return $orders;
 }
 
+function tresorcean_public_converted_quote(array $row): array
+{
+    $totalHt = (float) ($row['total_tax_excl'] ?? 0);
+    $totalTtc = (float) ($row['total_tax_incl'] ?? 0);
+
+    return [
+        'id' => (int) $row['id'],
+        'source' => (string) ($row['source'] ?? ''),
+        'externalId' => (string) ($row['external_id'] ?? ''),
+        'quoteNumber' => (string) ($row['quote_number'] ?? ''),
+        'quoteDate' => (string) ($row['quote_date'] ?? ''),
+        'signedAt' => (string) ($row['signed_at'] ?? ''),
+        'convertedAt' => (string) ($row['updated_at'] ?? ''),
+        'accountingDate' => (string) ($row['accounting_date'] ?? ''),
+        'customerName' => (string) ($row['customer_name'] ?? ''),
+        'customerEmail' => (string) ($row['customer_email'] ?? ''),
+        'customerCompany' => (string) ($row['customer_company'] ?? ''),
+        'vatNumber' => (string) ($row['vat_number'] ?? ''),
+        'currencyIso' => (string) ($row['currency_iso'] ?? 'EUR'),
+        'totalTaxExcl' => $totalHt,
+        'vatAmount' => max(0, $totalTtc - $totalHt),
+        'totalTaxIncl' => $totalTtc,
+        'status' => (string) ($row['status'] ?? 'converted'),
+        'invoiceId' => isset($row['invoice_id']) ? (int) $row['invoice_id'] : null,
+        'invoiceNumber' => (string) ($row['invoice_number'] ?? ''),
+        'invoiceDate' => (string) ($row['invoice_date'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
+function tresorcean_invocean_converted_quotes(PDO $pdo, array $period): array
+{
+    if (
+        !oceanos_table_exists($pdo, 'invocean_signed_quotes')
+        || !oceanos_table_exists($pdo, 'invocean_invoices')
+    ) {
+        return [];
+    }
+
+    $accountingDate = "COALESCE(i.invoice_date, DATE(q.updated_at), DATE(q.signed_at), q.quote_date, DATE(q.created_at))";
+    $statement = $pdo->prepare(
+        "SELECT q.*,
+                i.invoice_number,
+                i.invoice_date,
+                {$accountingDate} AS accounting_date
+         FROM invocean_signed_quotes q
+         LEFT JOIN invocean_invoices i ON i.id = q.invoice_id
+         WHERE q.status = 'converted'
+           AND {$accountingDate} BETWEEN :start_date AND :end_date
+         ORDER BY accounting_date DESC, q.id DESC
+         LIMIT 200"
+    );
+    $statement->execute([
+        'start_date' => $period['start'],
+        'end_date' => $period['end'],
+    ]);
+
+    return array_map(static fn(array $row): array => tresorcean_public_converted_quote($row), $statement->fetchAll());
+}
+
 function tresorcean_public_entry(array $row): array
 {
     return [
@@ -798,7 +859,7 @@ function tresorcean_bucket_key(string $date): string
     return date('Y-m');
 }
 
-function tresorcean_summarize(array $orders, array $supplierOrders, array $entries, array $settings, array $period): array
+function tresorcean_summarize(array $orders, array $supplierOrders, array $convertedQuotes, array $entries, array $settings, array $period): array
 {
     $summary = [
         'cashIn' => 0.0,
@@ -806,7 +867,12 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
         'cashBalance' => 0.0,
         'revenueTaxExcl' => 0.0,
         'revenueTaxIncl' => 0.0,
+        'prestashopRevenueTaxExcl' => 0.0,
+        'prestashopRevenueTaxIncl' => 0.0,
         'prestashopVatCollected' => 0.0,
+        'invoceanQuotesTaxExcl' => 0.0,
+        'invoceanQuotesTaxIncl' => 0.0,
+        'invoceanVatCollected' => 0.0,
         'estimatedCostOfGoodsTaxExcl' => 0.0,
         'grossMarginTaxExcl' => 0.0,
         'supplierOrdersTaxExcl' => 0.0,
@@ -825,6 +891,7 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
         'includedOrders' => 0,
         'loadedOrders' => count($orders),
         'supplierOrders' => count($supplierOrders),
+        'convertedQuotes' => count($convertedQuotes),
         'manualEntries' => count($entries),
         'missingCostLines' => 0,
     ];
@@ -838,6 +905,8 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
         $summary['includedOrders']++;
         $summary['revenueTaxExcl'] += (float) ($order['totalTaxExcl'] ?? 0);
         $summary['revenueTaxIncl'] += (float) ($order['totalTaxIncl'] ?? 0);
+        $summary['prestashopRevenueTaxExcl'] += (float) ($order['totalTaxExcl'] ?? 0);
+        $summary['prestashopRevenueTaxIncl'] += (float) ($order['totalTaxIncl'] ?? 0);
         $summary['prestashopVatCollected'] += (float) ($order['vatAmount'] ?? 0);
         $summary['estimatedCostOfGoodsTaxExcl'] += (float) ($order['estimatedCostTaxExcl'] ?? 0);
         $summary['missingCostLines'] += (int) ($order['missingCostLines'] ?? 0);
@@ -845,6 +914,24 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
             $series[$key]['cashIn'] += (float) ($order['totalTaxIncl'] ?? 0);
             $series[$key]['revenueTaxExcl'] += (float) ($order['totalTaxExcl'] ?? 0);
             $series[$key]['vatCollected'] += (float) ($order['vatAmount'] ?? 0);
+        }
+    }
+
+    foreach ($convertedQuotes as $quote) {
+        $key = tresorcean_bucket_key((string) ($quote['accountingDate'] ?? $quote['convertedAt'] ?? ''));
+        $amountHt = (float) ($quote['totalTaxExcl'] ?? 0);
+        $amountTtc = (float) ($quote['totalTaxIncl'] ?? 0);
+        $tax = (float) ($quote['vatAmount'] ?? 0);
+
+        $summary['revenueTaxExcl'] += $amountHt;
+        $summary['revenueTaxIncl'] += $amountTtc;
+        $summary['invoceanQuotesTaxExcl'] += $amountHt;
+        $summary['invoceanQuotesTaxIncl'] += $amountTtc;
+        $summary['invoceanVatCollected'] += $tax;
+        if (isset($series[$key])) {
+            $series[$key]['cashIn'] += $amountTtc;
+            $series[$key]['revenueTaxExcl'] += $amountHt;
+            $series[$key]['vatCollected'] += $tax;
         }
     }
 
@@ -918,7 +1005,7 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
         + $summary['manualIncomeTaxExcl']
         - $summary['supplierOrdersTaxExcl']
         - $summary['manualExpenseTaxExcl'];
-    $summary['vatCollected'] = $summary['prestashopVatCollected'] + $summary['manualVatCollected'];
+    $summary['vatCollected'] = $summary['prestashopVatCollected'] + $summary['invoceanVatCollected'] + $summary['manualVatCollected'];
     $summary['vatDeductible'] = $summary['supplierVatDeductible'] + $summary['manualVatDeductible'];
     $summary['vatDue'] = $summary['vatCollected'] - $summary['vatDeductible'];
 
@@ -938,6 +1025,7 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $entri
             'collected' => [
                 'total' => $summary['vatCollected'],
                 'prestashop' => $summary['prestashopVatCollected'],
+                'invocean' => $summary['invoceanVatCollected'],
                 'manual' => $summary['manualVatCollected'],
             ],
             'deductible' => [
@@ -984,8 +1072,14 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
     }
 
     $supplierOrders = tresorcean_supplier_orders($pdo, $period, (float) $settings['defaultPurchaseTaxRate']);
+    $convertedQuotes = [];
+    try {
+        $convertedQuotes = tresorcean_invocean_converted_quotes($pdo, $period);
+    } catch (Throwable $exception) {
+        $warnings[] = 'Lecture Invocean impossible: ' . $exception->getMessage();
+    }
     $entries = tresorcean_entries($pdo, $period);
-    $computed = tresorcean_summarize($orders, $supplierOrders, $entries, $settings, $period);
+    $computed = tresorcean_summarize($orders, $supplierOrders, $convertedQuotes, $entries, $settings, $period);
 
     return [
         'ok' => true,
@@ -1006,6 +1100,7 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
         'states' => $states,
         'orders' => $orders,
         'supplierOrders' => $supplierOrders,
+        'convertedQuotes' => $convertedQuotes,
         'entries' => $entries,
         'summary' => $computed['summary'],
         'series' => $computed['series'],

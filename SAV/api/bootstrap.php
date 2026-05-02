@@ -29,7 +29,39 @@ function sav_read_json_request(): array
 
 function sav_pdo(): PDO
 {
-    return oceanos_pdo();
+    $pdo = oceanos_pdo();
+    sav_ensure_schema($pdo);
+    return $pdo;
+}
+
+function sav_ensure_schema(PDO $pdo): void
+{
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS sav_notification_state (
+            id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+            last_customer_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            checked_at DATETIME NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+}
+
+function sav_notification_state(PDO $pdo): ?array
+{
+    sav_ensure_schema($pdo);
+    $row = $pdo->query('SELECT * FROM sav_notification_state WHERE id = 1 LIMIT 1')->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function sav_save_notification_state(PDO $pdo, int $lastCustomerMessageId): void
+{
+    sav_ensure_schema($pdo);
+    $statement = $pdo->prepare(
+        'INSERT INTO sav_notification_state (id, last_customer_message_id, checked_at)
+         VALUES (1, :last_customer_message_id, NOW())
+         ON DUPLICATE KEY UPDATE last_customer_message_id = VALUES(last_customer_message_id), checked_at = NOW()'
+    );
+    $statement->execute(['last_customer_message_id' => max(0, $lastCustomerMessageId)]);
 }
 
 function sav_collect_nodes(SimpleXMLElement $xml, string $container, string $nodeName): array
@@ -57,6 +89,20 @@ function sav_fetch_prestashop_nodes(string $shopUrl, string $apiKey, string $res
 {
     $xml = oceanos_load_xml(oceanos_prestashop_get($shopUrl, $apiKey, $resource, $query));
     return sav_collect_nodes($xml, $container, $nodeName);
+}
+
+function sav_module_user_ids(PDO $pdo): array
+{
+    $rows = $pdo->query('SELECT * FROM oceanos_users WHERE is_active = 1 ORDER BY id ASC')->fetchAll();
+    $userIds = [];
+    foreach ($rows ?: [] as $row) {
+        $modules = oceanos_decode_visible_modules($row['visible_modules_json'] ?? null);
+        if (in_array('sav', $modules, true)) {
+            $userIds[] = (int) $row['id'];
+        }
+    }
+
+    return $userIds;
 }
 
 function sav_prestashop_context(PDO $pdo): array
@@ -319,6 +365,152 @@ function sav_fetch_thread_detail(PDO $pdo, int $threadId): array
         'productId' => (int) oceanos_xml_text($thread, 'id_product'),
         'messages' => sav_fetch_thread_messages($shopUrl, $apiKey, $threadId),
     ];
+}
+
+function sav_fetch_thread_summary_remote(string $shopUrl, string $apiKey, int $threadId): array
+{
+    if ($threadId <= 0) {
+        return [
+            'id' => 0,
+            'customer' => ['name' => 'Client', 'email' => '', 'company' => ''],
+            'email' => '',
+            'orderReference' => '',
+            'contactName' => 'SAV',
+            'status' => '',
+            'statusLabel' => 'Sans statut',
+        ];
+    }
+
+    $xml = oceanos_load_xml(oceanos_prestashop_get($shopUrl, $apiKey, 'customer_threads/' . $threadId));
+    $thread = $xml->customer_thread ?? null;
+    if (!$thread instanceof SimpleXMLElement) {
+        throw new RuntimeException('Demande SAV PrestaShop introuvable.');
+    }
+
+    $customers = [];
+    $orders = [];
+    $contacts = [];
+    return sav_public_thread($thread, $customers, $orders, $contacts, $shopUrl, $apiKey);
+}
+
+function sav_latest_remote_customer_message_id(string $shopUrl, string $apiKey): int
+{
+    $nodes = sav_fetch_prestashop_nodes($shopUrl, $apiKey, 'customer_messages', 'customer_messages', 'customer_message', [
+        'display' => '[id]',
+        'sort' => '[id_DESC]',
+        'limit' => '0,1',
+    ]);
+    if ($nodes === []) {
+        return 0;
+    }
+
+    return (int) oceanos_xml_text($nodes[0], 'id');
+}
+
+function sav_recent_remote_messages_for_notifications(string $shopUrl, string $apiKey, int $afterMessageId, int $limit = 100): array
+{
+    $filters = [
+        'display' => '[id,id_customer_thread,id_employee,message,private,read]',
+        'sort' => '[id_DESC]',
+        'limit' => '0,' . max(1, min(200, $limit)),
+    ];
+
+    $nodes = sav_fetch_prestashop_nodes($shopUrl, $apiKey, 'customer_messages', 'customer_messages', 'customer_message', $filters);
+    $messages = [];
+    foreach ($nodes as $node) {
+        $messageId = (int) oceanos_xml_text($node, 'id');
+        if ($messageId <= $afterMessageId) {
+            continue;
+        }
+        $message = sav_public_message($node);
+        if ((int) ($message['employeeId'] ?? 0) > 0 || !empty($message['private'])) {
+            continue;
+        }
+        $messages[] = $message;
+    }
+
+    usort($messages, static fn(array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
+    return $messages;
+}
+
+function sav_dispatch_new_message_notifications(PDO $pdo): void
+{
+    sav_ensure_schema($pdo);
+    [$shopUrl, $apiKey] = sav_prestashop_context($pdo);
+    $latestMessageId = sav_latest_remote_customer_message_id($shopUrl, $apiKey);
+    if ($latestMessageId <= 0) {
+        sav_save_notification_state($pdo, 0);
+        return;
+    }
+
+    $state = sav_notification_state($pdo);
+    if ($state === null) {
+        sav_save_notification_state($pdo, $latestMessageId);
+        return;
+    }
+
+    $lastMessageId = (int) ($state['last_customer_message_id'] ?? 0);
+    if ($latestMessageId <= $lastMessageId) {
+        sav_save_notification_state($pdo, $lastMessageId);
+        return;
+    }
+
+    $messages = sav_recent_remote_messages_for_notifications($shopUrl, $apiKey, $lastMessageId);
+    $userIds = sav_module_user_ids($pdo);
+    $threadCache = [];
+    foreach ($messages as $message) {
+        $messageId = (int) ($message['id'] ?? 0);
+        $threadId = (int) ($message['threadId'] ?? 0);
+        if ($messageId <= 0 || $threadId <= 0) {
+            continue;
+        }
+
+        if (!array_key_exists($threadId, $threadCache)) {
+            try {
+                $threadCache[$threadId] = sav_fetch_thread_summary_remote($shopUrl, $apiKey, $threadId);
+            } catch (Throwable) {
+                $threadCache[$threadId] = [
+                    'id' => $threadId,
+                    'customer' => ['name' => 'Client', 'email' => '', 'company' => ''],
+                    'email' => '',
+                    'orderReference' => '',
+                    'contactName' => 'SAV',
+                ];
+            }
+        }
+
+        $thread = $threadCache[$threadId];
+        $customer = is_array($thread['customer'] ?? null) ? $thread['customer'] : [];
+        $customerName = (string) ($customer['name'] ?? ($thread['email'] ?? 'Client'));
+        $bodyText = trim((string) ($message['message'] ?? ''));
+        $body = $customerName;
+        if ($bodyText !== '') {
+            $body .= ' - ' . mb_substr(preg_replace('/\s+/', ' ', $bodyText) ?? $bodyText, 0, 140);
+        }
+
+        foreach ($userIds as $userId) {
+            oceanos_create_notification(
+                $pdo,
+                $userId,
+                null,
+                'SAV',
+                'new_customer_message',
+                'warning',
+                'Nouveau message SAV',
+                $body,
+                '/SAV/?thread=' . $threadId,
+                [
+                    'messageId' => $messageId,
+                    'threadId' => $threadId,
+                    'customerName' => $customerName,
+                    'orderReference' => (string) ($thread['orderReference'] ?? ''),
+                ],
+                'sav_new_message_' . $messageId . '_' . $userId
+            );
+        }
+    }
+
+    sav_save_notification_state($pdo, $latestMessageId);
 }
 
 function sav_first_prestashop_resource_id(string $shopUrl, string $apiKey, string $resource, string $container, string $nodeName, array $query = []): int

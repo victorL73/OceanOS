@@ -43,3 +43,9 @@ Nautisign/storage/*
 !Nautisign/storage/.htaccess
 Backup/storage/*
 !Backup/storage/.htaccess
+!Backup/storage/backups/
+Backup/storage/backups/*
+!Backup/storage/backups/.htaccess
+!Backup/storage/tmp/
+Backup/storage/tmp/*
+!Backup/storage/tmp/.htaccess

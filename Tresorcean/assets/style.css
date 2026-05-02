@@ -468,6 +468,10 @@ canvas {
   grid-column: 1 / -1;
 }
 
+.orders-layout .orders-primary {
+  grid-column: 1 / -1;
+}
+
 .entries-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.7fr) minmax(0, 1.3fr);
