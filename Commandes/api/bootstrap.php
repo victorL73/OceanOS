@@ -685,8 +685,14 @@ function commandes_dashboard(PDO $pdo, array $user, array $query = []): array
     $total = 0.0;
     $paid = 0;
     $shipped = 0;
+    $excludedFromRevenue = 0;
     foreach ($orders as $order) {
-        $total += (float) ($order['totalPaid'] ?? 0);
+        $isExcludedFromRevenue = commandes_order_excluded_from_revenue($order);
+        if ($isExcludedFromRevenue) {
+            $excludedFromRevenue++;
+        } else {
+            $total += (float) ($order['totalPaid'] ?? 0);
+        }
         $state = is_array($order['currentState'] ?? null) ? $order['currentState'] : [];
         if (!empty($state['paid'])) {
             $paid++;
@@ -706,6 +712,7 @@ function commandes_dashboard(PDO $pdo, array $user, array $query = []): array
         'metrics' => [
             'orders' => count($orders),
             'totalPaid' => $total,
+            'excludedFromRevenue' => $excludedFromRevenue,
             'paid' => $paid,
             'shipped' => $shipped,
         ],
