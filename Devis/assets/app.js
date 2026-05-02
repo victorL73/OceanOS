@@ -28,6 +28,7 @@ const elements = {
   saveQuoteButton: $("save-quote-button"),
   deleteQuoteButton: $("delete-quote-button"),
   clientName: $("client-name"),
+  clientSuggestions: $("client-suggestions"),
   clientEmail: $("client-email"),
   quoteStatus: $("quote-status"),
   productSource: $("product-source"),
@@ -53,6 +54,7 @@ const state = {
   company: null,
   quotes: [],
   products: [],
+  crmClients: [],
   selectedId: "new",
   draft: null,
   b2bEnabled: false,
@@ -247,8 +249,10 @@ async function loadDashboard() {
   state.company = payload.company || null;
   state.quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
   state.products = Array.isArray(payload.products) ? payload.products : [];
-  if (payload.productError) {
-    showMessage(payload.productError, "error");
+  state.crmClients = Array.isArray(payload.crmClients) ? payload.crmClients : [];
+  const dashboardErrors = [payload.productError, payload.crmClientError].filter(Boolean);
+  if (dashboardErrors.length > 0) {
+    showMessage(dashboardErrors.join(" "), "error");
   }
   if (state.selectedId !== "new" && !state.quotes.some((quote) => Number(quote.id) === Number(state.selectedId))) {
     state.selectedId = "new";
@@ -403,6 +407,87 @@ function renderProductResults() {
   }).join("");
 }
 
+function crmClientName(client) {
+  return String(client?.name || client?.companyName || "").trim();
+}
+
+function crmClientEmail(client) {
+  return String(client?.email || client?.contactEmail || "").trim();
+}
+
+function crmClientSearchText(client) {
+  return normalizeText([
+    crmClientName(client),
+    crmClientEmail(client),
+    client?.contactName || "",
+    client?.phone || "",
+    client?.city || "",
+  ].join(" "));
+}
+
+function matchingCrmClients() {
+  const search = normalizeText(elements.clientName.value.trim());
+  if (search.length < 1) return [];
+
+  const starts = [];
+  const contains = [];
+  state.crmClients.forEach((client) => {
+    const name = normalizeText(crmClientName(client));
+    const email = normalizeText(crmClientEmail(client));
+    const contact = normalizeText(client?.contactName || "");
+    if (name.startsWith(search) || email.startsWith(search) || contact.startsWith(search)) {
+      starts.push(client);
+      return;
+    }
+    if (crmClientSearchText(client).includes(search)) {
+      contains.push(client);
+    }
+  });
+
+  return [...starts, ...contains].slice(0, 8);
+}
+
+function hideClientSuggestions() {
+  if (!elements.clientSuggestions) return;
+  elements.clientSuggestions.classList.add("hidden");
+  elements.clientSuggestions.innerHTML = "";
+}
+
+function renderClientSuggestions() {
+  if (!elements.clientSuggestions) return;
+  const results = matchingCrmClients();
+  elements.clientSuggestions.classList.toggle("hidden", results.length === 0);
+  if (results.length === 0) {
+    elements.clientSuggestions.innerHTML = "";
+    return;
+  }
+
+  elements.clientSuggestions.innerHTML = results.map((client) => {
+    const email = crmClientEmail(client);
+    const contact = String(client.contactName || "").trim();
+    const detail = email || contact || client.city || "Client CRM";
+    return `
+      <button class="client-suggestion" data-client-id="${Number(client.id || 0)}" type="button" role="option">
+        <strong>${escapeHtml(crmClientName(client) || "Client sans nom")}</strong>
+        <span>${escapeHtml(detail)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function selectCrmClient(clientId) {
+  const client = state.crmClients.find((item) => Number(item.id) === Number(clientId));
+  if (!client) return;
+  const draft = activeQuote();
+  draft.client_id = Number(client.id || 0) || "";
+  draft.client_name = crmClientName(client);
+  draft.client_email = crmClientEmail(client);
+  state.draft = draft;
+  elements.clientName.value = draft.client_name;
+  elements.clientEmail.value = draft.client_email;
+  hideClientSuggestions();
+}
+
 function feeTypeLabel(type) {
   return FEE_LABELS[type] || FEE_LABELS.other;
 }
@@ -422,9 +507,14 @@ function render() {
   renderBuilder();
 }
 
-function updateDraftFromInputs() {
+function updateDraftFromInputs(options = {}) {
+  const { preserveClientId = true } = options;
   const draft = activeQuote();
-  draft.client_name = elements.clientName.value.trim();
+  const clientName = elements.clientName.value.trim();
+  if (!preserveClientId && clientName !== (draft.client_name || "")) {
+    draft.client_id = "";
+  }
+  draft.client_name = clientName;
   draft.client_email = elements.clientEmail.value.trim();
   draft.status = elements.quoteStatus.value || "Brouillon";
   state.draft = draft;
@@ -611,6 +701,7 @@ async function logout() {
 }
 
 function selectQuote(id) {
+  hideClientSuggestions();
   state.selectedId = id === "new" ? "new" : Number(id);
   state.draft = state.selectedId === "new"
     ? blankQuote()
@@ -632,7 +723,25 @@ function installListeners() {
     if (!button) return;
     selectQuote(button.dataset.quoteId);
   });
-  elements.clientName.addEventListener("input", updateDraftFromInputs);
+  elements.clientName.addEventListener("input", () => {
+    updateDraftFromInputs({ preserveClientId: false });
+    renderClientSuggestions();
+  });
+  elements.clientName.addEventListener("focus", renderClientSuggestions);
+  elements.clientName.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideClientSuggestions();
+  });
+  elements.clientSuggestions.addEventListener("mousedown", (event) => {
+    const button = event.target.closest("[data-client-id]");
+    if (!button) return;
+    event.preventDefault();
+    selectCrmClient(button.dataset.clientId);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".client-autocomplete-field")) {
+      hideClientSuggestions();
+    }
+  });
   elements.clientEmail.addEventListener("input", updateDraftFromInputs);
   elements.quoteStatus.addEventListener("change", updateDraftFromInputs);
   elements.b2bToggle.addEventListener("click", toggleB2bMode);

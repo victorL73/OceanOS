@@ -152,6 +152,9 @@ function invocean_ensure_schema(PDO $pdo): void
             webservice_key_cipher TEXT NULL,
             webservice_key_hint VARCHAR(24) NULL,
             pdf_url_template TEXT NULL,
+            nautisign_api_url TEXT NULL,
+            nautisign_api_token_cipher TEXT NULL,
+            nautisign_api_token_hint VARCHAR(24) NULL,
             sync_window_days INT UNSIGNED NOT NULL DEFAULT 30,
             seller_name VARCHAR(190) NULL,
             seller_vat_number VARCHAR(64) NULL,
@@ -181,7 +184,7 @@ function invocean_ensure_schema(PDO $pdo): void
             total_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
             total_tax_incl DECIMAL(14,6) NOT NULL DEFAULT 0,
             status ENUM('received', 'ready', 'sent', 'accepted', 'rejected', 'archived') NOT NULL DEFAULT 'received',
-            channel ENUM('prestashop', 'manual', 'pdp', 'chorus') NOT NULL DEFAULT 'prestashop',
+            channel ENUM('prestashop', 'manual', 'nautisign', 'pdp', 'chorus') NOT NULL DEFAULT 'prestashop',
             e_invoice_format ENUM('pdf', 'facturx', 'ubl', 'cii', 'unknown') NOT NULL DEFAULT 'pdf',
             pdf_url TEXT NULL,
             pdf_file_path VARCHAR(500) NULL,
@@ -220,7 +223,37 @@ function invocean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS invocean_signed_quotes (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            source ENUM('nautisign', 'manual') NOT NULL DEFAULT 'nautisign',
+            external_id VARCHAR(120) NOT NULL,
+            quote_number VARCHAR(80) NULL,
+            quote_date DATE NULL,
+            signed_at DATETIME NULL,
+            customer_name VARCHAR(190) NULL,
+            customer_email VARCHAR(190) NULL,
+            customer_company VARCHAR(190) NULL,
+            vat_number VARCHAR(64) NULL,
+            currency_iso VARCHAR(8) NULL,
+            total_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            total_tax_incl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            status ENUM('signed', 'converted', 'ignored') NOT NULL DEFAULT 'signed',
+            raw_json LONGTEXT NULL,
+            invoice_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_invocean_quote_source_external (source, external_id),
+            KEY idx_invocean_quote_status (status),
+            KEY idx_invocean_quote_signed_at (signed_at),
+            CONSTRAINT fk_invocean_quote_invoice FOREIGN KEY (invoice_id) REFERENCES invocean_invoices(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     invocean_ensure_column($pdo, 'invocean_settings', 'pdf_url_template', "ALTER TABLE invocean_settings ADD COLUMN pdf_url_template TEXT NULL AFTER webservice_key_hint");
+    invocean_ensure_column($pdo, 'invocean_settings', 'nautisign_api_url', "ALTER TABLE invocean_settings ADD COLUMN nautisign_api_url TEXT NULL AFTER pdf_url_template");
+    invocean_ensure_column($pdo, 'invocean_settings', 'nautisign_api_token_cipher', "ALTER TABLE invocean_settings ADD COLUMN nautisign_api_token_cipher TEXT NULL AFTER nautisign_api_url");
+    invocean_ensure_column($pdo, 'invocean_settings', 'nautisign_api_token_hint', "ALTER TABLE invocean_settings ADD COLUMN nautisign_api_token_hint VARCHAR(24) NULL AFTER nautisign_api_token_cipher");
     invocean_ensure_column($pdo, 'invocean_settings', 'sync_window_days', "ALTER TABLE invocean_settings ADD COLUMN sync_window_days INT UNSIGNED NOT NULL DEFAULT 30 AFTER pdf_url_template");
     invocean_ensure_column($pdo, 'invocean_settings', 'seller_name', "ALTER TABLE invocean_settings ADD COLUMN seller_name VARCHAR(190) NULL AFTER sync_window_days");
     invocean_ensure_column($pdo, 'invocean_settings', 'seller_vat_number', "ALTER TABLE invocean_settings ADD COLUMN seller_vat_number VARCHAR(64) NULL AFTER seller_name");
@@ -237,6 +270,7 @@ function invocean_ensure_schema(PDO $pdo): void
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_file_path', "ALTER TABLE invocean_invoices ADD COLUMN facturx_file_path VARCHAR(500) NULL AFTER xml_payload");
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_profile', "ALTER TABLE invocean_invoices ADD COLUMN facturx_profile VARCHAR(40) NULL AFTER facturx_file_path");
     invocean_ensure_column($pdo, 'invocean_invoices', 'facturx_generated_at', "ALTER TABLE invocean_invoices ADD COLUMN facturx_generated_at DATETIME NULL AFTER facturx_profile");
+    invocean_ensure_invoice_channel_values($pdo);
 
     $pdo->exec('INSERT IGNORE INTO invocean_settings (id, sync_window_days) VALUES (1, 30)');
     oceanos_ensure_schema($pdo);
@@ -258,6 +292,22 @@ function invocean_ensure_column(PDO $pdo, string $table, string $column, string 
 
     if ((int) $statement->fetchColumn() === 0) {
         $pdo->exec($alterSql);
+    }
+}
+
+function invocean_ensure_invoice_channel_values(PDO $pdo): void
+{
+    $config = invocean_config();
+    $statement = $pdo->prepare(
+        'SELECT COLUMN_TYPE
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = :db_name AND TABLE_NAME = "invocean_invoices" AND COLUMN_NAME = "channel"
+         LIMIT 1'
+    );
+    $statement->execute(['db_name' => $config['db_name']]);
+    $columnType = (string) ($statement->fetchColumn() ?: '');
+    if ($columnType !== '' && !str_contains($columnType, "'nautisign'")) {
+        $pdo->exec("ALTER TABLE invocean_invoices MODIFY channel ENUM('prestashop', 'manual', 'nautisign', 'pdp', 'chorus') NOT NULL DEFAULT 'prestashop'");
     }
 }
 
@@ -719,6 +769,7 @@ function invocean_get_settings(PDO $pdo, bool $includeSecret = false): array
 
     $prestashopSettings = oceanos_prestashop_private_settings($pdo);
     $secret = $includeSecret ? (string) ($prestashopSettings['webserviceKey'] ?? '') : '';
+    $nautisignToken = invocean_decrypt_secret((string) ($row['nautisign_api_token_cipher'] ?? ''));
     $sellerSettings = invocean_company_seller_settings($pdo, $row);
 
     return array_merge([
@@ -727,6 +778,10 @@ function invocean_get_settings(PDO $pdo, bool $includeSecret = false): array
         'webserviceKeyHint' => (string) ($prestashopSettings['webserviceKeyHint'] ?? ''),
         'hasWebserviceKey' => (bool) ($prestashopSettings['hasWebserviceKey'] ?? false),
         'pdfUrlTemplate' => (string) ($row['pdf_url_template'] ?? ''),
+        'nautisignApiUrl' => (string) ($row['nautisign_api_url'] ?? ''),
+        'nautisignApiToken' => $includeSecret ? $nautisignToken : '',
+        'nautisignApiTokenHint' => (string) ($row['nautisign_api_token_hint'] ?? ''),
+        'hasNautisignApiToken' => $nautisignToken !== '',
         'syncWindowDays' => (int) ($prestashopSettings['syncWindowDays'] ?? 30),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
         'managedBy' => 'OceanOS',
@@ -736,6 +791,7 @@ function invocean_get_settings(PDO $pdo, bool $includeSecret = false): array
 function invocean_public_settings(array $settings, bool $canManage): array
 {
     unset($settings['webserviceKey']);
+    unset($settings['nautisignApiToken']);
     $settings['canManage'] = $canManage;
 
     return $settings;
@@ -771,6 +827,7 @@ function invocean_save_settings(PDO $pdo, array $input): array
 {
     $shopUrl = invocean_normalize_shop_url((string) ($input['shopUrl'] ?? ''));
     $pdfUrlTemplate = trim((string) ($input['pdfUrlTemplate'] ?? ''));
+    $nautisignApiUrl = rtrim(trim((string) ($input['nautisignApiUrl'] ?? '')), '/');
     $syncWindowDays = max(1, min(365, (int) ($input['syncWindowDays'] ?? 30)));
     $sellerCountryIso = strtoupper(trim((string) ($input['sellerCountryIso'] ?? 'FR')));
     if (!preg_match('/^[A-Z]{2}$/', $sellerCountryIso)) {
@@ -778,12 +835,17 @@ function invocean_save_settings(PDO $pdo, array $input): array
     }
     $webserviceKey = array_key_exists('webserviceKey', $input) ? trim((string) $input['webserviceKey']) : null;
     $clearKey = !empty($input['clearWebserviceKey']);
+    $nautisignApiToken = array_key_exists('nautisignApiToken', $input) ? trim((string) $input['nautisignApiToken']) : null;
+    $clearNautisignApiToken = !empty($input['clearNautisignApiToken']);
 
     if ($shopUrl !== '' && !preg_match('~^https?://~i', $shopUrl)) {
         throw new InvalidArgumentException('URL PrestaShop invalide.');
     }
     if ($pdfUrlTemplate !== '' && !preg_match('~^https?://~i', $pdfUrlTemplate)) {
         throw new InvalidArgumentException('Modele de lien PDF invalide.');
+    }
+    if ($nautisignApiUrl !== '' && !preg_match('~^https?://~i', $nautisignApiUrl)) {
+        throw new InvalidArgumentException('URL API Nautisign invalide.');
     }
 
     $sharedPrestashopInput = [
@@ -799,6 +861,7 @@ function invocean_save_settings(PDO $pdo, array $input): array
     $fields = [
         'shop_url = :shop_url',
         'pdf_url_template = :pdf_url_template',
+        'nautisign_api_url = :nautisign_api_url',
         'sync_window_days = :sync_window_days',
         'seller_vat_number = :seller_vat_number',
         'seller_country_iso = :seller_country_iso',
@@ -806,6 +869,7 @@ function invocean_save_settings(PDO $pdo, array $input): array
     $params = [
         'shop_url' => $shopUrl !== '' ? rtrim($shopUrl, '/') : null,
         'pdf_url_template' => $pdfUrlTemplate !== '' ? $pdfUrlTemplate : null,
+        'nautisign_api_url' => $nautisignApiUrl !== '' ? $nautisignApiUrl : null,
         'sync_window_days' => $syncWindowDays,
         'seller_vat_number' => strtoupper(str_replace(' ', '', trim((string) ($input['sellerVatNumber'] ?? '')))) ?: null,
         'seller_country_iso' => $sellerCountryIso,
@@ -819,6 +883,16 @@ function invocean_save_settings(PDO $pdo, array $input): array
     } elseif ($clearKey) {
         $fields[] = 'webservice_key_cipher = NULL';
         $fields[] = 'webservice_key_hint = NULL';
+    }
+
+    if ($nautisignApiToken !== null && $nautisignApiToken !== '') {
+        $fields[] = 'nautisign_api_token_cipher = :nautisign_api_token_cipher';
+        $fields[] = 'nautisign_api_token_hint = :nautisign_api_token_hint';
+        $params['nautisign_api_token_cipher'] = invocean_encrypt_secret($nautisignApiToken);
+        $params['nautisign_api_token_hint'] = invocean_key_hint($nautisignApiToken);
+    } elseif ($clearNautisignApiToken) {
+        $fields[] = 'nautisign_api_token_cipher = NULL';
+        $fields[] = 'nautisign_api_token_hint = NULL';
     }
 
     $statement = $pdo->prepare('UPDATE invocean_settings SET ' . implode(', ', $fields) . ' WHERE id = 1');
@@ -1581,7 +1655,7 @@ function invocean_generate_facturx_xml(array $row, array $settings): string
         $buyerName = trim((string) ($row['customer_name'] ?? ''));
     }
     if ($buyerName === '') {
-        $buyerName = trim((string) ($row['customer_email'] ?? 'Client PrestaShop'));
+        $buyerName = trim((string) ($row['customer_email'] ?? 'Client ' . (((string) ($row['channel'] ?? 'prestashop')) === 'nautisign' ? 'Nautisign' : 'PrestaShop')));
     }
 
     $buyerStreet = trim(implode(' ', array_filter([
@@ -1969,6 +2043,7 @@ function invocean_invoice_pdf_content_stream(array $row, array $settings, bool $
 {
     $raw = invocean_invoice_raw($row);
     $address = is_array($raw['address'] ?? null) ? $raw['address'] : [];
+    $sourceLabel = ((string) ($row['channel'] ?? 'prestashop')) === 'nautisign' ? 'Nautisign' : 'PrestaShop';
     $seller = trim((string) ($settings['sellerName'] ?? ''));
     if ($seller === '') {
         $seller = 'Renovboat';
@@ -1986,7 +2061,7 @@ function invocean_invoice_pdf_content_stream(array $row, array $settings, bool $
 
     $buyer = trim((string) ($row['customer_company'] ?? '')) ?: trim((string) ($row['customer_name'] ?? ''));
     if ($buyer === '') {
-        $buyer = trim((string) ($row['customer_email'] ?? 'Client PrestaShop'));
+        $buyer = trim((string) ($row['customer_email'] ?? 'Client ' . $sourceLabel));
     }
     $buyerLines = array_values(array_filter([
         $buyer,
@@ -2063,7 +2138,7 @@ function invocean_invoice_pdf_content_stream(array $row, array $settings, bool $
     $content .= invocean_pdf_text(470, 123, invocean_pdf_money($taxAmount, $currency), 10, 'F2');
     $content .= invocean_pdf_text(360, 100, 'Total TTC', 12, 'F2');
     $content .= invocean_pdf_text(470, 100, invocean_pdf_money($row['total_tax_incl'] ?? 0, $currency), 12, 'F2');
-    $content .= invocean_pdf_text(40, 90, $facturx ? 'PDF hybride: fichier factur-x.xml embarque.' : 'PDF genere par Invocean depuis les donnees PrestaShop synchronisees.', 8);
+    $content .= invocean_pdf_text(40, 90, $facturx ? 'PDF hybride: fichier factur-x.xml embarque.' : 'PDF genere par Invocean depuis les donnees ' . $sourceLabel . '.', 8);
 
     return $content;
 }
@@ -2128,6 +2203,7 @@ function invocean_fpdf_quantity(float|int|string $value): string
 
 function invocean_fpdf_draw_invoice_header($pdf, array $row, array $settings, string $invoiceNumber): void
 {
+    $sourceLabel = ((string) ($row['channel'] ?? 'prestashop')) === 'nautisign' ? 'NAUTISIGN' : 'PRESTASHOP';
     $logo = invocean_logo_path();
     if ($logo !== '') {
         $pdf->Image($logo, 14, 11, 78);
@@ -2143,7 +2219,7 @@ function invocean_fpdf_draw_invoice_header($pdf, array $row, array $settings, st
     invocean_fpdf_write_cell($pdf, 77, 10, 'FACTURE', 0, 2, 'R');
     $pdf->SetTextColor(249, 86, 20);
     $pdf->SetFont('Arial', 'B', 10);
-    invocean_fpdf_write_cell($pdf, 77, 6, 'PRESTASHOP', 0, 2, 'R');
+    invocean_fpdf_write_cell($pdf, 77, 6, $sourceLabel, 0, 2, 'R');
 
     $pdf->SetTextColor(84, 100, 106);
     $pdf->SetFont('Arial', '', 8);
@@ -2204,6 +2280,7 @@ function invocean_generate_plain_invoice_pdf_fpdf(array $row, array $settings): 
 {
     $raw = invocean_invoice_raw($row);
     $address = is_array($raw['address'] ?? null) ? $raw['address'] : [];
+    $sourceLabel = ((string) ($row['channel'] ?? 'prestashop')) === 'nautisign' ? 'Nautisign' : 'PrestaShop';
     $seller = trim((string) ($settings['sellerName'] ?? '')) ?: 'RenovBoat';
     $sellerLines = array_values(array_filter([
         $seller,
@@ -2218,7 +2295,7 @@ function invocean_generate_plain_invoice_pdf_fpdf(array $row, array $settings): 
 
     $buyer = trim((string) ($row['customer_company'] ?? '')) ?: trim((string) ($row['customer_name'] ?? ''));
     if ($buyer === '') {
-        $buyer = trim((string) ($row['customer_email'] ?? 'Client PrestaShop'));
+        $buyer = trim((string) ($row['customer_email'] ?? 'Client ' . $sourceLabel));
     }
     $buyerLines = array_values(array_filter([
         $buyer,
@@ -2302,7 +2379,7 @@ function invocean_generate_plain_invoice_pdf_fpdf(array $row, array $settings): 
     $pdf->SetTextColor(74, 91, 97);
     $pdf->SetFont('Arial', '', 8);
     $pdf->SetXY(15, $totalY + 2);
-    invocean_fpdf_write_multicell($pdf, 88, 4.5, 'Facture recreee localement depuis les donnees PrestaShop synchronisees par Invocean.', 0, 'L');
+    invocean_fpdf_write_multicell($pdf, 88, 4.5, 'Facture recreee localement depuis les donnees ' . $sourceLabel . ' synchronisees par Invocean.', 0, 'L');
 
     $pdf->SetFillColor(243, 248, 249);
     $pdf->SetDrawColor(218, 229, 231);
@@ -2327,7 +2404,7 @@ function invocean_generate_plain_invoice_pdf_fpdf(array $row, array $settings): 
     $pdf->Line(15, $pdf->GetY() - 2, 195, $pdf->GetY() - 2);
     $pdf->SetTextColor(102, 115, 120);
     $pdf->SetFont('Arial', '', 7.5);
-    invocean_fpdf_write_cell($pdf, 180, 5, 'RenovBoat - Reparation nautique - Donnees source API PrestaShop', 0, 0, 'C');
+    invocean_fpdf_write_cell($pdf, 180, 5, 'RenovBoat - Reparation nautique - Donnees source ' . $sourceLabel, 0, 0, 'C');
 
     return $pdf->Output('S');
 }
@@ -2706,6 +2783,824 @@ function invocean_test_prestashop(PDO $pdo, array $input = []): array
         'message' => 'Connexion PrestaShop valide.',
         'sampleInvoices' => count($nodes),
     ];
+}
+
+function invocean_quote_value(array $data, array $paths): mixed
+{
+    foreach ($paths as $path) {
+        $current = $data;
+        foreach (explode('.', $path) as $segment) {
+            if (!is_array($current) || !array_key_exists($segment, $current)) {
+                $current = null;
+                break;
+            }
+            $current = $current[$segment];
+        }
+        if ($current !== null && (!is_string($current) || trim($current) !== '')) {
+            return $current;
+        }
+    }
+
+    return null;
+}
+
+function invocean_quote_text(mixed $value): string
+{
+    if (is_bool($value)) {
+        return $value ? '1' : '0';
+    }
+    if (is_scalar($value)) {
+        return trim((string) $value);
+    }
+
+    return '';
+}
+
+function invocean_quote_number(mixed $value): float
+{
+    if (is_int($value) || is_float($value)) {
+        return (float) $value;
+    }
+
+    $normalized = str_replace(["\xc2\xa0", ' '], '', invocean_quote_text($value));
+    $normalized = str_replace(',', '.', $normalized);
+
+    return is_numeric($normalized) ? (float) $normalized : 0.0;
+}
+
+function invocean_quote_date_value(mixed $value): ?string
+{
+    $value = invocean_quote_text($value);
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        return (new DateTimeImmutable($value))->format('Y-m-d');
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+function invocean_quote_datetime_value(mixed $value): ?string
+{
+    $value = invocean_quote_text($value);
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        return (new DateTimeImmutable($value))->format('Y-m-d H:i:s');
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+function invocean_quote_array_value(array $data, array $paths): array
+{
+    $value = invocean_quote_value($data, $paths);
+    if (is_array($value)) {
+        return $value;
+    }
+
+    return [];
+}
+
+function invocean_quote_list_value(array $data, array $paths): array
+{
+    $value = invocean_quote_value($data, $paths);
+    if (!is_array($value)) {
+        return [];
+    }
+    if (array_is_list($value)) {
+        return $value;
+    }
+    if (isset($value['0'])) {
+        return array_values($value);
+    }
+    if (isset($value['line']) && is_array($value['line'])) {
+        return array_is_list($value['line']) ? $value['line'] : [$value['line']];
+    }
+
+    return [$value];
+}
+
+function invocean_nautisign_status_is_signed(array $quote): bool
+{
+    $explicit = invocean_quote_value($quote, ['signed', 'is_signed', 'isSigned', 'signature.signed']);
+    if (is_bool($explicit)) {
+        return $explicit;
+    }
+    $explicitText = strtolower(invocean_quote_text($explicit));
+    if (in_array($explicitText, ['1', 'true', 'yes', 'oui', 'signed', 'signe'], true)) {
+        return true;
+    }
+    if (in_array($explicitText, ['0', 'false', 'no', 'non'], true)) {
+        return false;
+    }
+
+    $status = strtolower(invocean_quote_text(invocean_quote_value($quote, [
+        'status',
+        'state',
+        'document_status',
+        'signature.status',
+        'workflow.status',
+    ])));
+    $status = strtr($status, [
+        'é' => 'e',
+        'è' => 'e',
+        'ê' => 'e',
+        'à' => 'a',
+        'ç' => 'c',
+    ]);
+    if ($status === '') {
+        return true;
+    }
+    foreach (['draft', 'brouillon', 'cancel', 'annul', 'reject', 'refus', 'expire'] as $blocked) {
+        if (str_contains($status, $blocked)) {
+            return false;
+        }
+    }
+    foreach (['signed', 'signe', 'accepted', 'accepte', 'valid', 'complete'] as $accepted) {
+        if (str_contains($status, $accepted)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function invocean_quote_line_items(array $quote): array
+{
+    $rows = invocean_quote_list_value($quote, [
+        'lines',
+        'items',
+        'products',
+        'services',
+        'details',
+        'document.lines',
+        'quote.lines',
+        'devis.lines',
+    ]);
+    $items = [];
+
+    foreach ($rows as $index => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $quantity = invocean_quote_number(invocean_quote_value($row, [
+            'quantity',
+            'qty',
+            'product_quantity',
+            'qte',
+        ]));
+        if ($quantity <= 0) {
+            $quantity = 1.0;
+        }
+
+        $totalExcl = invocean_quote_number(invocean_quote_value($row, [
+            'total_tax_excl',
+            'total_excl_tax',
+            'total_ht',
+            'totalExcl',
+            'amount_excl_tax',
+            'line_total_ht',
+            'net_amount',
+        ]));
+        $totalIncl = invocean_quote_number(invocean_quote_value($row, [
+            'total_tax_incl',
+            'total_incl_tax',
+            'total_ttc',
+            'totalIncl',
+            'amount_incl_tax',
+            'line_total_ttc',
+            'gross_amount',
+        ]));
+        $unitExcl = invocean_quote_number(invocean_quote_value($row, [
+            'unit_price_tax_excl',
+            'unit_excl_tax',
+            'unit_ht',
+            'unitExcl',
+            'price_ht',
+            'unit_price',
+            'price',
+        ]));
+        $unitIncl = invocean_quote_number(invocean_quote_value($row, [
+            'unit_price_tax_incl',
+            'unit_incl_tax',
+            'unit_ttc',
+            'unitIncl',
+            'price_ttc',
+        ]));
+        if ($unitExcl <= 0 && abs($totalExcl) > 0.004) {
+            $unitExcl = $totalExcl / $quantity;
+        }
+        if ($unitIncl <= 0 && abs($totalIncl) > 0.004) {
+            $unitIncl = $totalIncl / $quantity;
+        }
+        if (abs($totalExcl) <= 0.004 && abs($unitExcl) > 0.004) {
+            $totalExcl = $unitExcl * $quantity;
+        }
+        if (abs($totalIncl) <= 0.004) {
+            $totalIncl = (abs($unitIncl) > 0.004 ? $unitIncl : $unitExcl) * $quantity;
+        }
+        if (abs($unitIncl) <= 0.004) {
+            $unitIncl = $totalIncl / $quantity;
+        }
+
+        $label = invocean_quote_text(invocean_quote_value($row, [
+            'name',
+            'label',
+            'description',
+            'product_name',
+            'title',
+        ]));
+        if ($label === '') {
+            $label = 'Ligne ' . ($index + 1);
+        }
+
+        $items[] = [
+            'label' => $label,
+            'reference' => invocean_quote_text(invocean_quote_value($row, ['reference', 'sku', 'product_reference', 'code'])),
+            'quantity' => $quantity,
+            'unitExcl' => $unitExcl,
+            'unitIncl' => $unitIncl,
+            'totalExcl' => $totalExcl,
+            'totalIncl' => $totalIncl,
+        ];
+    }
+
+    return $items;
+}
+
+function invocean_normalize_quote_payload(array $payload, string $source = 'nautisign'): array
+{
+    if ($source === 'nautisign' && !invocean_nautisign_status_is_signed($payload)) {
+        throw new InvalidArgumentException('Ce devis Nautisign n est pas signe.');
+    }
+
+    $customer = invocean_quote_array_value($payload, ['customer', 'client', 'buyer', 'recipient', 'signer']);
+    $address = invocean_quote_array_value($customer, ['address', 'billing_address']);
+    if ($address === []) {
+        $address = invocean_quote_array_value($payload, ['address', 'billing_address', 'customer.address', 'client.address']);
+    }
+
+    $externalId = invocean_quote_text(invocean_quote_value($payload, [
+        'id',
+        'uuid',
+        'external_id',
+        'quote_id',
+        'devis_id',
+        'document_id',
+        'reference',
+        'number',
+    ]));
+    if ($externalId === '') {
+        $externalId = hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    $quoteNumber = invocean_quote_text(invocean_quote_value($payload, [
+        'quote_number',
+        'devis_number',
+        'number',
+        'reference',
+        'document_number',
+    ]));
+    $quoteDate = invocean_quote_date_value(invocean_quote_value($payload, [
+        'quote_date',
+        'devis_date',
+        'date',
+        'created_at',
+        'createdAt',
+        'document_date',
+    ]));
+    $signedAt = invocean_quote_datetime_value(invocean_quote_value($payload, [
+        'signed_at',
+        'signedAt',
+        'signature_date',
+        'signature.signed_at',
+        'completed_at',
+        'validated_at',
+    ]));
+
+    $company = invocean_quote_text(invocean_quote_value($customer, ['company', 'company_name', 'organization', 'societe']));
+    if ($company === '') {
+        $company = invocean_quote_text(invocean_quote_value($payload, ['customer_company', 'client_company', 'company']));
+    }
+    $name = invocean_quote_text(invocean_quote_value($customer, ['name', 'full_name', 'display_name']));
+    if ($name === '') {
+        $name = trim(implode(' ', array_filter([
+            invocean_quote_text(invocean_quote_value($customer, ['firstname', 'first_name'])),
+            invocean_quote_text(invocean_quote_value($customer, ['lastname', 'last_name'])),
+        ])));
+    }
+    if ($name === '') {
+        $name = invocean_quote_text(invocean_quote_value($payload, ['customer_name', 'client_name', 'name']));
+    }
+    $email = invocean_quote_text(invocean_quote_value($customer, ['email', 'mail']));
+    if ($email === '') {
+        $email = invocean_quote_text(invocean_quote_value($payload, ['customer_email', 'client_email', 'email']));
+    }
+
+    $lines = invocean_quote_line_items($payload);
+    $totalExcl = invocean_quote_number(invocean_quote_value($payload, [
+        'total_tax_excl',
+        'total_excl_tax',
+        'total_ht',
+        'amount_excl_tax',
+        'subtotal',
+    ]));
+    $totalIncl = invocean_quote_number(invocean_quote_value($payload, [
+        'total_tax_incl',
+        'total_incl_tax',
+        'total_ttc',
+        'amount_incl_tax',
+        'total',
+    ]));
+    if (abs($totalExcl) <= 0.004 && $lines !== []) {
+        $totalExcl = array_sum(array_map(static fn(array $line): float => (float) $line['totalExcl'], $lines));
+    }
+    if (abs($totalIncl) <= 0.004 && $lines !== []) {
+        $totalIncl = array_sum(array_map(static fn(array $line): float => (float) $line['totalIncl'], $lines));
+    }
+    if (abs($totalExcl) <= 0.004 && $lines === [] && abs($totalIncl) > 0.004) {
+        $totalExcl = $totalIncl;
+    }
+    if (abs($totalIncl) <= 0.004) {
+        $totalIncl = $totalExcl;
+    }
+
+    $currency = strtoupper(invocean_quote_text(invocean_quote_value($payload, [
+        'currency_iso',
+        'currency',
+        'currency.code',
+        'currency.iso_code',
+    ])));
+    if (!preg_match('/^[A-Z]{3}$/', $currency)) {
+        $currency = 'EUR';
+    }
+
+    $raw = $payload;
+    $raw['_invocean'] = [
+        'source' => $source,
+        'lines' => $lines,
+        'address' => $address,
+    ];
+
+    return [
+        'source' => $source,
+        'externalId' => mb_substr($externalId, 0, 120),
+        'quoteNumber' => mb_substr($quoteNumber, 0, 80),
+        'quoteDate' => $quoteDate,
+        'signedAt' => $signedAt,
+        'customerName' => mb_substr($name, 0, 190),
+        'customerEmail' => mb_substr($email, 0, 190),
+        'customerCompany' => mb_substr($company, 0, 190),
+        'vatNumber' => mb_substr(strtoupper(str_replace(' ', '', invocean_quote_text(invocean_quote_value($payload, [
+            'vat_number',
+            'customer.vat_number',
+            'client.vat_number',
+            'buyer.vat_number',
+            'tva_intracommunautaire',
+        ])))), 0, 64),
+        'currencyIso' => $currency,
+        'totalTaxExcl' => number_format($totalExcl, 6, '.', ''),
+        'totalTaxIncl' => number_format($totalIncl, 6, '.', ''),
+        'status' => 'signed',
+        'raw' => $raw,
+        'lines' => $lines,
+    ];
+}
+
+function invocean_upsert_signed_quote(PDO $pdo, array $quote): string
+{
+    $existingStatement = $pdo->prepare(
+        'SELECT id, raw_json
+         FROM invocean_signed_quotes
+         WHERE source = :source AND external_id = :external_id
+         LIMIT 1'
+    );
+    $existingStatement->execute([
+        'source' => $quote['source'],
+        'external_id' => $quote['externalId'],
+    ]);
+    $existing = $existingStatement->fetch();
+    $rawJson = json_encode($quote['raw'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $statement = $pdo->prepare(
+        "INSERT INTO invocean_signed_quotes (
+            source, external_id, quote_number, quote_date, signed_at,
+            customer_name, customer_email, customer_company, vat_number, currency_iso,
+            total_tax_excl, total_tax_incl, status, raw_json
+         ) VALUES (
+            :source, :external_id, :quote_number, :quote_date, :signed_at,
+            :customer_name, :customer_email, :customer_company, :vat_number, :currency_iso,
+            :total_tax_excl, :total_tax_incl, :status, :raw_json
+         )
+         ON DUPLICATE KEY UPDATE
+            quote_number = VALUES(quote_number),
+            quote_date = VALUES(quote_date),
+            signed_at = VALUES(signed_at),
+            customer_name = VALUES(customer_name),
+            customer_email = VALUES(customer_email),
+            customer_company = VALUES(customer_company),
+            vat_number = VALUES(vat_number),
+            currency_iso = VALUES(currency_iso),
+            total_tax_excl = VALUES(total_tax_excl),
+            total_tax_incl = VALUES(total_tax_incl),
+            status = IF(status = 'converted', status, VALUES(status)),
+            raw_json = VALUES(raw_json)"
+    );
+    $statement->execute([
+        'source' => $quote['source'],
+        'external_id' => $quote['externalId'],
+        'quote_number' => $quote['quoteNumber'] !== '' ? $quote['quoteNumber'] : null,
+        'quote_date' => $quote['quoteDate'],
+        'signed_at' => $quote['signedAt'],
+        'customer_name' => $quote['customerName'] !== '' ? $quote['customerName'] : null,
+        'customer_email' => $quote['customerEmail'] !== '' ? $quote['customerEmail'] : null,
+        'customer_company' => $quote['customerCompany'] !== '' ? $quote['customerCompany'] : null,
+        'vat_number' => $quote['vatNumber'] !== '' ? $quote['vatNumber'] : null,
+        'currency_iso' => $quote['currencyIso'],
+        'total_tax_excl' => $quote['totalTaxExcl'],
+        'total_tax_incl' => $quote['totalTaxIncl'],
+        'status' => $quote['status'],
+        'raw_json' => $rawJson,
+    ]);
+
+    if (!is_array($existing)) {
+        return 'created';
+    }
+
+    return hash_equals((string) ($existing['raw_json'] ?? ''), (string) $rawJson) ? 'unchanged' : 'updated';
+}
+
+function invocean_require_nautisign_settings(array $settings): array
+{
+    $url = rtrim(trim((string) ($settings['nautisignApiUrl'] ?? '')), '/');
+    $token = trim((string) ($settings['nautisignApiToken'] ?? ''));
+    if ($url === '') {
+        throw new InvalidArgumentException('Configurez l URL API Nautisign avant de recuperer les devis signes.');
+    }
+    if (!preg_match('~^https?://~i', $url)) {
+        throw new InvalidArgumentException('URL API Nautisign invalide.');
+    }
+
+    return [$url, $token];
+}
+
+function invocean_http_get_json(string $url, string $token = ''): array
+{
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('L extension PHP cURL est requise pour appeler Nautisign.');
+    }
+
+    $headers = ['Accept: application/json'];
+    if ($token !== '') {
+        $headers[] = 'Authorization: Bearer ' . $token;
+        $headers[] = 'X-API-Key: ' . $token;
+    }
+
+    $curl = curl_init($url);
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 4,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 45,
+        CURLOPT_HTTPHEADER => $headers,
+    ];
+    $caBundle = invocean_ca_bundle_path();
+    if ($caBundle !== '') {
+        $options[CURLOPT_CAINFO] = $caBundle;
+    }
+    curl_setopt_array($curl, $options);
+
+    $body = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($curl);
+    curl_close($curl);
+
+    if ($body === false) {
+        throw new RuntimeException($error !== '' ? $error : 'Nautisign n a retourne aucune donnee.');
+    }
+    if ($status >= 400) {
+        throw new RuntimeException('Nautisign a refuse la requete HTTP ' . $status . '.');
+    }
+
+    $decoded = json_decode((string) $body, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('Reponse JSON Nautisign invalide.');
+    }
+
+    return $decoded;
+}
+
+function invocean_extract_quote_payloads(array $decoded): array
+{
+    if (array_is_list($decoded)) {
+        return $decoded;
+    }
+
+    foreach (['quotes', 'devis', 'documents', 'data', 'items', 'results'] as $key) {
+        if (isset($decoded[$key]) && is_array($decoded[$key])) {
+            $value = $decoded[$key];
+            if (array_is_list($value)) {
+                return $value;
+            }
+            foreach (['quotes', 'devis', 'documents', 'items', 'results'] as $nestedKey) {
+                if (isset($value[$nestedKey]) && is_array($value[$nestedKey])) {
+                    return array_is_list($value[$nestedKey]) ? $value[$nestedKey] : array_values($value[$nestedKey]);
+                }
+            }
+            foreach (['id', 'uuid', 'quote_id', 'devis_id', 'number', 'quote_number', 'status', 'signed', 'lines'] as $quoteKey) {
+                if (array_key_exists($quoteKey, $value)) {
+                    return [$value];
+                }
+            }
+            return array_values($value);
+        }
+    }
+
+    return [$decoded];
+}
+
+function invocean_sync_nautisign_quotes(PDO $pdo): array
+{
+    $settings = invocean_get_settings($pdo, true);
+    [$url, $token] = invocean_require_nautisign_settings($settings);
+    $decoded = invocean_http_get_json($url, $token);
+    $payloads = invocean_extract_quote_payloads($decoded);
+    $seen = 0;
+    $created = 0;
+    $updated = 0;
+    $ignored = 0;
+
+    foreach ($payloads as $payload) {
+        if (!is_array($payload)) {
+            $ignored++;
+            continue;
+        }
+        try {
+            $quote = invocean_normalize_quote_payload($payload, 'nautisign');
+            $seen++;
+            $result = invocean_upsert_signed_quote($pdo, $quote);
+            if ($result === 'created') {
+                $created++;
+            } elseif ($result === 'updated') {
+                $updated++;
+            }
+        } catch (InvalidArgumentException) {
+            $ignored++;
+        }
+    }
+
+    return [
+        'seen' => $seen,
+        'created' => $created,
+        'updated' => $updated,
+        'ignored' => $ignored,
+        'message' => sprintf('%d devis signe(s) lu(s), %d cree(s), %d mis a jour.', $seen, $created, $updated),
+    ];
+}
+
+function invocean_public_signed_quote(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'source' => (string) $row['source'],
+        'externalId' => (string) $row['external_id'],
+        'quoteNumber' => (string) ($row['quote_number'] ?? ''),
+        'quoteDate' => (string) ($row['quote_date'] ?? ''),
+        'signedAt' => (string) ($row['signed_at'] ?? ''),
+        'customerName' => (string) ($row['customer_name'] ?? ''),
+        'customerEmail' => (string) ($row['customer_email'] ?? ''),
+        'customerCompany' => (string) ($row['customer_company'] ?? ''),
+        'vatNumber' => (string) ($row['vat_number'] ?? ''),
+        'currencyIso' => (string) ($row['currency_iso'] ?? 'EUR'),
+        'totalTaxExcl' => (float) ($row['total_tax_excl'] ?? 0),
+        'totalTaxIncl' => (float) ($row['total_tax_incl'] ?? 0),
+        'status' => (string) ($row['status'] ?? 'signed'),
+        'invoiceId' => isset($row['invoice_id']) ? (int) $row['invoice_id'] : null,
+        'invoiceNumber' => (string) ($row['invoice_number'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
+function invocean_list_signed_quotes(PDO $pdo): array
+{
+    $stats = $pdo->query(
+        "SELECT
+            COUNT(*) AS quote_count,
+            COALESCE(SUM(status = 'signed'), 0) AS signed_count,
+            COALESCE(SUM(status = 'converted'), 0) AS converted_count,
+            COALESCE(SUM(status = 'ignored'), 0) AS ignored_count,
+            COALESCE(SUM(total_tax_incl), 0) AS total_tax_incl
+         FROM invocean_signed_quotes"
+    )->fetch() ?: [];
+
+    $statement = $pdo->query(
+        'SELECT q.*, i.invoice_number
+         FROM invocean_signed_quotes q
+         LEFT JOIN invocean_invoices i ON i.id = q.invoice_id
+         ORDER BY COALESCE(q.signed_at, q.quote_date, q.created_at) DESC, q.id DESC
+         LIMIT 200'
+    );
+
+    return [
+        'quotes' => array_map(static fn(array $row): array => invocean_public_signed_quote($row), $statement->fetchAll()),
+        'stats' => [
+            'quoteCount' => (int) ($stats['quote_count'] ?? 0),
+            'signedCount' => (int) ($stats['signed_count'] ?? 0),
+            'convertedCount' => (int) ($stats['converted_count'] ?? 0),
+            'ignoredCount' => (int) ($stats['ignored_count'] ?? 0),
+            'totalTaxIncl' => (float) ($stats['total_tax_incl'] ?? 0),
+        ],
+    ];
+}
+
+function invocean_get_signed_quote(PDO $pdo, int $quoteId): array
+{
+    $statement = $pdo->prepare('SELECT * FROM invocean_signed_quotes WHERE id = :id LIMIT 1');
+    $statement->execute(['id' => $quoteId]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        throw new InvalidArgumentException('Devis signe introuvable.');
+    }
+
+    return $row;
+}
+
+function invocean_next_invoice_number(PDO $pdo): int
+{
+    $statement = $pdo->query(
+        "SELECT invoice_number
+         FROM invocean_invoices
+         WHERE invoice_number REGEXP '^[0-9]+$'
+         ORDER BY CAST(invoice_number AS UNSIGNED) DESC
+         LIMIT 1"
+    );
+    $last = (int) ($statement->fetchColumn() ?: 0);
+
+    return max(1, $last + 1);
+}
+
+function invocean_quote_country_iso(array $raw, array $address): string
+{
+    $country = strtoupper(invocean_quote_text(invocean_quote_value($address, ['country_iso', 'countryIso', 'country_code', 'country'])));
+    if (!preg_match('/^[A-Z]{2}$/', $country)) {
+        $country = strtoupper(invocean_quote_text(invocean_quote_value($raw, ['country_iso', 'country.code', 'customer.country_iso', 'client.country_iso'])));
+    }
+
+    return preg_match('/^[A-Z]{2}$/', $country) ? $country : 'FR';
+}
+
+function invocean_quote_order_rows(array $lines): array
+{
+    $rows = [];
+    foreach ($lines as $line) {
+        $rows[] = [
+            'product_id' => '0',
+            'product_attribute_id' => '0',
+            'product_quantity' => (string) ($line['quantity'] ?? 1),
+            'product_name' => (string) ($line['label'] ?? 'Prestation'),
+            'product_reference' => (string) ($line['reference'] ?? ''),
+            'product_price' => (string) ($line['unitExcl'] ?? 0),
+            'unit_price_tax_excl' => (string) ($line['unitExcl'] ?? 0),
+            'unit_price_tax_incl' => (string) ($line['unitIncl'] ?? $line['unitExcl'] ?? 0),
+        ];
+    }
+
+    return $rows;
+}
+
+function invocean_convert_quote_to_invoice(PDO $pdo, int $quoteId): array
+{
+    $quote = invocean_get_signed_quote($pdo, $quoteId);
+    if ((string) ($quote['status'] ?? '') === 'converted' && (int) ($quote['invoice_id'] ?? 0) > 0) {
+        return invocean_public_invoice(invocean_get_invoice_row($pdo, (int) $quote['invoice_id']));
+    }
+
+    $raw = json_decode((string) ($quote['raw_json'] ?? ''), true);
+    if (!is_array($raw)) {
+        $raw = [];
+    }
+    $meta = is_array($raw['_invocean'] ?? null) ? $raw['_invocean'] : [];
+    $lines = is_array($meta['lines'] ?? null) ? $meta['lines'] : invocean_quote_line_items($raw);
+    if ($lines === []) {
+        $lines = [[
+            'label' => 'Devis ' . ((string) ($quote['quote_number'] ?? '') ?: (string) $quote['id']),
+            'reference' => '',
+            'quantity' => 1,
+            'unitExcl' => (float) ($quote['total_tax_excl'] ?? 0),
+            'unitIncl' => (float) ($quote['total_tax_incl'] ?? 0),
+            'totalExcl' => (float) ($quote['total_tax_excl'] ?? 0),
+            'totalIncl' => (float) ($quote['total_tax_incl'] ?? 0),
+        ]];
+    }
+
+    $address = is_array($meta['address'] ?? null) ? $meta['address'] : [];
+    $customerName = trim((string) ($quote['customer_name'] ?? ''));
+    $parts = preg_split('/\s+/', $customerName) ?: [];
+    $firstName = (string) ($parts[0] ?? '');
+    $lastName = trim(implode(' ', array_slice($parts, 1)));
+    $countryIso = invocean_quote_country_iso($raw, $address);
+    $syntheticId = 900000000000 + (int) $quote['id'];
+
+    $existingInvoice = null;
+    try {
+        $existingInvoice = invocean_get_invoice_row_by_prestashop_id($pdo, $syntheticId);
+    } catch (InvalidArgumentException) {
+        $existingInvoice = null;
+    }
+    $invoiceNumber = is_array($existingInvoice) && trim((string) ($existingInvoice['invoice_number'] ?? '')) !== ''
+        ? (string) $existingInvoice['invoice_number']
+        : (string) invocean_next_invoice_number($pdo);
+
+    $invoiceDate = (new DateTimeImmutable('today'))->format('Y-m-d');
+    $quoteReference = trim((string) ($quote['quote_number'] ?? '')) ?: 'DEVIS-' . (int) $quote['id'];
+    $customerPayload = [
+        'firstname' => $firstName,
+        'lastname' => $lastName,
+        'email' => (string) ($quote['customer_email'] ?? ''),
+    ];
+    $addressPayload = [
+        'firstname' => $firstName,
+        'lastname' => $lastName,
+        'company' => (string) ($quote['customer_company'] ?? ''),
+        'address1' => invocean_quote_text(invocean_quote_value($address, ['address1', 'street', 'line1', 'address'])),
+        'address2' => invocean_quote_text(invocean_quote_value($address, ['address2', 'line2'])),
+        'postcode' => invocean_quote_text(invocean_quote_value($address, ['postcode', 'postal_code', 'zip'])),
+        'city' => invocean_quote_text(invocean_quote_value($address, ['city', 'ville'])),
+        'vat_number' => (string) ($quote['vat_number'] ?? ''),
+    ];
+
+    $invoiceRaw = [
+        'invoice' => [
+            'id' => (string) $syntheticId,
+            'number' => $invoiceNumber,
+            'date_add' => $invoiceDate,
+        ],
+        'order' => [
+            'id' => (string) $syntheticId,
+            'reference' => $quoteReference,
+            'total_paid_tax_excl' => (string) ($quote['total_tax_excl'] ?? 0),
+            'total_paid_tax_incl' => (string) ($quote['total_tax_incl'] ?? 0),
+            'total_shipping_tax_excl' => '0',
+            'total_shipping_tax_incl' => '0',
+            'total_discounts_tax_excl' => '0',
+            'total_discounts_tax_incl' => '0',
+            'associations' => [
+                'order_rows' => [
+                    'order_row' => invocean_quote_order_rows($lines),
+                ],
+            ],
+        ],
+        'customer' => $customerPayload,
+        'address' => $addressPayload,
+        'currency' => ['iso_code' => (string) ($quote['currency_iso'] ?? 'EUR')],
+        'country' => ['iso_code' => $countryIso],
+        'nautisign_quote' => $raw,
+    ];
+
+    $invoice = [
+        'prestashopInvoiceId' => $syntheticId,
+        'orderId' => $syntheticId,
+        'invoiceNumber' => $invoiceNumber,
+        'invoiceDate' => $invoiceDate,
+        'orderReference' => $quoteReference,
+        'customerName' => (string) ($quote['customer_name'] ?? ''),
+        'customerEmail' => (string) ($quote['customer_email'] ?? ''),
+        'customerCompany' => (string) ($quote['customer_company'] ?? ''),
+        'vatNumber' => (string) ($quote['vat_number'] ?? ''),
+        'currencyIso' => (string) ($quote['currency_iso'] ?? 'EUR'),
+        'totalTaxExcl' => invocean_money((string) ($quote['total_tax_excl'] ?? '0')),
+        'totalTaxIncl' => invocean_money((string) ($quote['total_tax_incl'] ?? '0')),
+        'channel' => 'nautisign',
+        'eInvoiceFormat' => 'facturx',
+        'pdfUrl' => '',
+        'raw' => $invoiceRaw,
+        'sourceHash' => hash('sha256', json_encode($invoiceRaw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
+    ];
+
+    invocean_upsert_invoice($pdo, $invoice);
+    $savedRow = invocean_get_invoice_row_by_prestashop_id($pdo, $syntheticId);
+    invocean_save_invoice_pdf($pdo, $savedRow);
+    invocean_save_facturx($pdo, $savedRow);
+    $savedRow = invocean_get_invoice_row_by_prestashop_id($pdo, $syntheticId);
+
+    $statement = $pdo->prepare(
+        "UPDATE invocean_signed_quotes
+         SET status = 'converted', invoice_id = :invoice_id
+         WHERE id = :id"
+    );
+    $statement->execute([
+        'id' => (int) $quote['id'],
+        'invoice_id' => (int) $savedRow['id'],
+    ]);
+
+    return invocean_public_invoice($savedRow);
 }
 
 function invocean_invoice_statuses(): array

@@ -2,6 +2,7 @@ const API = {
   auth: "api/auth.php",
   settings: "api/settings.php",
   invoices: "api/invoices.php",
+  quotes: "api/quotes.php",
   sync: "api/sync.php",
 };
 const OCEANOS_URL = "/OceanOS/";
@@ -38,8 +39,11 @@ const state = {
   },
   settings: null,
   invoices: [],
+  quotes: [],
+  quoteStats: null,
   runs: [],
   stats: null,
+  activeTab: "invoices",
   pagination: { page: 1, limit: 30, total: 0, pages: 1 },
   filters: {
     search: "",
@@ -72,15 +76,26 @@ const elements = {
   logoutButton: $("logout-button"),
   refreshButton: $("refresh-button"),
   connectionChip: $("connection-chip"),
+  tabInvoices: $("tab-invoices"),
+  tabQuotes: $("tab-quotes"),
+  invoicesView: $("invoices-view"),
+  quotesView: $("quotes-view"),
   metricCount: $("metric-count"),
   metricTotal: $("metric-total"),
   metricReceived: $("metric-received"),
   metricRejected: $("metric-rejected"),
+  quoteMetricCount: $("quote-metric-count"),
+  quoteMetricSigned: $("quote-metric-signed"),
+  quoteMetricConverted: $("quote-metric-converted"),
+  quoteMetricTotal: $("quote-metric-total"),
   settingsForm: $("settings-form"),
   shopUrl: $("shop-url"),
   webserviceKey: $("webservice-key"),
   clearWebserviceKey: $("clear-webservice-key"),
   pdfUrlTemplate: $("pdf-url-template"),
+  nautisignApiUrl: $("nautisign-api-url"),
+  nautisignApiToken: $("nautisign-api-token"),
+  clearNautisignApiToken: $("clear-nautisign-api-token"),
   syncWindowDays: $("sync-window-days"),
   saveSettings: $("save-settings"),
   testSettings: $("test-settings"),
@@ -101,6 +116,11 @@ const elements = {
   exportPdfButton: $("export-pdf-button"),
   exportFacturxButton: $("export-facturx-button"),
   invoiceTableBody: $("invoice-table-body"),
+  quotesTableBody: $("quotes-table-body"),
+  syncQuotesButton: $("sync-quotes-button"),
+  quotesMessage: $("quotes-message"),
+  quoteJson: $("quote-json"),
+  importQuoteButton: $("import-quote-button"),
   prevPage: $("prev-page"),
   nextPage: $("next-page"),
   pageLabel: $("page-label"),
@@ -350,6 +370,12 @@ function renderSettings() {
     : "Aucune clé enregistrée";
   elements.clearWebserviceKey.checked = false;
   elements.pdfUrlTemplate.value = settings.pdfUrlTemplate || "";
+  elements.nautisignApiUrl.value = settings.nautisignApiUrl || "";
+  elements.nautisignApiToken.value = "";
+  elements.nautisignApiToken.placeholder = settings.hasNautisignApiToken
+    ? `Jeton enregistré (${settings.nautisignApiTokenHint || "masqué"})`
+    : "Aucun jeton enregistré";
+  elements.clearNautisignApiToken.checked = false;
   elements.syncWindowDays.value = settings.syncWindowDays || 30;
   elements.sellerName.value = settings.sellerName || "";
   elements.sellerVatNumber.value = settings.sellerVatNumber || "";
@@ -364,6 +390,9 @@ function renderSettings() {
     elements.webserviceKey,
     elements.clearWebserviceKey,
     elements.pdfUrlTemplate,
+    elements.nautisignApiUrl,
+    elements.nautisignApiToken,
+    elements.clearNautisignApiToken,
     elements.syncWindowDays,
     elements.saveSettings,
     elements.testSettings,
@@ -398,6 +427,8 @@ function renderSettings() {
     : "status-pill muted-pill";
 
   elements.syncButton.disabled = !canManage || !settings.shopUrl || !settings.hasWebserviceKey;
+  elements.syncQuotesButton.disabled = !canManage || !settings.nautisignApiUrl;
+  elements.importQuoteButton.disabled = !canManage;
 }
 
 async function loadSettings() {
@@ -422,10 +453,15 @@ async function handleSettingsSubmit(event) {
     sellerPostcode: elements.sellerPostcode.value.trim(),
     sellerCity: elements.sellerCity.value.trim(),
     sellerCountryIso: elements.sellerCountryIso.value.trim(),
+    nautisignApiUrl: elements.nautisignApiUrl.value.trim(),
+    clearNautisignApiToken: elements.clearNautisignApiToken.checked,
     clearWebserviceKey: elements.clearWebserviceKey.checked,
   };
   if (elements.webserviceKey.value.trim()) {
     body.webserviceKey = elements.webserviceKey.value.trim();
+  }
+  if (elements.nautisignApiToken.value.trim()) {
+    body.nautisignApiToken = elements.nautisignApiToken.value.trim();
   }
 
   try {
@@ -436,7 +472,7 @@ async function handleSettingsSubmit(event) {
     state.settings = payload.settings;
     renderSettings();
     showMessage(elements.settingsMessage, payload.message || "Configuration enregistrée.", "success");
-    toast("Configuration PrestaShop enregistrée.");
+    toast("Configuration enregistrée.");
   } catch (error) {
     showMessage(elements.settingsMessage, error.message || "Enregistrement impossible.", "error");
   } finally {
@@ -498,6 +534,7 @@ async function loadDashboard() {
   renderChrome();
   await loadSettings();
   await loadInvoices();
+  await loadQuotes();
 }
 
 function renderMetrics() {
@@ -506,6 +543,22 @@ function renderMetrics() {
   elements.metricTotal.textContent = formatMoney(stats.totalTaxIncl || 0);
   elements.metricReceived.textContent = String(stats.receivedCount || 0);
   elements.metricRejected.textContent = String(stats.rejectedCount || 0);
+}
+
+async function loadQuotes() {
+  const payload = await apiRequest(API.quotes);
+  state.quotes = payload.quotes || [];
+  state.quoteStats = payload.stats || null;
+  renderQuoteMetrics();
+  renderQuotes();
+}
+
+function renderQuoteMetrics() {
+  const stats = state.quoteStats || {};
+  elements.quoteMetricCount.textContent = String(stats.quoteCount || 0);
+  elements.quoteMetricSigned.textContent = String(stats.signedCount || 0);
+  elements.quoteMetricConverted.textContent = String(stats.convertedCount || 0);
+  elements.quoteMetricTotal.textContent = formatMoney(stats.totalTaxIncl || 0);
 }
 
 function createCell(text, className = "") {
@@ -550,7 +603,9 @@ function renderInvoices() {
     strong.textContent = invoice.invoiceNumber || `PS-${invoice.prestashopInvoiceId}`;
     const meta = document.createElement("span");
     meta.className = "table-meta";
-    meta.textContent = `ID PrestaShop ${invoice.prestashopInvoiceId}`;
+    meta.textContent = invoice.channel === "nautisign"
+      ? `Depuis devis ${invoice.orderReference || invoice.orderId}`
+      : `ID PrestaShop ${invoice.prestashopInvoiceId}`;
     invoiceCell.append(strong, meta);
 
     const clientCell = document.createElement("td");
@@ -614,6 +669,154 @@ function renderInvoices() {
   elements.pageLabel.textContent = `Page ${page} / ${pages}`;
   elements.prevPage.disabled = page <= 1;
   elements.nextPage.disabled = page >= pages;
+}
+
+function quoteStatusLabel(status) {
+  if (status === "converted") return "Converti";
+  if (status === "ignored") return "Ignoré";
+  return "Signé";
+}
+
+function renderQuotes() {
+  elements.quotesTableBody.innerHTML = "";
+
+  if (!state.quotes.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "empty-cell";
+    cell.textContent = "Aucun devis signé récupéré.";
+    row.append(cell);
+    elements.quotesTableBody.append(row);
+    return;
+  }
+
+  state.quotes.forEach((quote) => {
+    const row = document.createElement("tr");
+
+    const quoteCell = document.createElement("td");
+    const quoteTitle = document.createElement("strong");
+    quoteTitle.textContent = quote.quoteNumber || quote.externalId || `Devis ${quote.id}`;
+    const quoteMeta = document.createElement("span");
+    quoteMeta.className = "table-meta";
+    quoteMeta.textContent = quote.source === "nautisign" ? "Nautisign" : "Import manuel";
+    quoteCell.append(quoteTitle, quoteMeta);
+
+    const clientCell = document.createElement("td");
+    const clientName = document.createElement("strong");
+    clientName.textContent = quote.customerCompany || quote.customerName || "Client";
+    const clientMeta = document.createElement("span");
+    clientMeta.className = "table-meta";
+    clientMeta.textContent = quote.customerEmail || quote.vatNumber || "—";
+    clientCell.append(clientName, clientMeta);
+
+    const statusCell = document.createElement("td");
+    const status = document.createElement("span");
+    status.className = `status-badge quote-status-${quote.status || "signed"}`;
+    status.textContent = quoteStatusLabel(quote.status);
+    statusCell.append(status);
+
+    const actionCell = document.createElement("td");
+    actionCell.className = "actions-cell";
+    if (quote.status === "converted") {
+      const link = document.createElement("a");
+      link.className = "table-link";
+      link.href = `${API.invoices}?download=facturx&id=${encodeURIComponent(quote.invoiceId)}`;
+      link.textContent = quote.invoiceNumber ? `Facture ${quote.invoiceNumber}` : "Facture";
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        void downloadAuthenticatedFile(link.href, `${quote.invoiceNumber || quote.invoiceId}-factur-x.pdf`)
+          .catch((error) => toast(error.message || "Téléchargement impossible."));
+      });
+      actionCell.append(link);
+    } else {
+      const button = document.createElement("button");
+      button.className = "primary-button small-button";
+      button.type = "button";
+      button.textContent = "Transformer";
+      button.addEventListener("click", () => { void convertQuote(quote.id); });
+      actionCell.append(button);
+    }
+
+    row.append(
+      quoteCell,
+      createCell(formatDateTime(quote.signedAt || quote.quoteDate)),
+      clientCell,
+      createCell(formatMoney(quote.totalTaxIncl, quote.currencyIso), "amount-cell"),
+      statusCell,
+      actionCell,
+    );
+    elements.quotesTableBody.append(row);
+  });
+}
+
+async function syncQuotes() {
+  elements.syncQuotesButton.disabled = true;
+  showMessage(elements.quotesMessage, "Récupération Nautisign en cours...");
+
+  try {
+    const payload = await apiRequest(API.quotes, {
+      method: "POST",
+      body: JSON.stringify({ action: "sync" }),
+    });
+    state.quotes = payload.quotes || [];
+    state.quoteStats = payload.stats || null;
+    renderQuoteMetrics();
+    renderQuotes();
+    showMessage(elements.quotesMessage, payload.message || "Devis récupérés.", "success");
+    toast("Devis Nautisign récupérés.");
+  } catch (error) {
+    showMessage(elements.quotesMessage, error.message || "Récupération Nautisign impossible.", "error");
+  } finally {
+    renderSettings();
+  }
+}
+
+async function importQuoteJson() {
+  const raw = elements.quoteJson.value.trim();
+  if (!raw) {
+    showMessage(elements.quotesMessage, "Collez un devis JSON avant d'importer.", "error");
+    return;
+  }
+
+  elements.importQuoteButton.disabled = true;
+  showMessage(elements.quotesMessage, "");
+  try {
+    const payload = await apiRequest(API.quotes, {
+      method: "POST",
+      body: JSON.stringify({ action: "import", quote: raw }),
+    });
+    state.quotes = payload.quotes || [];
+    state.quoteStats = payload.stats || null;
+    elements.quoteJson.value = "";
+    renderQuoteMetrics();
+    renderQuotes();
+    showMessage(elements.quotesMessage, payload.message || "Devis importé.", "success");
+    toast("Devis importé.");
+  } catch (error) {
+    showMessage(elements.quotesMessage, error.message || "Import impossible.", "error");
+  } finally {
+    renderSettings();
+  }
+}
+
+async function convertQuote(id) {
+  showMessage(elements.quotesMessage, "Transformation en facture...");
+  try {
+    const payload = await apiRequest(API.quotes, {
+      method: "POST",
+      body: JSON.stringify({ action: "convert", id }),
+    });
+    state.quotes = payload.quotes || [];
+    state.quoteStats = payload.stats || null;
+    renderQuoteMetrics();
+    renderQuotes();
+    await loadInvoices();
+    showMessage(elements.quotesMessage, payload.message || "Facture créée.", "success");
+    toast("Facture créée depuis le devis.");
+  } catch (error) {
+    showMessage(elements.quotesMessage, error.message || "Transformation impossible.", "error");
+  }
 }
 
 async function updateInvoiceStatus(id, status) {
@@ -713,6 +916,15 @@ async function exportFacturx() {
   toast("Export Factur-X PDF téléchargé.");
 }
 
+function switchTab(tab) {
+  state.activeTab = tab === "quotes" ? "quotes" : "invoices";
+  const showQuotes = state.activeTab === "quotes";
+  setHidden(elements.invoicesView, showQuotes);
+  setHidden(elements.quotesView, !showQuotes);
+  elements.tabInvoices.classList.toggle("active", !showQuotes);
+  elements.tabQuotes.classList.toggle("active", showQuotes);
+}
+
 function installListeners() {
   elements.authForm.addEventListener("submit", handleAuthSubmit);
   elements.logoutButton.addEventListener("click", logout);
@@ -722,6 +934,10 @@ function installListeners() {
   elements.settingsForm.addEventListener("submit", handleSettingsSubmit);
   elements.testSettings.addEventListener("click", () => { void testSettings(); });
   elements.syncButton.addEventListener("click", () => { void syncInvoices(); });
+  elements.syncQuotesButton.addEventListener("click", () => { void syncQuotes(); });
+  elements.importQuoteButton.addEventListener("click", () => { void importQuoteJson(); });
+  elements.tabInvoices.addEventListener("click", () => switchTab("invoices"));
+  elements.tabQuotes.addEventListener("click", () => switchTab("quotes"));
   elements.filtersForm.addEventListener("submit", (event) => {
     event.preventDefault();
     applyFiltersFromForm();

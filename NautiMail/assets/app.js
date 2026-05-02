@@ -55,6 +55,7 @@ const elements = {
   replySubject: $("reply-subject"),
   replyBody: $("reply-body"),
   replyResetButton: $("reply-reset-button"),
+  replyCancelButton: $("reply-cancel-button"),
   accountFormTitle: $("account-form-title"),
   newAccountButton: $("new-account-button"),
   accountForm: $("account-form"),
@@ -139,6 +140,10 @@ function formatBytes(value) {
     unit += 1;
   }
   return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#096;");
 }
 
 function formatDateTime(value) {
@@ -354,12 +359,22 @@ function renderTriageBoard() {
     counts[mail.category] = (counts[mail.category] || 0) + 1;
   });
 
+  const activeCategory = elements.filterCategory.value;
   elements.triageBoard.innerHTML = categories.map((category) => `
-    <article class="triage-card">
+    <button class="triage-card${activeCategory === category ? " is-active" : ""}" data-category-filter="${category}" type="button" aria-pressed="${activeCategory === category ? "true" : "false"}">
       <strong>${escapeHtml(labels.category[category])}</strong>
       <small>${counts[category] || 0} mail(s)</small>
-    </article>
+    </button>
   `).join("");
+}
+
+function applyCategoryShortcut(category) {
+  const nextCategory = elements.filterCategory.value === category ? "" : category;
+  elements.filterCategory.value = nextCategory;
+  setActiveView("inbox");
+  void loadDashboard()
+    .then(() => showMessage(nextCategory ? `Filtre ${labels.category[nextCategory] || nextCategory} applique.` : "Filtre categorie retire.", "success"))
+    .catch((error) => showMessage(error.message, "error"));
 }
 
 function renderAccountCards() {
@@ -416,6 +431,54 @@ function renderAttachments(mail) {
       </div>
     </section>
   `;
+}
+
+function mailFrameDocument(bodyHtml) {
+  const baseHref = escapeAttribute(window.location.href);
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <base href="${baseHref}" target="_blank">
+  <style>
+    html, body { margin: 0; padding: 0; background: #ffffff; color: #000000; }
+    body { overflow-wrap: anywhere; }
+    img { max-width: 100%; height: auto; }
+    table { max-width: 100%; }
+  </style>
+</head>
+<body>${bodyHtml}</body>
+</html>`;
+}
+
+function resizeMailFrame(frame) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc) return;
+    const body = doc.body;
+    const root = doc.documentElement;
+    const height = Math.max(
+      body?.scrollHeight || 0,
+      root?.scrollHeight || 0,
+      body?.offsetHeight || 0,
+      root?.offsetHeight || 0,
+      320,
+    );
+    frame.style.height = `${height + 24}px`;
+  } catch (error) {
+    frame.style.height = "720px";
+  }
+}
+
+function hydrateMailFrame(bodyHtml) {
+  const frame = elements.mailDetail.querySelector("[data-mail-html-frame]");
+  if (!frame) return;
+  frame.addEventListener("load", () => {
+    resizeMailFrame(frame);
+    window.setTimeout(() => resizeMailFrame(frame), 250);
+    window.setTimeout(() => resizeMailFrame(frame), 1000);
+  });
+  frame.srcdoc = mailFrameDocument(bodyHtml);
 }
 
 function emailListFromText(value) {
@@ -490,9 +553,10 @@ function renderDetail() {
       </section>
     ` : ""}
     ${bodyHtml
-      ? `<section class="mail-html-body">${bodyHtml}</section>`
+      ? '<iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>'
       : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`}
   `;
+  if (bodyHtml) hydrateMailFrame(bodyHtml);
 
   elements.messageCategory.value = mail.category || "autre";
   elements.messagePriority.value = mail.priority || "normal";
@@ -842,6 +906,12 @@ function installListeners() {
     event.preventDefault();
     void loadDashboard().catch((error) => showMessage(error.message, "error"));
   });
+  elements.triageBoard.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-category-filter]");
+    if (button) {
+      applyCategoryShortcut(button.dataset.categoryFilter || "");
+    }
+  });
 
   elements.messagesList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-mail-open]");
@@ -860,6 +930,9 @@ function installListeners() {
   elements.replyResetButton.addEventListener("click", () => {
     elements.replyBody.value = "";
     fillReplyDefaults(true, state.replyAll);
+  });
+  elements.replyCancelButton.addEventListener("click", () => {
+    setActiveView(state.selectedMessage ? "detail" : "inbox");
   });
 
   elements.newAccountButton.addEventListener("click", resetAccountForm);

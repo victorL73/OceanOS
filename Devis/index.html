@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/devis.svg?v=20260502">
   <meta name="description" content="Devis - creation de devis PDF connectes au catalogue PrestaShop.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260502-b2b">
+  <link rel="stylesheet" href="assets/style.css?v=20260502-crm-clients">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-devis"></script>
 </head>
 <body>
@@ -86,10 +86,11 @@
             <section class="form-band">
               <h3>Client</h3>
               <div class="form-grid">
-                <label class="field">
+                <div class="field client-autocomplete-field">
                   <span>Nom du client</span>
-                  <input id="client-name" type="text" placeholder="Nom, societe ou chantier">
-                </label>
+                  <input id="client-name" type="text" placeholder="Nom, societe ou chantier" autocomplete="off" aria-label="Nom du client" aria-autocomplete="list" aria-controls="client-suggestions">
+                  <div id="client-suggestions" class="client-suggestions hidden" role="listbox"></div>
+                </div>
                 <label class="field">
                   <span>Email</span>
                   <input id="client-email" type="email" placeholder="client@example.com">
@@ -193,6 +194,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260502-b2b"></script>
+  <script src="assets/app.js?v=20260502-crm-clients"></script>
 </body>
 </html>

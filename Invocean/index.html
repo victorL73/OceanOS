@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Invocean</title>
     <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/invocean.svg?v=20260427">
-    <link rel="stylesheet" href="assets/style.css?v=20260427-company">
+    <link rel="stylesheet" href="assets/style.css?v=20260502-nautisign">
     <link rel="stylesheet" href="/OceanOS/assets/guard.css">
     <script defer src="/OceanOS/assets/guard.js?v=20260426-module-rights"></script>
   </head>
@@ -44,7 +44,7 @@
             <span class="brand-mark compact">Invocean</span>
             <span id="connection-chip" class="status-pill muted-pill">PrestaShop non configuré</span>
           </div>
-          <h1>Factures PrestaShop</h1>
+          <h1>Factures &amp; devis</h1>
         </div>
         <div class="topbar-actions">
           <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
@@ -55,6 +55,12 @@
 
       <main class="main-grid">
         <section class="content-column">
+          <nav class="app-tabs" aria-label="Navigation Invocean">
+            <button id="tab-invoices" class="tab-button active" type="button" data-tab="invoices">Factures</button>
+            <button id="tab-quotes" class="tab-button" type="button" data-tab="quotes">Devis signés</button>
+          </nav>
+
+          <div id="invoices-view" class="tab-view">
           <div class="metrics-grid">
             <article class="metric-card">
               <span>Factures</span>
@@ -164,6 +170,65 @@
               <button id="next-page" class="ghost-button" type="button">Suivant</button>
             </div>
           </section>
+          </div>
+
+          <div id="quotes-view" class="tab-view hidden">
+            <div class="metrics-grid quote-metrics">
+              <article class="metric-card">
+                <span>Devis</span>
+                <strong id="quote-metric-count">0</strong>
+              </article>
+              <article class="metric-card">
+                <span>À convertir</span>
+                <strong id="quote-metric-signed">0</strong>
+              </article>
+              <article class="metric-card">
+                <span>Convertis</span>
+                <strong id="quote-metric-converted">0</strong>
+              </article>
+              <article class="metric-card">
+                <span>Total TTC</span>
+                <strong id="quote-metric-total">0,00 €</strong>
+              </article>
+            </div>
+
+            <section class="panel invoice-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Nautisign</p>
+                  <h2>Devis signés</h2>
+                </div>
+                <div class="button-row">
+                  <button id="sync-quotes-button" class="primary-button" type="button">Récupérer Nautisign</button>
+                </div>
+              </div>
+              <p id="quotes-message" class="form-message hidden"></p>
+
+              <div class="quote-import-box">
+                <label class="field">
+                  <span>Importer un devis JSON</span>
+                  <textarea id="quote-json" rows="4" placeholder="Coller ici un devis signé si l'API Nautisign n'est pas encore raccordée"></textarea>
+                </label>
+                <button id="import-quote-button" class="ghost-button" type="button">Importer</button>
+              </div>
+
+              <div class="table-wrap">
+                <table class="invoice-table quotes-table">
+                  <thead>
+                    <tr>
+                      <th>Devis</th>
+                      <th>Signé le</th>
+                      <th>Client</th>
+                      <th>Total TTC</th>
+                      <th>Statut</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quotes-table-body"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </section>
 
         <aside class="side-column">
@@ -196,6 +261,22 @@
               <label class="field">
                 <span>Fenêtre par défaut</span>
                 <input id="sync-window-days" type="number" min="1" max="365" value="30">
+              </label>
+              <div class="form-divider">
+                <p class="eyebrow">Nautisign</p>
+                <strong>Devis signés</strong>
+              </div>
+              <label class="field">
+                <span>URL API devis signés</span>
+                <input id="nautisign-api-url" type="url" placeholder="https://.../devis-signes">
+              </label>
+              <label class="field">
+                <span>Jeton API Nautisign</span>
+                <input id="nautisign-api-token" type="password" autocomplete="off" placeholder="Conserver le jeton actuel">
+              </label>
+              <label class="check-row">
+                <input id="clear-nautisign-api-token" type="checkbox">
+                <span>Effacer le jeton enregistré</span>
               </label>
               <div class="form-divider">
                 <p class="eyebrow">Factur-X</p>
@@ -261,6 +342,6 @@
     </div>
 
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-    <script src="assets/app.js?v=20260427-company"></script>
+    <script src="assets/app.js?v=20260502-nautisign"></script>
   </body>
 </html>

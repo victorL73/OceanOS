@@ -546,6 +546,23 @@ legend {
   background: var(--surface-soft);
 }
 
+.triage-card {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.triage-card:hover,
+.triage-card.is-active {
+  border-color: rgba(8, 125, 121, 0.36);
+  background: rgba(8, 125, 121, 0.10);
+}
+
+.triage-card.is-active strong {
+  color: var(--teal);
+}
+
 .list-card strong,
 .triage-card strong {
   display: block;
@@ -681,9 +698,8 @@ legend {
 }
 
 .mail-text-body,
-.mail-html-body {
+.mail-html-frame {
   margin-top: 16px;
-  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow-wrap: anywhere;
@@ -691,9 +707,17 @@ legend {
 }
 
 .mail-text-body {
+  padding: 14px;
   background: var(--surface-soft);
   white-space: pre-wrap;
   font-family: inherit;
+}
+
+.mail-html-frame {
+  display: block;
+  width: 100%;
+  min-height: 360px;
+  background: #ffffff;
 }
 
 .mail-html-body {

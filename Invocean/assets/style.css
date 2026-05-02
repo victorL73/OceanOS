@@ -30,7 +30,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -142,7 +143,8 @@ h2 {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line);
@@ -154,15 +156,24 @@ h2 {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
 }
 
 .field input:disabled,
-.field select:disabled {
+.field select:disabled,
+.field textarea:disabled {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 106px;
+  padding: 10px 12px;
+  line-height: 1.45;
 }
 
 .check-row {
@@ -304,6 +315,37 @@ h2 {
   overflow-x: hidden;
 }
 
+.app-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px;
+}
+
+.tab-button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 12px;
+  font-weight: 900;
+}
+
+.tab-button.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.tab-view {
+  display: grid;
+  gap: 18px;
+}
+
 .content-column,
 .side-column {
   display: grid;
@@ -365,6 +407,11 @@ h2 {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.small-button {
+  min-height: 34px;
+  padding: 0 12px;
 }
 
 .inline-form,
@@ -487,6 +534,45 @@ h2 {
 .status-archived {
   background: #f2f0ed;
   color: #6d6257;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.quote-status-signed {
+  background: #fff7df;
+  color: var(--amber);
+}
+
+.quote-status-converted {
+  background: #e8f7ef;
+  color: var(--green);
+}
+
+.quote-status-ignored {
+  background: #f2f0ed;
+  color: #6d6257;
+}
+
+.quote-import-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.quotes-table {
+  min-width: 760px;
 }
 
 .empty-cell {
@@ -679,9 +765,23 @@ h2 {
   }
 
   .inline-form,
-  .filters-bar {
+  .filters-bar,
+  .quote-import-box {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .quote-import-box {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .app-tabs {
+    width: 100%;
+  }
+
+  .tab-button {
+    flex: 1 1 0;
   }
 
   .compact-field,

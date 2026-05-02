@@ -536,23 +536,36 @@ function nautimail_sanitize_html_for_display(string $html): string
         return '';
     }
 
+    $styleBlocks = [];
+    if (preg_match_all('~<style\b[^>]*>(.*?)</style>~is', $html, $styleMatches)) {
+        foreach ($styleMatches[1] ?? [] as $style) {
+            $style = preg_replace('~@import\b[^;]+;?~iu', '', (string) $style) ?: '';
+            $style = preg_replace('~url\s*\(\s*([\'"]?)\s*javascript:[^)]+\1\s*\)~iu', 'none', $style) ?: $style;
+            $style = preg_replace('~expression\s*\([^)]*\)~iu', '', $style) ?: $style;
+            $style = trim($style);
+            if ($style !== '') {
+                $styleBlocks[] = '<style>' . $style . '</style>';
+            }
+        }
+    }
+
     if (preg_match('~<body\b[^>]*>(.*?)</body>~is', $html, $matches)) {
         $html = (string) $matches[1];
     }
 
     $html = preg_replace('~<!doctype\b[^>]*>~i', '', $html) ?: $html;
-    $html = preg_replace('~<(script|style|iframe|object|embed|form|meta|link|base)\b[^>]*>.*?</\1>~is', '', $html) ?: $html;
-    $html = preg_replace('~<(script|style|iframe|object|embed|form|meta|link|base)\b[^>]*?/?>~is', '', $html) ?: $html;
+    $html = preg_replace('~<(script|iframe|object|embed|form|meta|link|base)\b[^>]*>.*?</\1>~is', '', $html) ?: $html;
+    $html = preg_replace('~<(script|iframe|object|embed|form|meta|link|base)\b[^>]*?/?>~is', '', $html) ?: $html;
     $html = preg_replace('/\s+on[a-z]+\s*=\s*"[^"]*"/iu', '', $html) ?: $html;
     $html = preg_replace("/\s+on[a-z]+\s*=\s*'[^']*'/iu", '', $html) ?: $html;
     $html = preg_replace('/\s+on[a-z]+\s*=\s*[^\s>]+/iu', '', $html) ?: $html;
-    $html = preg_replace('/\s+style\s*=\s*"[^"]*"/iu', '', $html) ?: $html;
-    $html = preg_replace("/\s+style\s*=\s*'[^']*'/iu", '', $html) ?: $html;
     $html = preg_replace('/\s+(href|src)\s*=\s*(["\'])\s*javascript:[^"\']*\2/iu', '', $html) ?: $html;
     $html = preg_replace('/\s+(href|src)\s*=\s*javascript:[^\s>]+/iu', '', $html) ?: $html;
-    $html = preg_replace('/\s+(href|srcdoc)\s*=\s*[^\s>]+/iu', '', $html) ?: $html;
+    $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/iu', '', $html) ?: $html;
+    $html = preg_replace('~url\s*\(\s*([\'"]?)\s*javascript:[^)]+\1\s*\)~iu', 'none', $html) ?: $html;
+    $html = preg_replace('~expression\s*\([^)]*\)~iu', '', $html) ?: $html;
 
-    return trim($html);
+    return trim(implode("\n", $styleBlocks) . "\n" . trim($html));
 }
 
 function nautimail_normalize_content_id(string $value): string
@@ -606,6 +619,18 @@ function nautimail_rewrite_inline_sources(string $html, int $messageId, array $a
             }
 
             return ' ' . $matches[1] . '="' . nautimail_attachment_url($messageId, (int) $byContentId[$contentId], true) . '"';
+        },
+        $html
+    ) ?: $html;
+    $html = preg_replace_callback(
+        '/url\(\s*(["\']?)cid:([^)"\']+)\1\s*\)/iu',
+        static function (array $matches) use ($messageId, $byContentId): string {
+            $contentId = nautimail_normalize_content_id((string) ($matches[2] ?? ''));
+            if ($contentId === '' || !isset($byContentId[$contentId])) {
+                return $matches[0];
+            }
+
+            return 'url("' . nautimail_attachment_url($messageId, (int) $byContentId[$contentId], true) . '")';
         },
         $html
     ) ?: $html;

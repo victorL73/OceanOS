@@ -191,6 +191,56 @@ function devis_fetch_products(PDO $pdo, int $limit = 500): array
     return $products;
 }
 
+function devis_list_crm_clients(PDO $pdo, int $limit = 500): array
+{
+    if (!oceanos_table_exists($pdo, 'nauticrm_clients')) {
+        return [];
+    }
+
+    $limit = max(1, min(1000, $limit));
+    $hasContacts = oceanos_table_exists($pdo, 'nauticrm_contacts');
+    $contactNameSql = $hasContacts
+        ? "(SELECT TRIM(CONCAT(COALESCE(ct.first_name, ''), ' ', COALESCE(ct.last_name, ''))) FROM nauticrm_contacts ct WHERE ct.client_id = c.id ORDER BY ct.is_primary DESC, ct.id ASC LIMIT 1)"
+        : "''";
+    $contactEmailSql = $hasContacts
+        ? "(SELECT ct.email FROM nauticrm_contacts ct WHERE ct.client_id = c.id AND ct.email IS NOT NULL AND ct.email <> '' ORDER BY ct.is_primary DESC, ct.id ASC LIMIT 1)"
+        : "''";
+
+    $rows = $pdo->query(
+        "SELECT
+            c.id,
+            c.company_name,
+            c.email,
+            c.phone,
+            c.city,
+            c.client_type,
+            c.status,
+            {$contactNameSql} AS contact_name,
+            {$contactEmailSql} AS contact_email
+         FROM nauticrm_clients c
+         WHERE c.status <> 'archived'
+         ORDER BY c.company_name ASC, c.id ASC
+         LIMIT {$limit}"
+    )->fetchAll();
+
+    return array_map(static function (array $row): array {
+        $email = trim((string) ($row['email'] ?? ''));
+        $contactEmail = trim((string) ($row['contact_email'] ?? ''));
+
+        return [
+            'id' => (int) $row['id'],
+            'name' => (string) ($row['company_name'] ?? ''),
+            'email' => $email !== '' ? $email : $contactEmail,
+            'contactEmail' => $contactEmail,
+            'contactName' => (string) ($row['contact_name'] ?? ''),
+            'phone' => (string) ($row['phone'] ?? ''),
+            'city' => (string) ($row['city'] ?? ''),
+            'type' => (string) ($row['client_type'] ?? ''),
+            'status' => (string) ($row['status'] ?? ''),
+        ];
+    }, $rows ?: []);
+}
+
 function devis_parse_lines(?string $linesJson): array
 {
     $decoded = json_decode((string) ($linesJson ?? '[]'), true);
@@ -573,10 +623,17 @@ function devis_dashboard(PDO $pdo, array $user): array
 {
     $products = [];
     $productError = '';
+    $crmClients = [];
+    $crmClientError = '';
     try {
         $products = devis_fetch_products($pdo);
     } catch (Throwable $exception) {
         $productError = $exception->getMessage();
+    }
+    try {
+        $crmClients = devis_list_crm_clients($pdo);
+    } catch (Throwable $exception) {
+        $crmClientError = $exception->getMessage();
     }
 
     return [
@@ -587,7 +644,9 @@ function devis_dashboard(PDO $pdo, array $user): array
         'company' => devis_public_company_settings($pdo),
         'quotes' => devis_list_quotes($pdo, (int) $user['id']),
         'products' => $products,
+        'crmClients' => $crmClients,
         'productError' => $productError,
+        'crmClientError' => $crmClientError,
     ];
 }
 
