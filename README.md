@@ -13,6 +13,7 @@ www/
   Invocean/              Facturation, exports et synchronisation PrestaShop
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Mobywork/              CRM e-commerce, commandes, emails et finance
+  NautiCRM/              CRM clients, contacts, relances et opportunites
   NautiPost/             Campagnes, messages et outils marketing
   NautiCloud/            Drive partage, apercus et edition temps reel
   Formcean/              Formulaires publics, collecte de reponses et exports
@@ -42,6 +43,7 @@ Les applications concernées actuellement sont :
 - Invocean
 - Stockcean
 - Mobywork
+- NautiCRM
 - NautiPost
 - NautiCloud
 - Formcean
@@ -187,6 +189,17 @@ Tables Mobywork, si l'application les initialise dans MySQL :
 mobywork_*
 ```
 
+Tables NautiCRM :
+
+```text
+nauticrm_clients
+nauticrm_contacts
+nauticrm_interactions
+nauticrm_tasks
+nauticrm_opportunities
+nauticrm_sync_runs
+```
+
 Tables Stockcean :
 
 ```text
@@ -294,6 +307,7 @@ Elle est partagee par :
 - Invocean
 - Stockcean
 - Mobywork
+- NautiCRM
 
 La cle Webservice n'est pas stockee en clair dans l'interface. Elle est chiffree cote serveur avant stockage.
 
@@ -313,6 +327,22 @@ Ces informations alimentent notamment :
 - les factures et exports Factur-X Invocean
 
 Les conditions de paiement, la validite des devis et la note de pied de page restent dans les parametres Mobywork.
+
+## NautiCRM
+
+NautiCRM se trouve au meme niveau que les autres applications :
+
+```text
+www/NautiCRM/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- gerer un portefeuille clients et prospects
+- enregistrer contacts, interactions, relances, taches et opportunites
+- recuperer les clients PrestaShop via la configuration OceanOS
+- archiver les clients sans suppression physique
 
 ## NautiPost
 
@@ -463,7 +493,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Stockcean, Mobywork, NautiCRM, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -540,6 +570,7 @@ http://localhost/Flowcean/
 http://localhost/Invocean/
 http://localhost/Stockcean/
 http://localhost/Mobywork/
+http://localhost/NautiCRM/
 http://localhost/NautiPost/
 http://localhost/NautiCloud/
 http://localhost/Formcean/

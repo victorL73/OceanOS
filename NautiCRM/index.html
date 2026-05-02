@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NautiCRM</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nauticrm.svg?v=20260502">
+  <meta name="description" content="NautiCRM - CRM client connecte a OceanOS.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="/OceanOS/assets/guard.js?v=20260502-nauticrm"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">CRM</div>
+      <p>Chargement NautiCRM...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">CRM</span>
+            <span class="status-pill success-pill">OceanOS</span>
+            <span id="prestashop-chip" class="status-pill muted-pill">PrestaShop non configure</span>
+          </div>
+          <h1>NautiCRM</h1>
+          <p>Clients, contacts et relances.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="sync-prestashop-button" class="ghost-button" type="button">Synchroniser PrestaShop</button>
+          <button id="new-client-button" class="primary-button" type="button">Nouveau client</button>
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <a class="ghost-button" href="/OceanOS/">OceanOS</a>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Deconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <span>Clients</span>
+          <strong id="metric-clients">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Prospects</span>
+          <strong id="metric-prospects">0</strong>
+        </article>
+        <article class="metric-card alert">
+          <span>Relances</span>
+          <strong id="metric-followups">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Pipeline</span>
+          <strong id="metric-pipeline">0 EUR</strong>
+        </article>
+        <article class="metric-card danger">
+          <span>Taches</span>
+          <strong id="metric-tasks">0</strong>
+        </article>
+      </section>
+
+      <nav class="view-tabs" aria-label="Navigation NautiCRM">
+        <button class="view-tab is-active" data-view="clients" type="button">Clients</button>
+        <button class="view-tab" data-view="detail" type="button">Fiche client</button>
+        <button class="view-tab" data-view="tasks" type="button">Taches</button>
+        <button class="view-tab" data-view="opportunities" type="button">Opportunites</button>
+        <button class="view-tab" data-view="activity" type="button">Activite</button>
+      </nav>
+
+      <section id="view-clients" class="view-section content-grid" data-view-section="clients">
+        <section class="panel clients-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Portefeuille</p>
+              <h2>Clients et prospects</h2>
+            </div>
+            <form id="filters-form" class="filters-form">
+              <input id="filter-search" type="search" placeholder="Recherche client, email, ville">
+              <select id="filter-type">
+                <option value="">Tous les types</option>
+                <option value="prospect">Prospects</option>
+                <option value="client">Clients</option>
+                <option value="partner">Partenaires</option>
+                <option value="inactive">Inactifs</option>
+              </select>
+              <select id="filter-status">
+                <option value="">Actifs hors archives</option>
+                <option value="new">Nouveaux</option>
+                <option value="active">Actifs</option>
+                <option value="follow_up">A relancer</option>
+                <option value="won">Gagnes</option>
+                <option value="lost">Perdus</option>
+                <option value="archived">Archives</option>
+              </select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Statut</th>
+                  <th>Contact</th>
+                  <th>Relance</th>
+                  <th>Pipeline</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="clients-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Edition</p>
+                <h2 id="client-form-title">Nouveau client</h2>
+              </div>
+            </div>
+            <form id="client-form" class="stack-form">
+              <input id="client-id" type="hidden">
+              <label class="field">
+                <span>Nom client</span>
+                <input id="client-company" type="text" required>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Type</span>
+                  <select id="client-type">
+                    <option value="prospect">Prospect</option>
+                    <option value="client">Client</option>
+                    <option value="partner">Partenaire</option>
+                    <option value="inactive">Inactif</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Statut</span>
+                  <select id="client-status">
+                    <option value="new">Nouveau</option>
+                    <option value="active">Actif</option>
+                    <option value="follow_up">A relancer</option>
+                    <option value="won">Gagne</option>
+                    <option value="lost">Perdu</option>
+                    <option value="archived">Archive</option>
+                  </select>
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Priorite</span>
+                  <select id="client-priority">
+                    <option value="normal">Normale</option>
+                    <option value="high">Haute</option>
+                    <option value="low">Basse</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Assigne a</span>
+                  <select id="client-assigned"></select>
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Segment</span>
+                  <input id="client-segment" type="text">
+                </label>
+                <label class="field">
+                  <span>Source</span>
+                  <input id="client-source" type="text">
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Email</span>
+                  <input id="client-email" type="email">
+                </label>
+                <label class="field">
+                  <span>Telephone</span>
+                  <input id="client-phone" type="text">
+                </label>
+              </div>
+              <label class="field">
+                <span>Site web</span>
+                <input id="client-website" type="url">
+              </label>
+              <label class="field">
+                <span>Adresse</span>
+                <input id="client-address" type="text">
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Ville</span>
+                  <input id="client-city" type="text">
+                </label>
+                <label class="field">
+                  <span>Pays</span>
+                  <input id="client-country" type="text" value="France">
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>SIRET</span>
+                  <input id="client-siret" type="text">
+                </label>
+                <label class="field">
+                  <span>TVA</span>
+                  <input id="client-vat" type="text">
+                </label>
+              </div>
+              <label class="field">
+                <span>Prochaine relance</span>
+                <input id="client-next-action" type="date">
+              </label>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="client-notes" rows="4"></textarea>
+              </label>
+              <div class="form-actions">
+                <button id="client-save-button" class="primary-button" type="submit">Enregistrer</button>
+                <button id="client-reset-button" class="ghost-button" type="button">Vider</button>
+                <button id="client-archive-button" class="ghost-button danger-text hidden" type="button">Archiver</button>
+              </div>
+            </form>
+          </section>
+        </aside>
+      </section>
+
+      <section id="view-detail" class="view-section hidden" data-view-section="detail">
+        <section id="client-detail-empty" class="panel empty-panel">
+          <div class="empty-state">Selectionnez un client.</div>
+        </section>
+        <section id="client-detail" class="detail-grid hidden">
+          <article class="panel detail-summary" id="detail-summary"></article>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Contacts</p>
+                <h2>Interlocuteurs</h2>
+              </div>
+            </div>
+            <form id="contact-form" class="stack-form compact-form">
+              <input id="contact-id" type="hidden">
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Prenom</span>
+                  <input id="contact-first-name" type="text">
+                </label>
+                <label class="field">
+                  <span>Nom</span>
+                  <input id="contact-last-name" type="text">
+                </label>
+              </div>
+              <label class="field">
+                <span>Fonction</span>
+                <input id="contact-job-title" type="text">
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Email</span>
+                  <input id="contact-email" type="email">
+                </label>
+                <label class="field">
+                  <span>Telephone</span>
+                  <input id="contact-phone" type="text">
+                </label>
+              </div>
+              <label class="check-field">
+                <input id="contact-primary" type="checkbox">
+                <span>Contact principal</span>
+              </label>
+              <button class="primary-button" type="submit">Enregistrer contact</button>
+            </form>
+            <div id="contacts-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Suivi</p>
+                <h2>Interactions</h2>
+              </div>
+            </div>
+            <form id="interaction-form" class="stack-form compact-form">
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Type</span>
+                  <select id="interaction-type">
+                    <option value="note">Note</option>
+                    <option value="call">Appel</option>
+                    <option value="email">Email</option>
+                    <option value="meeting">Rendez-vous</option>
+                    <option value="quote">Devis</option>
+                    <option value="order">Commande</option>
+                    <option value="support">Support</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Contact</span>
+                  <select id="interaction-contact"></select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Sujet</span>
+                <input id="interaction-subject" type="text" required>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Date</span>
+                  <input id="interaction-date" type="datetime-local">
+                </label>
+                <label class="field">
+                  <span>Relance</span>
+                  <input id="interaction-next-action" type="date">
+                </label>
+              </div>
+              <label class="field">
+                <span>Compte rendu</span>
+                <textarea id="interaction-body" rows="4"></textarea>
+              </label>
+              <button class="primary-button" type="submit">Ajouter interaction</button>
+            </form>
+            <div id="interactions-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Actions</p>
+                <h2>Taches client</h2>
+              </div>
+            </div>
+            <form id="task-form" class="stack-form compact-form">
+              <input id="task-id" type="hidden">
+              <label class="field">
+                <span>Tache</span>
+                <input id="task-title" type="text" required>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Statut</span>
+                  <select id="task-status">
+                    <option value="todo">A faire</option>
+                    <option value="doing">En cours</option>
+                    <option value="done">Terminee</option>
+                    <option value="cancelled">Annulee</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Priorite</span>
+                  <select id="task-priority">
+                    <option value="normal">Normale</option>
+                    <option value="high">Haute</option>
+                    <option value="low">Basse</option>
+                  </select>
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Echeance</span>
+                  <input id="task-due" type="date">
+                </label>
+                <label class="field">
+                  <span>Assignee</span>
+                  <select id="task-assigned"></select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="task-notes" rows="3"></textarea>
+              </label>
+              <button class="primary-button" type="submit">Enregistrer tache</button>
+            </form>
+            <div id="client-tasks-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Ventes</p>
+                <h2>Opportunites</h2>
+              </div>
+            </div>
+            <form id="opportunity-form" class="stack-form compact-form">
+              <input id="opportunity-id" type="hidden">
+              <label class="field">
+                <span>Titre</span>
+                <input id="opportunity-title" type="text" required>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Etape</span>
+                  <select id="opportunity-stage">
+                    <option value="lead">Lead</option>
+                    <option value="qualified">Qualifie</option>
+                    <option value="proposal">Devis</option>
+                    <option value="negotiation">Negociation</option>
+                    <option value="won">Gagne</option>
+                    <option value="lost">Perdu</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Montant HT</span>
+                  <input id="opportunity-amount" type="number" min="0" step="0.01">
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Probabilite</span>
+                  <input id="opportunity-probability" type="number" min="0" max="100" value="20">
+                </label>
+                <label class="field">
+                  <span>Cloture prevue</span>
+                  <input id="opportunity-close" type="date">
+                </label>
+              </div>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="opportunity-notes" rows="3"></textarea>
+              </label>
+              <button class="primary-button" type="submit">Enregistrer opportunite</button>
+            </form>
+            <div id="client-opportunities-list" class="cards-list"></div>
+          </section>
+        </section>
+      </section>
+
+      <section id="view-tasks" class="view-section hidden" data-view-section="tasks">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Actions</p>
+              <h2>Taches ouvertes</h2>
+            </div>
+          </div>
+          <div id="tasks-list" class="board-list"></div>
+        </section>
+      </section>
+
+      <section id="view-opportunities" class="view-section hidden" data-view-section="opportunities">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Pipeline</p>
+              <h2>Opportunites</h2>
+            </div>
+          </div>
+          <div id="opportunities-list" class="board-list"></div>
+        </section>
+      </section>
+
+      <section id="view-activity" class="view-section hidden" data-view-section="activity">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Journal</p>
+              <h2>Dernieres interactions</h2>
+            </div>
+          </div>
+          <div id="activity-list" class="board-list"></div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="assets/app.js?v=20260502-nauticrm"></script>
+</body>
+</html>
