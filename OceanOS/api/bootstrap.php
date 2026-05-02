@@ -355,7 +355,7 @@ function oceanos_user_permissions(array $user): array
 
 function oceanos_available_module_ids(): array
 {
-    return ['agenda', 'flowcean', 'invocean', 'devis', 'stockcean', 'mobywork', 'nauticrm', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
+    return ['agenda', 'flowcean', 'invocean', 'devis', 'stockcean', 'mobywork', 'nauticrm', 'nautimail', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
 }
 
 function oceanos_normalize_visible_modules(mixed $modules, ?array $fallback = null): array
@@ -420,7 +420,11 @@ function oceanos_decode_visible_modules(?string $json): array
         $modules[] = 'nauticrm';
     }
     $legacyModulesWithNautiCRM = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm'];
-    if (!in_array('devis', $modules, true) && count(array_diff($legacyModulesWithNautiCRM, $modules)) === 0) {
+    if (!in_array('nautimail', $modules, true) && count(array_diff($legacyModulesWithNautiCRM, $modules)) === 0) {
+        $modules[] = 'nautimail';
+    }
+    $legacyModulesWithNautiMail = ['flowcean', 'invocean', 'stockcean', 'mobywork', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail'];
+    if (!in_array('devis', $modules, true) && count(array_diff($legacyModulesWithNautiMail, $modules)) === 0) {
         $modules[] = 'devis';
     }
 

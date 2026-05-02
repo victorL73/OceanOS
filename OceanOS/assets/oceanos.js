@@ -64,6 +64,14 @@ const apps = [
     color: "#087d79",
   },
   {
+    id: "nautimail",
+    title: "NautiMail",
+    subtitle: "Boites mail partagees, tri IA et reponses client.",
+    href: "/NautiMail/",
+    mark: "NM",
+    color: "#2f6fb3",
+  },
+  {
     id: "nautipost",
     title: "NautiPost",
     subtitle: "Campagnes, messages et outils marketing.",

@@ -33,6 +33,11 @@ const elements = {
   productSource: $("product-source"),
   productSearch: $("product-search"),
   productResults: $("product-results"),
+  feeType: $("fee-type"),
+  feeLabel: $("fee-label"),
+  feeAmount: $("fee-amount"),
+  feeTaxRate: $("fee-tax-rate"),
+  addFeeButton: $("add-fee-button"),
   quoteLines: $("quote-lines"),
   paymentTerms: $("payment-terms"),
   totalHt: $("total-ht"),
@@ -55,6 +60,12 @@ const money = new Intl.NumberFormat("fr-FR", {
   currency: "EUR",
   maximumFractionDigits: 2,
 });
+
+const FEE_LABELS = {
+  delivery: "Livraison",
+  handling: "Manutention",
+  other: "Frais annexe",
+};
 
 function redirectToOceanOS() {
   const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -86,6 +97,12 @@ function formatDate(value) {
     month: "2-digit",
     year: "numeric",
   }).format(date);
+}
+
+function parseNumber(value) {
+  const normalized = String(value ?? "").replace(/\s+/g, "").replace(",", ".");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
 }
 
 async function apiRequest(url, options = {}) {
@@ -150,15 +167,16 @@ function recalculateDraft() {
   let totalHt = 0;
   let totalTtc = 0;
   draft.lines = (draft.lines || []).map((line) => {
-    const quantity = Math.max(0, Number(line.quantity || 0));
-    const unitPrice = Math.max(0, Number(line.unit_price_ht || 0));
-    const taxRate = Math.max(0, Number(line.tax_rate || 0));
+    const quantity = Math.max(0, parseNumber(line.quantity));
+    const unitPrice = Math.max(0, parseNumber(line.unit_price_ht));
+    const taxRate = Math.max(0, parseNumber(line.tax_rate));
     const lineHt = quantity * unitPrice;
     const lineTtc = lineHt * (1 + taxRate / 100);
     totalHt += lineHt;
     totalTtc += lineTtc;
     return {
       ...line,
+      line_type: line.line_type || (line.product_id ? "product" : "fee"),
       quantity,
       unit_price_ht: unitPrice,
       tax_rate: taxRate,
@@ -268,22 +286,27 @@ function renderBuilder() {
 
 function renderLines(draft) {
   if (!draft.lines || draft.lines.length === 0) {
-    elements.quoteLines.innerHTML = '<tr><td colspan="6" class="empty-state">Ajoutez un produit depuis le catalogue PrestaShop.</td></tr>';
+    elements.quoteLines.innerHTML = '<tr><td colspan="6" class="empty-state">Ajoutez un produit ou un frais annexe.</td></tr>';
     return;
   }
 
   elements.quoteLines.innerHTML = draft.lines.map((line, index) => {
+    const lineType = line.line_type || (line.product_id ? "product" : "fee");
+    const isFee = lineType === "fee";
     const quantity = Number(line.quantity || 0);
     const unitPrice = Number(line.unit_price_ht || 0);
     const taxRate = Number(line.tax_rate || 0);
     const total = quantity * unitPrice * (1 + taxRate / 100);
     const reference = line.product_reference || line.reference || line.product_id || "";
+    const meta = isFee
+      ? `Frais annexe${line.fee_type ? ` - ${escapeHtml(feeTypeLabel(line.fee_type))}` : ""}`
+      : (reference ? `Ref. ${escapeHtml(reference)}` : "Produit manuel");
     return `
-      <tr data-line-index="${index}">
+      <tr data-line-index="${index}" class="${isFee ? "fee-line" : ""}">
         <td>
           <div class="line-name">
             <strong>${escapeHtml(line.name || "Produit")}</strong>
-            <span>${reference ? `Ref. ${escapeHtml(reference)}` : "Produit manuel"}</span>
+            <span>${meta}</span>
           </div>
         </td>
         <td><input class="line-number" data-line-field="quantity" type="number" min="0" step="1" value="${quantity}"></td>
@@ -328,6 +351,18 @@ function renderProductResults() {
   `).join("");
 }
 
+function feeTypeLabel(type) {
+  return FEE_LABELS[type] || FEE_LABELS.other;
+}
+
+function syncFeeLabel(force = false) {
+  const current = elements.feeLabel.value.trim();
+  const knownLabels = Object.values(FEE_LABELS);
+  if (force || current === "" || knownLabels.includes(current)) {
+    elements.feeLabel.value = feeTypeLabel(elements.feeType.value);
+  }
+}
+
 function render() {
   renderChrome();
   renderMetrics();
@@ -352,15 +387,45 @@ function addProduct(productId) {
     ...(draft.lines || []),
     {
       product_id: product.id,
+      line_type: "product",
       product_reference: product.reference || "",
       name: product.name || `Produit #${product.id}`,
       quantity: 1,
-      unit_price_ht: Number(product.price || 0),
+      unit_price_ht: parseNumber(product.price),
       tax_rate: 20,
     },
   ];
   state.draft = draft;
   elements.productSearch.value = "";
+  renderBuilder();
+}
+
+function addFee() {
+  updateDraftFromInputs();
+  syncFeeLabel(false);
+  const amount = Math.max(0, parseNumber(elements.feeAmount.value));
+  if (amount <= 0) {
+    showMessage("Renseignez un montant HT pour le frais annexe.", "error");
+    return;
+  }
+
+  const draft = activeQuote();
+  const feeType = elements.feeType.value || "other";
+  draft.lines = [
+    ...(draft.lines || []),
+    {
+      product_id: null,
+      line_type: "fee",
+      fee_type: feeType,
+      product_reference: "",
+      name: elements.feeLabel.value.trim() || feeTypeLabel(feeType),
+      quantity: 1,
+      unit_price_ht: amount,
+      tax_rate: Math.max(0, parseNumber(elements.feeTaxRate.value)),
+    },
+  ];
+  state.draft = draft;
+  elements.feeAmount.value = "";
   renderBuilder();
 }
 
@@ -378,7 +443,7 @@ function updateLine(row, input) {
   const field = input.dataset.lineField;
   const draft = activeQuote();
   if (!draft.lines[index] || !field) return;
-  draft.lines[index][field] = Number(input.value || 0);
+  draft.lines[index][field] = parseNumber(input.value);
   state.draft = draft;
   renderBuilder();
 }
@@ -401,11 +466,15 @@ async function saveQuote(downloadAfter = false) {
     state.selectedId = payload.quote?.id || draft.id || "new";
     state.draft = cloneQuote(payload.quote || state.quotes.find((quote) => Number(quote.id) === Number(state.selectedId)));
     render();
-    showMessage(payload.message || "Devis enregistre.", "success");
+    await loadDashboard();
+    showMessage(payload.quote?.pdf_warning ? "Devis enregistre. Le PDF sera genere au telechargement." : (payload.message || "Devis enregistre."), "success");
     if (downloadAfter && payload.quote?.id) {
       window.location.href = `${API.devis}?action=download&id=${encodeURIComponent(payload.quote.id)}`;
     }
   } catch (error) {
+    try {
+      await loadDashboard();
+    } catch (refreshError) {}
     showMessage(error.message || "Sauvegarde impossible.", "error");
   } finally {
     elements.saveQuoteButton.disabled = false;
@@ -471,6 +540,8 @@ function installListeners() {
   elements.clientEmail.addEventListener("input", updateDraftFromInputs);
   elements.quoteStatus.addEventListener("change", updateDraftFromInputs);
   elements.productSearch.addEventListener("input", renderProductResults);
+  elements.feeType.addEventListener("change", () => syncFeeLabel(false));
+  elements.addFeeButton.addEventListener("click", addFee);
   elements.productResults.addEventListener("click", (event) => {
     const button = event.target.closest("[data-add-product]");
     if (!button) return;

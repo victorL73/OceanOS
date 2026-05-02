@@ -18,6 +18,7 @@
     ["/devis/", "devis"],
     ["/stockcean/", "stockcean"],
     ["/nauticrm/", "nauticrm"],
+    ["/nautimail/", "nautimail"],
     ["/nautipost/", "nautipost"],
     ["/nauticloud/", "nauticloud"],
     ["/mobywork/", "mobywork"],

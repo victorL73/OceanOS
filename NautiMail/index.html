@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NautiMail</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nautimail.svg?v=20260502">
+  <meta name="description" content="NautiMail - Boites mail partagees et tri IA OceanOS.">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css">
+  <link rel="stylesheet" href="assets/style.css">
+  <script defer src="/OceanOS/assets/guard.js?v=20260502-nautimail"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="loading-view" id="loading-view">
+      <div class="brand-mark">NM</div>
+      <p>Chargement NautiMail...</p>
+    </section>
+
+    <section class="app-view hidden" id="app-view">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">NM</span>
+            <span class="status-pill success-pill">OceanOS</span>
+            <span id="imap-chip" class="status-pill muted-pill">IMAP</span>
+            <span id="ai-chip" class="status-pill muted-pill">IA Groq</span>
+          </div>
+          <h1>NautiMail</h1>
+          <p>Boites partagees, tri commercial et reponses assistees.</p>
+        </div>
+        <div class="topbar-actions">
+          <select id="account-select" aria-label="Adresse mail"></select>
+          <button id="sync-button" class="primary-button" type="button">Relever</button>
+          <button id="analyze-pending-button" class="ghost-button" type="button">Analyser</button>
+          <button id="refresh-button" class="ghost-button" type="button">Actualiser</button>
+          <a class="ghost-button" href="/OceanOS/">OceanOS</a>
+          <button id="logout-button" class="ghost-button danger-text" type="button">Deconnexion</button>
+          <span id="current-user" class="user-chip"></span>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section class="metrics-grid">
+        <article class="metric-card">
+          <span>Adresses</span>
+          <strong id="metric-accounts">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Mails</span>
+          <strong id="metric-messages">0</strong>
+        </article>
+        <article class="metric-card alert">
+          <span>Nouveaux</span>
+          <strong id="metric-new">0</strong>
+        </article>
+        <article class="metric-card danger">
+          <span>Urgents</span>
+          <strong id="metric-urgent">0</strong>
+        </article>
+        <article class="metric-card">
+          <span>Syntheses</span>
+          <strong id="metric-ai">0</strong>
+        </article>
+      </section>
+
+      <nav class="view-tabs" aria-label="Navigation NautiMail">
+        <button class="view-tab is-active" data-view="inbox" type="button">Boite</button>
+        <button class="view-tab" data-view="detail" type="button">Mail</button>
+        <button class="view-tab" data-view="reply" type="button">Reponse</button>
+        <button class="view-tab" data-view="accounts" type="button">Adresses</button>
+      </nav>
+
+      <section id="view-inbox" class="view-section content-grid" data-view-section="inbox">
+        <section class="panel mails-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Reception</p>
+              <h2>Mails traites</h2>
+            </div>
+            <form id="filters-form" class="filters-form">
+              <input id="filter-search" type="search" placeholder="Recherche sujet, expediteur">
+              <select id="filter-category">
+                <option value="">Tous les tris</option>
+                <option value="client">Client</option>
+                <option value="vente">Vente</option>
+                <option value="gestion">Gestion</option>
+                <option value="support">Support</option>
+                <option value="finance">Finance</option>
+                <option value="spam">Spam</option>
+                <option value="autre">Autre</option>
+              </select>
+              <select id="filter-status">
+                <option value="">Actifs</option>
+                <option value="new">Nouveaux</option>
+                <option value="triaged">Tries</option>
+                <option value="read">Lus</option>
+                <option value="replied">Repondus</option>
+                <option value="archived">Archives</option>
+              </select>
+              <button class="ghost-button" type="submit">Filtrer</button>
+            </form>
+          </div>
+          <div class="mail-list" id="messages-list"></div>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Pre-tri</p>
+                <h2>Priorites</h2>
+              </div>
+            </div>
+            <div id="triage-board" class="triage-board"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Acces</p>
+                <h2>Adresses communes</h2>
+              </div>
+            </div>
+            <div id="account-cards" class="cards-list"></div>
+          </section>
+        </aside>
+      </section>
+
+      <section id="view-detail" class="view-section hidden detail-grid" data-view-section="detail">
+        <section id="mail-detail-empty" class="panel empty-panel">
+          <div class="empty-state">Selectionnez un mail.</div>
+        </section>
+        <article id="mail-detail" class="panel mail-detail hidden"></article>
+        <aside id="mail-triage-panel" class="panel hidden">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Classement</p>
+              <h2>Tri et assignation</h2>
+            </div>
+          </div>
+          <form id="message-form" class="stack-form">
+            <label class="field">
+              <span>Categorie</span>
+              <select id="message-category">
+                <option value="client">Client</option>
+                <option value="vente">Vente</option>
+                <option value="gestion">Gestion</option>
+                <option value="support">Support</option>
+                <option value="finance">Finance</option>
+                <option value="spam">Spam</option>
+                <option value="autre">Autre</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Priorite</span>
+              <select id="message-priority">
+                <option value="low">Basse</option>
+                <option value="normal">Normale</option>
+                <option value="high">Haute</option>
+                <option value="urgent">Urgente</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Statut</span>
+              <select id="message-status">
+                <option value="new">Nouveau</option>
+                <option value="triaged">Trie</option>
+                <option value="read">Lu</option>
+                <option value="replied">Repondu</option>
+                <option value="archived">Archive</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Assigne a</span>
+              <select id="message-assigned"></select>
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Enregistrer</button>
+              <button id="analyze-message-button" class="ghost-button" type="button">Synthese IA</button>
+              <button id="open-reply-button" class="ghost-button" type="button">Repondre</button>
+            </div>
+          </form>
+        </aside>
+      </section>
+
+      <section id="view-reply" class="view-section hidden reply-grid" data-view-section="reply">
+        <section id="reply-empty" class="panel empty-panel">
+          <div class="empty-state">Selectionnez un mail pour preparer une reponse.</div>
+        </section>
+        <section id="reply-panel" class="panel hidden">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Reponse</p>
+              <h2>Brouillon</h2>
+            </div>
+            <div class="card-actions">
+              <select id="reply-tone" aria-label="Ton de reponse">
+                <option value="pro">Professionnel</option>
+                <option value="court">Court</option>
+                <option value="commercial">Commercial</option>
+                <option value="support">Support</option>
+              </select>
+              <button id="generate-reply-button" class="ghost-button" type="button">Generer IA</button>
+            </div>
+          </div>
+          <form id="reply-form" class="stack-form">
+            <label class="field">
+              <span>A</span>
+              <input id="reply-to" type="email" required>
+            </label>
+            <label class="field">
+              <span>Objet</span>
+              <input id="reply-subject" type="text" required>
+            </label>
+            <label class="field">
+              <span>Message</span>
+              <textarea id="reply-body" rows="14" required></textarea>
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Envoyer</button>
+              <button id="reply-reset-button" class="ghost-button" type="button">Vider</button>
+            </div>
+          </form>
+        </section>
+      </section>
+
+      <section id="view-accounts" class="view-section hidden accounts-grid" data-view-section="accounts">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Configuration</p>
+              <h2 id="account-form-title">Nouvelle adresse</h2>
+            </div>
+            <button id="new-account-button" class="ghost-button" type="button">Nouvelle</button>
+          </div>
+          <form id="account-form" class="stack-form">
+            <input id="account-id" type="hidden">
+            <div class="inline-fields">
+              <label class="field">
+                <span>Libelle</span>
+                <input id="account-label" type="text" placeholder="Support, Ventes...">
+              </label>
+              <label class="field">
+                <span>Adresse</span>
+                <input id="account-email" type="email" required>
+              </label>
+            </div>
+            <div class="inline-fields">
+              <label class="field">
+                <span>Nom affiche</span>
+                <input id="account-display-name" type="text">
+              </label>
+              <label class="field">
+                <span>Utilisateur</span>
+                <input id="account-username" type="text" autocomplete="username">
+              </label>
+            </div>
+            <label class="field">
+              <span>Mot de passe</span>
+              <input id="account-password" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver">
+            </label>
+            <div class="server-grid">
+              <fieldset>
+                <legend>IMAP</legend>
+                <label class="field">
+                  <span>Serveur</span>
+                  <input id="account-imap-host" type="text" required placeholder="imap.exemple.fr">
+                </label>
+                <div class="inline-fields">
+                  <label class="field">
+                    <span>Port</span>
+                    <input id="account-imap-port" type="number" min="1" max="65535" value="993">
+                  </label>
+                  <label class="field">
+                    <span>Chiffrement</span>
+                    <select id="account-imap-encryption">
+                      <option value="ssl">SSL</option>
+                      <option value="tls">TLS</option>
+                      <option value="none">Aucun</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Dossier</span>
+                  <input id="account-imap-folder" type="text" value="INBOX">
+                </label>
+              </fieldset>
+              <fieldset>
+                <legend>SMTP</legend>
+                <label class="field">
+                  <span>Serveur</span>
+                  <input id="account-smtp-host" type="text" placeholder="smtp.exemple.fr">
+                </label>
+                <div class="inline-fields">
+                  <label class="field">
+                    <span>Port</span>
+                    <input id="account-smtp-port" type="number" min="1" max="65535" value="587">
+                  </label>
+                  <label class="field">
+                    <span>Chiffrement</span>
+                    <select id="account-smtp-encryption">
+                      <option value="tls">TLS</option>
+                      <option value="ssl">SSL</option>
+                      <option value="none">Aucun</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Reply-to</span>
+                  <input id="account-reply-to" type="email">
+                </label>
+              </fieldset>
+            </div>
+            <label class="field">
+              <span>Signature</span>
+              <textarea id="account-signature" rows="4"></textarea>
+            </label>
+            <label class="check-field">
+              <input id="account-active" type="checkbox" checked>
+              <span>Adresse active</span>
+            </label>
+            <section class="share-box">
+              <div>
+                <p class="eyebrow">Partage</p>
+                <h3>Utilisateurs autorises</h3>
+              </div>
+              <div id="account-shares" class="share-grid"></div>
+            </section>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Enregistrer</button>
+              <button id="account-reset-button" class="ghost-button" type="button">Vider</button>
+              <button id="account-deactivate-button" class="ghost-button danger-text hidden" type="button">Desactiver</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Boites</p>
+              <h2>Adresses disponibles</h2>
+            </div>
+          </div>
+          <div id="accounts-list" class="cards-list"></div>
+        </aside>
+      </section>
+    </section>
+  </main>
+
+  <script src="assets/app.js?v=20260502-nautimail"></script>
+</body>
+</html>

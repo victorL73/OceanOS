@@ -15,6 +15,7 @@ www/
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Mobywork/              CRM e-commerce, commandes, emails et finance
   NautiCRM/              CRM clients, contacts, relances et opportunites
+  NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
   NautiPost/             Campagnes, messages et outils marketing
   NautiCloud/            Drive partage, apercus et edition temps reel
   Formcean/              Formulaires publics, collecte de reponses et exports
@@ -46,6 +47,7 @@ Les applications concernées actuellement sont :
 - Stockcean
 - Mobywork
 - NautiCRM
+- NautiMail
 - NautiPost
 - NautiCloud
 - Formcean
@@ -208,6 +210,15 @@ nauticrm_opportunities
 nauticrm_sync_runs
 ```
 
+Tables NautiMail :
+
+```text
+nautimail_accounts
+nautimail_account_users
+nautimail_messages
+nautimail_replies
+```
+
 Tables Stockcean :
 
 ```text
@@ -295,6 +306,7 @@ Elle est partagée avec les modules qui en ont besoin, notamment :
 
 - Flowcean
 - Mobywork
+- NautiMail
 - NautiPost
 - MeetOcean
 
@@ -350,6 +362,7 @@ Il utilise OceanOS pour :
 
 - verifier la session et les droits de module
 - recuperer les produits PrestaShop depuis le connecteur commun
+- ajouter des frais annexes comme la livraison ou la manutention
 - enregistrer les devis dans MySQL
 - generer des PDF avec le meme gabarit de sortie que les devis Mobywork
 - servir les PDF uniquement via une API authentifiee
@@ -369,6 +382,24 @@ Il utilise OceanOS pour :
 - enregistrer contacts, interactions, relances, taches et opportunites
 - recuperer les clients PrestaShop via la configuration OceanOS
 - archiver les clients sans suppression physique
+
+## NautiMail
+
+NautiMail se trouve au meme niveau que les autres applications :
+
+```text
+www/NautiMail/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- enregistrer plusieurs adresses mail avec IMAP/SMTP et mots de passe chiffres
+- partager une adresse commune avec plusieurs utilisateurs OceanOS
+- relever les mails via IMAP quand l'extension PHP IMAP est activee
+- pre-trier les mails client, vente, gestion, support et finance
+- synthetiser les mails et proposer des actions via la cle Groq configuree dans OceanOS
+- generer puis envoyer des reponses via SMTP
 
 ## NautiPost
 
@@ -507,7 +538,7 @@ Pré-requis conseillés :
 - MySQL ou MariaDB
 - Apache ou Nginx
 - ecriture autorisee pour PHP sur `NautiCloud/storage/`
-- extensions PHP : `pdo_mysql`, `mbstring`, `curl`, `openssl`
+- extensions PHP : `pdo_mysql`, `mbstring`, `curl`, `openssl`, `imap` pour le releve NautiMail
 - écriture autorisée pour PHP sur `OceanOS/config/` et `admin/storage/`
 
 Checklist de déploiement :
@@ -519,7 +550,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Devis, Stockcean, Mobywork, NautiCRM, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Devis, Stockcean, Mobywork, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -598,6 +629,7 @@ http://localhost/Devis/
 http://localhost/Stockcean/
 http://localhost/Mobywork/
 http://localhost/NautiCRM/
+http://localhost/NautiMail/
 http://localhost/NautiPost/
 http://localhost/NautiCloud/
 http://localhost/Formcean/

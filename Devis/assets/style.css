@@ -441,6 +441,39 @@ select:disabled {
   font-size: 0.8rem;
 }
 
+.fee-box {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(198, 221, 230, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.fee-box-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fee-box-head span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.fee-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(190px, 1.2fr) minmax(120px, 0.7fr) minmax(90px, 0.55fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.fee-grid .ghost-button {
+  min-height: 42px;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -479,6 +512,10 @@ th {
 .line-name span {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.fee-line .line-name strong {
+  color: #b7ecff;
 }
 
 .line-number {
@@ -559,6 +596,7 @@ th {
   .metrics-grid,
   .content-grid,
   .form-grid,
+  .fee-grid,
   .totals-row {
     grid-template-columns: 1fr;
   }
@@ -580,7 +618,8 @@ th {
 
   .topbar,
   .panel-header,
-  .product-search-head {
+  .product-search-head,
+  .fee-box-head {
     align-items: flex-start;
     flex-direction: column;
   }

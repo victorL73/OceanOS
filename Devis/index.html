@@ -119,6 +119,37 @@
                 </label>
               </div>
               <div id="product-results" class="product-results hidden"></div>
+
+              <div class="fee-box">
+                <div class="fee-box-head">
+                  <h3>Frais annexes</h3>
+                  <span>Livraison, manutention ou autre frais</span>
+                </div>
+                <div class="fee-grid">
+                  <label class="field">
+                    <span>Type</span>
+                    <select id="fee-type">
+                      <option value="delivery">Livraison</option>
+                      <option value="handling">Manutention</option>
+                      <option value="other">Autre frais</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Libelle</span>
+                    <input id="fee-label" type="text" value="Livraison">
+                  </label>
+                  <label class="field">
+                    <span>Montant HT</span>
+                    <input id="fee-amount" type="number" min="0" step="0.01" placeholder="0.00">
+                  </label>
+                  <label class="field">
+                    <span>TVA</span>
+                    <input id="fee-tax-rate" type="number" min="0" step="0.1" value="20">
+                  </label>
+                  <button id="add-fee-button" class="ghost-button" type="button">Ajouter</button>
+                </div>
+              </div>
+
               <div class="table-wrap">
                 <table class="lines-table">
                   <thead>
@@ -153,6 +184,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260502-devis"></script>
+  <script src="assets/app.js?v=20260502-pdf-refresh"></script>
 </body>
 </html>
