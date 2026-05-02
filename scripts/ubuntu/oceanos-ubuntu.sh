@@ -125,6 +125,19 @@ install_node_dependencies() {
     (cd "$APP_ROOT/Mobywork/backend" && npm install --omit=dev)
   fi
 
+  if [[ -f "$APP_ROOT/Mobywork/backend/package.json" ]]; then
+    if ! (cd "$APP_ROOT/Mobywork/backend" && node -e "require.resolve('node-cron')" >/dev/null); then
+      log "Dependances backend incompletes, reinstall propre de node_modules..."
+      rm -rf "$APP_ROOT/Mobywork/backend/node_modules"
+      if [[ -f "$APP_ROOT/Mobywork/backend/package-lock.json" ]]; then
+        (cd "$APP_ROOT/Mobywork/backend" && npm ci --omit=dev)
+      else
+        (cd "$APP_ROOT/Mobywork/backend" && npm install --omit=dev)
+      fi
+      (cd "$APP_ROOT/Mobywork/backend" && node -e "require.resolve('node-cron')" >/dev/null)
+    fi
+  fi
+
   if [[ -f "$APP_ROOT/Mobywork/frontend/package-lock.json" ]]; then
     (cd "$APP_ROOT/Mobywork/frontend" && npm ci)
   elif [[ -f "$APP_ROOT/Mobywork/frontend/package.json" ]]; then
