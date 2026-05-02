@@ -240,7 +240,7 @@ function commandes_fetch_orders(PDO $pdo, array $query = []): array
     $limit = max(1, min(250, (int) ($query['limit'] ?? 80)));
     $filters = [
         'display' => '[id,reference,id_customer,current_state,payment,module,total_paid,total_paid_tax_incl,total_products,total_products_wt,id_currency,date_add,date_upd]',
-        'sort' => '[date_add_DESC]',
+        'sort' => '[id_DESC]',
         'limit' => '0,' . $limit,
     ];
 
@@ -249,7 +249,17 @@ function commandes_fetch_orders(PDO $pdo, array $query = []): array
         $filters['filter[current_state]'] = '[' . $stateId . ']';
     }
 
-    $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', $filters);
+    try {
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', $filters);
+    } catch (OceanosPrestashopException $exception) {
+        if (!in_array($exception->statusCode, [400, 500], true)) {
+            throw $exception;
+        }
+
+        $filters['display'] = '[id,id_customer,current_state,module,id_currency,invoice_number,invoice_date,delivery_number,delivery_date]';
+        $filters['sort'] = '[id_DESC]';
+        $nodes = commandes_fetch_prestashop_nodes($shopUrl, $apiKey, 'orders', 'orders', 'order', $filters);
+    }
     $states = commandes_fetch_order_states($shopUrl, $apiKey);
     $customers = [];
     $orders = [];

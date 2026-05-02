@@ -160,6 +160,15 @@ const apps = [
     color: "#9adf68",
     superOnly: true,
   },
+  {
+    id: "backup",
+    title: "Backup",
+    subtitle: "ZIP du dossier www et export complet de la BDD.",
+    href: "/Backup/",
+    mark: "BA",
+    color: "#2fd0b5",
+    superOnly: true,
+  },
 ];
 
 const $ = (id) => document.getElementById(id);

@@ -17,6 +17,14 @@ const elements = {
   periodForm: $("period-form"),
   periodStart: $("period-start"),
   periodEnd: $("period-end"),
+  fundsSpotlight: $("funds-spotlight"),
+  fundsAvailable: $("funds-available"),
+  fundsCaption: $("funds-caption"),
+  fundsBar: $("funds-bar"),
+  fundsVatBar: $("funds-vat-bar"),
+  fundsAfterVat: $("funds-after-vat"),
+  fundsVatReserve: $("funds-vat-reserve"),
+  fundsOut: $("funds-out"),
   metricCash: $("metric-cash"),
   metricRevenue: $("metric-revenue"),
   metricSuppliers: $("metric-suppliers"),
@@ -196,6 +204,7 @@ function applyDashboard(payload) {
   elements.metricProfit.closest(".metric-card").classList.toggle("negative", Number(summary.estimatedProfitTaxExcl || 0) < 0);
   elements.metricVat.closest(".metric-card").classList.toggle("negative", Number(summary.vatDue || 0) < 0);
 
+  renderFundsSpotlight();
   renderSummary();
   renderWarnings();
   renderEntries();
@@ -204,6 +213,34 @@ function applyDashboard(payload) {
   renderVatCards();
   renderSettings();
   renderCharts();
+}
+
+function renderFundsSpotlight() {
+  const summary = state.dashboard?.summary || {};
+  const available = Number(summary.cashBalance || 0);
+  const vatReserve = Math.max(0, Number(summary.vatDue || 0));
+  const afterVat = available - vatReserve;
+  const cashOut = Number(summary.cashOut || 0);
+  const totalForRail = Math.max(1, Math.abs(available) + vatReserve);
+  const availablePct = available > 0 ? Math.max(4, Math.min(100, (available / totalForRail) * 100)) : 0;
+  const vatPct = vatReserve > 0 ? Math.max(4, Math.min(100 - availablePct, (vatReserve / totalForRail) * 100)) : 0;
+
+  elements.fundsAvailable.textContent = formatMoney(available);
+  elements.fundsAfterVat.textContent = formatMoney(afterVat);
+  elements.fundsVatReserve.textContent = formatMoney(vatReserve);
+  elements.fundsOut.textContent = formatMoney(cashOut);
+  elements.fundsBar.style.width = `${availablePct}%`;
+  elements.fundsVatBar.style.width = `${vatPct}%`;
+  elements.fundsSpotlight.classList.toggle("negative", available < 0);
+  elements.fundsSpotlight.classList.toggle("caution", available >= 0 && afterVat < 0);
+
+  if (available < 0) {
+    elements.fundsCaption.textContent = `Solde negatif de ${formatMoney(Math.abs(available))}.`;
+  } else if (vatReserve > 0) {
+    elements.fundsCaption.textContent = `${formatMoney(afterVat)} prudent apres TVA estimee.`;
+  } else {
+    elements.fundsCaption.textContent = "Disponible maintenant sur la periode selectionnee.";
+  }
 }
 
 function renderSummary() {

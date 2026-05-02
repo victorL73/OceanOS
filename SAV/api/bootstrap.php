@@ -223,7 +223,7 @@ function sav_fetch_threads(PDO $pdo, array $query = []): array
     $limit = max(1, min(250, (int) ($query['limit'] ?? 80)));
     $filters = [
         'display' => '[id,id_customer,id_order,id_contact,email,token,status,date_add,date_upd]',
-        'sort' => '[date_upd_DESC]',
+        'sort' => '[id_DESC]',
         'limit' => '0,' . $limit,
     ];
 
@@ -238,7 +238,9 @@ function sav_fetch_threads(PDO $pdo, array $query = []): array
         if (!in_array($exception->statusCode, [400, 500], true)) {
             throw $exception;
         }
-        $filters['display'] = 'full';
+
+        $filters['display'] = '[id,id_customer,id_order,id_product,id_contact,email,token,status]';
+        $filters['sort'] = '[id_DESC]';
         $nodes = sav_fetch_prestashop_nodes($shopUrl, $apiKey, 'customer_threads', 'customer_threads', 'customer_thread', $filters);
     }
 
@@ -275,7 +277,7 @@ function sav_fetch_thread_messages(string $shopUrl, string $apiKey, int $threadI
     $filters = [
         'filter[id_customer_thread]' => '[' . $threadId . ']',
         'display' => '[id,id_customer_thread,id_employee,message,private,read,date_add,date_upd]',
-        'sort' => '[date_add_ASC]',
+        'sort' => '[id_ASC]',
         'limit' => '0,200',
     ];
 
@@ -285,7 +287,9 @@ function sav_fetch_thread_messages(string $shopUrl, string $apiKey, int $threadI
         if (!in_array($exception->statusCode, [400, 500], true)) {
             throw $exception;
         }
-        $filters['display'] = 'full';
+
+        $filters['display'] = '[id,id_customer_thread,id_employee,message,private,read]';
+        $filters['sort'] = '[id_ASC]';
         $nodes = sav_fetch_prestashop_nodes($shopUrl, $apiKey, 'customer_messages', 'customer_messages', 'customer_message', $filters);
     }
 

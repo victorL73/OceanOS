@@ -252,6 +252,133 @@ canvas {
   color: var(--green);
 }
 
+.funds-spotlight {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.22fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 20px;
+  border: 1px solid rgba(37, 111, 189, 0.30);
+  border-radius: 8px;
+  background:
+    linear-gradient(120deg, rgba(37, 111, 189, 0.12), transparent 46%),
+    linear-gradient(180deg, #ffffff, #f7fbf8);
+  box-shadow: 0 20px 48px rgba(25, 44, 34, 0.12);
+}
+
+.funds-main {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.funds-main span,
+.funds-breakdown span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.funds-main strong {
+  display: block;
+  color: var(--green);
+  font-size: clamp(2.2rem, 5vw, 4.4rem);
+  line-height: 1;
+  letter-spacing: 0;
+  word-break: break-word;
+}
+
+.funds-main small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.funds-visual {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.funds-rail {
+  position: relative;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #e7eee9;
+}
+
+.funds-bar,
+.funds-vat-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transition: width 180ms ease;
+}
+
+.funds-bar {
+  left: 0;
+  background: linear-gradient(90deg, var(--green), #68c0a0);
+}
+
+.funds-vat-bar {
+  right: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(201, 131, 22, 0.95),
+    rgba(201, 131, 22, 0.95) 8px,
+    rgba(201, 131, 22, 0.72) 8px,
+    rgba(201, 131, 22, 0.72) 16px
+  );
+}
+
+.funds-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.funds-breakdown article {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  min-width: 0;
+}
+
+.funds-breakdown strong {
+  font-size: 1.15rem;
+  letter-spacing: 0;
+  word-break: break-word;
+}
+
+.funds-spotlight.negative {
+  border-color: rgba(199, 68, 68, 0.36);
+  background:
+    linear-gradient(120deg, rgba(199, 68, 68, 0.12), transparent 46%),
+    linear-gradient(180deg, #ffffff, #fff8f7);
+}
+
+.funds-spotlight.negative .funds-main strong,
+.funds-spotlight.negative .funds-breakdown article:first-child strong {
+  color: var(--red);
+}
+
+.funds-spotlight.negative .funds-rail {
+  background: rgba(199, 68, 68, 0.12);
+}
+
+.funds-spotlight.caution .funds-main strong {
+  color: var(--amber);
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -624,6 +751,10 @@ canvas {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .funds-spotlight {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-layout,
   .orders-layout,
   .entries-layout,
@@ -660,6 +791,7 @@ canvas {
   }
 
   .metrics-grid,
+  .funds-breakdown,
   .entry-form,
   .settings-form,
   .vat-cards {

@@ -31,7 +31,9 @@
     ["/seocean/", "visiocean"],
     ["/visiocean/", "visiocean"],
     ["/meetocean/", "meetocean"],
+    ["/backup/", "backup"],
   ];
+  const superOnlyModules = new Set(["backup"]);
   let portalAuthRetryTimer = null;
   const notificationState = {
     notifications: [],
@@ -66,6 +68,10 @@
   function moduleAllowedForUser(user) {
     const moduleId = currentModuleId();
     if (moduleId === "" || isPortal) return true;
+
+    if (superOnlyModules.has(moduleId)) {
+      return String(user?.role || "").toLowerCase() === "super";
+    }
 
     if (!Array.isArray(user?.visibleModules)) return true;
 
