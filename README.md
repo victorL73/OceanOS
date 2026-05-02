@@ -163,6 +163,8 @@ La planification se regle dans `/Backup/`. Le cron Ubuntu doit appeler le runner
 */15 * * * * /usr/bin/php /var/www/html/Backup/api/backup.php run-scheduled >/dev/null 2>&1
 ```
 
+Le module supprime automatiquement les archives de plus de 15 jours. Il garde aussi une limite maximale d'archives, reglable dans l'interface Backup.
+
 ## Base principale
 
 La base principale s'appelle :

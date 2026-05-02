@@ -26,7 +26,7 @@ function buildCatalogGroups(products, search, supplierFilter) {
       }
       const group = groups.get(key);
       group.products.push(product);
-      group.stockValue += Number(product.quantity || 0) * Number(product.priceTaxExcl || 0);
+      group.stockValue += Number(product.quantity || 0) * Number(product.purchasePriceTaxExcl || 0);
       if (product.isLowStock) group.lowCount += 1;
     });
   return Array.from(groups.values());

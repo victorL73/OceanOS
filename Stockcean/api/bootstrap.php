@@ -59,6 +59,7 @@ function stockcean_ensure_schema(PDO $pdo): void
             name VARCHAR(255) NOT NULL,
             active TINYINT(1) NOT NULL DEFAULT 1,
             price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            purchase_price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
             quantity INT NOT NULL DEFAULT 0,
             reserved_quantity INT NOT NULL DEFAULT 0,
             min_stock_alert INT UNSIGNED NOT NULL DEFAULT 5,
@@ -76,6 +77,9 @@ function stockcean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_stockcean_product_supplier FOREIGN KEY (supplier_id) REFERENCES stockcean_suppliers(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!stockcean_column_exists($pdo, 'stockcean_products', 'purchase_price_tax_excl')) {
+        $pdo->exec('ALTER TABLE stockcean_products ADD purchase_price_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0 AFTER price_tax_excl');
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS stockcean_purchase_orders (
@@ -229,7 +233,7 @@ function stockcean_fetch_prestashop_nodes(string $shopUrl, string $apiKey, strin
 function stockcean_fetch_products(string $shopUrl, string $apiKey, int $limit): array
 {
     $query = [
-        'display' => '[id,reference,name,price,active,id_supplier,id_manufacturer,date_upd]',
+        'display' => '[id,reference,name,price,wholesale_price,active,id_supplier,id_manufacturer,date_upd]',
         'sort' => '[id_ASC]',
         'limit' => '0,' . max(1, min(500, $limit)),
     ];
@@ -611,6 +615,7 @@ function stockcean_normalize_product(SimpleXMLElement $node, array $stockMap, ar
         'name' => $name,
         'active' => oceanos_xml_text($node, 'active') !== '0',
         'priceTaxExcl' => stockcean_money(oceanos_xml_text($node, 'price')),
+        'purchasePriceTaxExcl' => stockcean_money(oceanos_xml_text($node, 'wholesale_price')),
         'quantity' => (int) ($stockMap[$prestashopProductId] ?? 0),
         'supplierId' => $supplierMap[$prestashopSupplierId] ?? null,
         'prestashopSupplierId' => $prestashopSupplierId > 0 ? $prestashopSupplierId : null,
@@ -629,14 +634,15 @@ function stockcean_upsert_product(PDO $pdo, array $product): string
 
     $upsert = $pdo->prepare(
         'INSERT INTO stockcean_products
-            (prestashop_product_id, reference, name, active, price_tax_excl, quantity, supplier_id, prestashop_supplier_id, raw_json, source_hash, synced_at)
+            (prestashop_product_id, reference, name, active, price_tax_excl, purchase_price_tax_excl, quantity, supplier_id, prestashop_supplier_id, raw_json, source_hash, synced_at)
          VALUES
-            (:prestashop_product_id, :reference, :name, :active, :price_tax_excl, :quantity, :supplier_id, :prestashop_supplier_id, :raw_json, :source_hash, NOW())
+            (:prestashop_product_id, :reference, :name, :active, :price_tax_excl, :purchase_price_tax_excl, :quantity, :supplier_id, :prestashop_supplier_id, :raw_json, :source_hash, NOW())
          ON DUPLICATE KEY UPDATE
             reference = VALUES(reference),
             name = VALUES(name),
             active = VALUES(active),
             price_tax_excl = VALUES(price_tax_excl),
+            purchase_price_tax_excl = VALUES(purchase_price_tax_excl),
             quantity = VALUES(quantity),
             supplier_id = COALESCE(VALUES(supplier_id), supplier_id),
             prestashop_supplier_id = VALUES(prestashop_supplier_id),
@@ -651,6 +657,7 @@ function stockcean_upsert_product(PDO $pdo, array $product): string
         'name' => $product['name'],
         'active' => $product['active'] ? 1 : 0,
         'price_tax_excl' => $product['priceTaxExcl'],
+        'purchase_price_tax_excl' => $product['purchasePriceTaxExcl'],
         'quantity' => $product['quantity'],
         'supplier_id' => $product['supplierId'],
         'prestashop_supplier_id' => $product['prestashopSupplierId'],
@@ -868,6 +875,7 @@ function stockcean_public_product(array $row): array
         'name' => (string) ($row['name'] ?? ''),
         'active' => (bool) ($row['active'] ?? false),
         'priceTaxExcl' => (float) ($row['price_tax_excl'] ?? 0),
+        'purchasePriceTaxExcl' => (float) ($row['purchase_price_tax_excl'] ?? 0),
         'quantity' => (int) ($row['quantity'] ?? 0),
         'reservedQuantity' => (int) ($row['reserved_quantity'] ?? 0),
         'minStockAlert' => (int) ($row['min_stock_alert'] ?? 5),
@@ -922,7 +930,7 @@ function stockcean_stats(PDO $pdo): array
             COUNT(*) AS product_count,
             COALESCE(SUM(quantity <= min_stock_alert), 0) AS low_stock_count,
             COALESCE(SUM(quantity <= 0), 0) AS out_stock_count,
-            COALESCE(SUM(quantity * price_tax_excl), 0) AS stock_value
+            COALESCE(SUM(quantity * purchase_price_tax_excl), 0) AS stock_value
          FROM stockcean_products'
     )->fetch() ?: [];
 

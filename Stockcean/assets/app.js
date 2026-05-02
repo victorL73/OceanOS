@@ -333,6 +333,10 @@ function productById(productId) {
   return productList().find((item) => Number(item.id) === Number(productId)) || null;
 }
 
+function productPurchasePrice(product) {
+  return Number(product?.purchasePriceTaxExcl || 0);
+}
+
 function productOptions(selectedId = null) {
   const products = productList();
   if (products.length === 0) {
@@ -342,7 +346,7 @@ function productOptions(selectedId = null) {
   return products.map((product) => {
     const selected = Number(selectedId || 0) === Number(product.id) ? " selected" : "";
     const label = product.reference ? `${product.reference} - ${product.name}` : product.name;
-    return `<option value="${product.id}" data-price="${Number(product.priceTaxExcl || 0)}"${selected}>${escapeHtml(label)}</option>`;
+    return `<option value="${product.id}" data-price="${productPurchasePrice(product)}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
 }
 
@@ -353,7 +357,7 @@ function createPurchaseLine(productId = null) {
     id,
     productId: product ? Number(product.id) : 0,
     quantity: 1,
-    unitPriceTaxExcl: product ? Number(product.priceTaxExcl || 0) : 0,
+    unitPriceTaxExcl: product ? productPurchasePrice(product) : 0,
   };
 }
 
@@ -399,7 +403,7 @@ function renderProducts() {
         <td><span class="stock-badge ${stockClass}">${product.quantity}</span></td>
         <td><input class="threshold-input" data-product-threshold type="number" min="0" value="${product.minStockAlert}"${disabled}></td>
         <td><select class="supplier-select" data-product-supplier${disabled}>${supplierOptions(product.supplierId)}</select></td>
-        <td>${money.format(Number(product.priceTaxExcl || 0))}</td>
+        <td>${money.format(productPurchasePrice(product))}</td>
         <td><button class="ghost-button" data-product-save="${product.id}" type="button"${disabled}>Sauver</button></td>
       </tr>
     `;
@@ -429,7 +433,7 @@ function renderPurchaseFormOptions() {
   elements.purchaseSupplier.innerHTML = supplierOptions(null, true);
   if (productList().length === 0) {
     elements.purchaseLines.innerHTML = '<div class="empty-state">Aucun produit synchronise.</div>';
-    elements.purchaseTotal.textContent = "Total HT: 0,00 EUR";
+    elements.purchaseTotal.textContent = "Total achat HT: 0,00 EUR";
     elements.purchaseCreate.disabled = true;
     elements.purchaseAddLine.disabled = true;
     return;
@@ -454,13 +458,13 @@ function renderPurchaseLines() {
         <input data-line-quantity type="number" min="1" value="${Number(line.quantity || 1)}"${disabled}>
       </label>
       <label class="field line-price-field">
-        <span>Prix HT</span>
+        <span>Prix achat HT</span>
         <input data-line-price type="number" step="0.01" min="0" value="${Number(line.unitPriceTaxExcl || 0).toFixed(2)}"${disabled}>
       </label>
       <button class="ghost-button danger-text line-remove-button" data-line-remove type="button"${state.purchaseLines.length <= 1 || !isAdmin() ? " disabled" : ""}>Retirer</button>
     </div>
   `).join("");
-  elements.purchaseTotal.textContent = `Total HT: ${money.format(purchaseTotal())}`;
+  elements.purchaseTotal.textContent = `Total achat HT: ${money.format(purchaseTotal())}`;
 }
 
 function statusLabel(status) {
@@ -534,7 +538,7 @@ function renderSupplierCatalog() {
     }
     const group = groups.get(key);
     group.products.push(product);
-    group.stockValue += Number(product.quantity || 0) * Number(product.priceTaxExcl || 0);
+    group.stockValue += Number(product.quantity || 0) * productPurchasePrice(product);
     if (product.isLowStock) group.lowCount += 1;
   });
 
@@ -563,7 +567,7 @@ function renderSupplierCatalogGroups(groups) {
                 <th>Reference</th>
                 <th>Stock</th>
                 <th>Alerte</th>
-                <th>Prix HT</th>
+                <th>Prix achat HT</th>
               </tr>
             </thead>
             <tbody>
@@ -578,7 +582,7 @@ function renderSupplierCatalogGroups(groups) {
                     <td>${escapeHtml(product.reference || "-")}</td>
                     <td><span class="stock-badge ${stockClass}">${product.quantity}</span></td>
                     <td>${product.minStockAlert}</td>
-                    <td>${money.format(Number(product.priceTaxExcl || 0))}</td>
+                    <td>${money.format(productPurchasePrice(product))}</td>
                   </tr>
                 `;
               }).join("")}
@@ -678,7 +682,7 @@ function renderOrderHistoryList(orders) {
                 <th>Quantite</th>
                 <th>Recu</th>
                 <th>PrestaShop</th>
-                <th>Prix HT</th>
+                <th>Prix achat HT</th>
                 <th>Total</th>
               </tr>
             </thead>
@@ -933,7 +937,7 @@ function installListeners() {
       const product = productById(event.target.value);
       const price = row.querySelector("[data-line-price]");
       if (product && price) {
-        price.value = Number(product.priceTaxExcl || 0).toFixed(2);
+        price.value = productPurchasePrice(product).toFixed(2);
       }
     }
     syncPurchaseLinesFromDom();
@@ -942,7 +946,7 @@ function installListeners() {
   elements.purchaseLines.addEventListener("input", (event) => {
     if (!event.target.matches("[data-line-quantity], [data-line-price]")) return;
     syncPurchaseLinesFromDom();
-    elements.purchaseTotal.textContent = `Total HT: ${money.format(purchaseTotal())}`;
+    elements.purchaseTotal.textContent = `Total achat HT: ${money.format(purchaseTotal())}`;
   });
   elements.purchaseLines.addEventListener("click", (event) => {
     const button = event.target.closest("[data-line-remove]");

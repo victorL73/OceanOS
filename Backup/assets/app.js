@@ -15,6 +15,7 @@ const elements = {
   wwwRoot: $("www-root"),
   backupDirectory: $("backup-directory"),
   zipRequirement: $("zip-requirement"),
+  storageRequirement: $("storage-requirement"),
   refreshButton: $("refresh-button"),
   createBackupButton: $("create-backup-button"),
   runState: $("run-state"),
@@ -25,6 +26,7 @@ const elements = {
   scheduleWeekday: $("schedule-weekday"),
   scheduleMonthday: $("schedule-monthday"),
   retentionCount: $("retention-count"),
+  retentionDays: $("retention-days"),
   weekdayField: $("weekday-field"),
   monthdayField: $("monthday-field"),
   saveScheduleButton: $("save-schedule-button"),
@@ -111,6 +113,7 @@ function renderScheduleControls() {
   elements.scheduleWeekday.value = String(schedule.weekday || 1);
   elements.scheduleMonthday.value = String(schedule.monthday || 1);
   elements.retentionCount.value = String(schedule.retentionCount || 12);
+  elements.retentionDays.value = String(schedule.retentionDays || 15);
   elements.cronCommand.textContent = schedule.cronCommand || "";
   updateScheduleVisibility();
 }
@@ -129,6 +132,10 @@ function renderMetrics(payload) {
   elements.backupDirectory.textContent = payload.paths?.backupDirectory || "-";
   elements.zipRequirement.textContent = payload.requirements?.zipArchive ? "Disponible" : "Manquant";
   elements.zipRequirement.dataset.type = payload.requirements?.zipArchive ? "success" : "error";
+  const canWriteBackups = Boolean(payload.requirements?.backupDirectoryWritable);
+  const canWriteTemp = Boolean(payload.requirements?.temporaryDirectoryWritable);
+  elements.storageRequirement.textContent = canWriteBackups && canWriteTemp ? "OK" : "A corriger";
+  elements.storageRequirement.dataset.type = canWriteBackups && canWriteTemp ? "success" : "error";
 }
 
 function renderBackups() {
@@ -224,6 +231,7 @@ function schedulePayload() {
     weekday: Number(elements.scheduleWeekday.value || 1),
     monthday: Number(elements.scheduleMonthday.value || 1),
     retentionCount: Number(elements.retentionCount.value || 12),
+    retentionDays: Number(elements.retentionDays.value || 15),
   };
 }
 

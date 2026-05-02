@@ -16,14 +16,14 @@ OceanOS > menu utilisateur > PrestaShop
 
 ## Fonctions incluses
 
-- synchronisation des produits PrestaShop
+- synchronisation des produits PrestaShop avec prix de vente et prix d'achat `wholesale_price`
 - lecture des quantites depuis `stock_availables`
 - import des fournisseurs PrestaShop si le Webservice y donne acces
 - seuils d'alerte par produit
 - envoi des alertes de stock dans les notifications OceanOS
 - catalogue fournisseur groupe par fournisseur
 - affectation ou creation de fournisseurs internes
-- commandes fournisseurs internes multi-produits avec quantites et prix HT par ligne
+- commandes fournisseurs internes multi-produits avec quantites et prix d'achat HT par ligne
 - reception fournisseur avec increment du stock PrestaShop
 - historique detaille des commandes fournisseurs
 - journal des synchronisations

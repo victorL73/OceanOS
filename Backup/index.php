@@ -54,7 +54,7 @@ function backup_h(string $value): string
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
   <link rel="stylesheet" href="assets/style.css?v=20260502">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-backup"></script>
-  <script defer src="assets/app.js?v=20260502"></script>
+  <script defer src="assets/app.js?v=20260502-retention15"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -122,6 +122,10 @@ function backup_h(string $value): string
             <dt>ZIP PHP</dt>
             <dd id="zip-requirement">-</dd>
           </div>
+          <div>
+            <dt>Droits stockage</dt>
+            <dd id="storage-requirement">-</dd>
+          </div>
         </dl>
       </section>
 
@@ -172,8 +176,13 @@ function backup_h(string $value): string
           </label>
 
           <label class="field">
-            <span>Archives gardees</span>
+            <span>Archives gardees max</span>
             <input id="retention-count" type="number" min="1" max="365" value="12">
+          </label>
+
+          <label class="field">
+            <span>Suppression apres</span>
+            <input id="retention-days" type="number" min="1" max="3650" value="15">
           </label>
         </div>
 

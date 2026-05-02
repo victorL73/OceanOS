@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_S
 
 const BACKUP_MODULE_VERSION = '20260502';
 const BACKUP_DEFAULT_RETENTION_COUNT = 12;
+const BACKUP_DEFAULT_RETENTION_DAYS = 15;
 
 function backup_www_root(): string
 {
@@ -33,7 +34,24 @@ function backup_backups_path(): string
 
 function backup_tmp_path(string ...$parts): string
 {
-    return backup_storage_path('tmp', ...$parts);
+    $path = backup_runtime_tmp_root();
+    foreach ($parts as $part) {
+        $path .= DIRECTORY_SEPARATOR . $part;
+    }
+
+    return $path;
+}
+
+function backup_runtime_tmp_root(): string
+{
+    $configured = trim((string) (getenv('OCEANOS_BACKUP_TMP_DIR') ?: ''));
+    $base = $configured !== '' ? $configured : sys_get_temp_dir();
+    $root = rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'oceanos-backup-' . substr(hash('sha256', backup_www_root()), 0, 16);
+    if (!is_dir($root) && !mkdir($root, 0770, true) && !is_dir($root)) {
+        throw new RuntimeException('Impossible de creer le dossier temporaire Backup : ' . $root);
+    }
+
+    return $root;
 }
 
 function backup_schedule_path(): string
@@ -43,7 +61,7 @@ function backup_schedule_path(): string
 
 function backup_lock_path(): string
 {
-    return backup_storage_path('backup.lock');
+    return backup_tmp_path('backup.lock');
 }
 
 function backup_ensure_storage(): void
@@ -69,6 +87,9 @@ function backup_write_php_config(string $path, array $data): void
     if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
         throw new RuntimeException('Impossible de creer le dossier de configuration Backup.');
     }
+    if (!backup_directory_is_writable($directory)) {
+        throw new RuntimeException('PHP ne peut pas ecrire dans le dossier de configuration Backup : ' . $directory);
+    }
 
     $content = "<?php\n"
         . "declare(strict_types=1);\n\n"
@@ -89,6 +110,7 @@ function backup_default_schedule(): array
         'monthday' => 1,
         'timezone' => date_default_timezone_get() ?: 'UTC',
         'retention_count' => BACKUP_DEFAULT_RETENTION_COUNT,
+        'retention_days' => BACKUP_DEFAULT_RETENTION_DAYS,
         'last_run_at' => null,
         'last_scheduled_slot_at' => null,
         'last_status' => null,
@@ -136,6 +158,14 @@ function backup_normalize_schedule(array $schedule): array
         $retentionCount = 365;
     }
 
+    $retentionDays = (int) ($schedule['retention_days'] ?? BACKUP_DEFAULT_RETENTION_DAYS);
+    if ($retentionDays < 1) {
+        $retentionDays = BACKUP_DEFAULT_RETENTION_DAYS;
+    }
+    if ($retentionDays > 3650) {
+        $retentionDays = 3650;
+    }
+
     $timezone = trim((string) ($schedule['timezone'] ?? ''));
     try {
         new DateTimeZone($timezone);
@@ -151,6 +181,7 @@ function backup_normalize_schedule(array $schedule): array
         'monthday' => $monthday,
         'timezone' => $timezone,
         'retention_count' => $retentionCount,
+        'retention_days' => $retentionDays,
         'last_run_at' => backup_nullable_string($schedule['last_run_at'] ?? null),
         'last_scheduled_slot_at' => backup_nullable_string($schedule['last_scheduled_slot_at'] ?? null),
         'last_status' => backup_nullable_string($schedule['last_status'] ?? null),
@@ -205,6 +236,7 @@ function backup_schedule_from_input(array $input): array
         'weekday' => (int) ($input['weekday'] ?? $current['weekday']),
         'monthday' => (int) ($input['monthday'] ?? $current['monthday']),
         'retention_count' => (int) ($input['retentionCount'] ?? $input['retention_count'] ?? $current['retention_count']),
+        'retention_days' => (int) ($input['retentionDays'] ?? $input['retention_days'] ?? $current['retention_days'] ?? BACKUP_DEFAULT_RETENTION_DAYS),
     ];
     $next = backup_normalize_schedule($next);
 
@@ -368,6 +400,7 @@ function backup_public_schedule(array $schedule): array
         'monthday' => $schedule['monthday'],
         'timezone' => $schedule['timezone'],
         'retentionCount' => $schedule['retention_count'],
+        'retentionDays' => $schedule['retention_days'],
         'lastRunAt' => $schedule['last_run_at'],
         'lastScheduledSlotAt' => $schedule['last_scheduled_slot_at'],
         'lastStatus' => $schedule['last_status'],
@@ -398,6 +431,8 @@ function backup_require_super_user(): array
 function backup_create_backup(?array $actorUser = null, string $reason = 'manual'): array
 {
     backup_ensure_storage();
+    backup_assert_writable_directory(backup_backups_path(), 'dossier archives Backup');
+    backup_assert_writable_directory(backup_runtime_tmp_root(), 'dossier temporaire Backup');
     if (!class_exists(ZipArchive::class)) {
         throw new RuntimeException('Extension PHP ZipArchive indisponible.');
     }
@@ -408,7 +443,7 @@ function backup_create_backup(?array $actorUser = null, string $reason = 'manual
 
     $lockHandle = fopen(backup_lock_path(), 'c+');
     if ($lockHandle === false) {
-        throw new RuntimeException('Impossible de creer le verrou Backup.');
+        throw new RuntimeException('Impossible de creer le verrou Backup dans ' . dirname(backup_lock_path()) . '.');
     }
 
     if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
@@ -963,16 +998,46 @@ function backup_apply_retention(): void
 {
     $schedule = backup_load_schedule();
     $retention = (int) ($schedule['retention_count'] ?? BACKUP_DEFAULT_RETENTION_COUNT);
+    $retentionDays = (int) ($schedule['retention_days'] ?? BACKUP_DEFAULT_RETENTION_DAYS);
     $backups = backup_list_backups();
-    if (count($backups) <= $retention) {
+
+    $cutoff = (new DateTimeImmutable('now'))->modify('-' . max(1, $retentionDays) . ' days');
+    $keptBackups = [];
+    foreach ($backups as $backup) {
+        if (backup_is_older_than($backup, $cutoff)) {
+            try {
+                backup_delete_backup((string) $backup['fileName']);
+            } catch (Throwable) {
+            }
+            continue;
+        }
+
+        $keptBackups[] = $backup;
+    }
+
+    if (count($keptBackups) <= $retention) {
         return;
     }
 
-    foreach (array_slice($backups, $retention) as $backup) {
+    foreach (array_slice($keptBackups, $retention) as $backup) {
         try {
             backup_delete_backup((string) $backup['fileName']);
         } catch (Throwable) {
         }
+    }
+}
+
+function backup_is_older_than(array $backup, DateTimeImmutable $cutoff): bool
+{
+    $createdAt = trim((string) ($backup['createdAt'] ?? ''));
+    if ($createdAt === '') {
+        return false;
+    }
+
+    try {
+        return new DateTimeImmutable($createdAt) < $cutoff;
+    } catch (Throwable) {
+        return false;
     }
 }
 
@@ -988,6 +1053,11 @@ function backup_status_payload(?array $currentUser = null): array
 {
     $schedule = backup_load_schedule();
     $backups = backup_list_backups();
+    $tmpRoot = '';
+    try {
+        $tmpRoot = backup_runtime_tmp_root();
+    } catch (Throwable) {
+    }
 
     return [
         'ok' => true,
@@ -999,11 +1069,40 @@ function backup_status_payload(?array $currentUser = null): array
         'paths' => [
             'wwwRoot' => backup_www_root(),
             'backupDirectory' => backup_backups_path(),
+            'temporaryDirectory' => $tmpRoot,
         ],
         'requirements' => [
             'zipArchive' => class_exists(ZipArchive::class),
+            'storageWritable' => backup_directory_is_writable(backup_storage_path()),
+            'backupDirectoryWritable' => backup_directory_is_writable(backup_backups_path()),
+            'temporaryDirectoryWritable' => $tmpRoot !== '' && backup_directory_is_writable($tmpRoot),
         ],
     ];
+}
+
+function backup_assert_writable_directory(string $path, string $label): void
+{
+    if (!is_dir($path)) {
+        throw new RuntimeException('Le ' . $label . ' est introuvable : ' . $path);
+    }
+    if (!backup_directory_is_writable($path)) {
+        throw new RuntimeException('PHP ne peut pas ecrire dans le ' . $label . ' : ' . $path);
+    }
+}
+
+function backup_directory_is_writable(string $path): bool
+{
+    if (!is_dir($path)) {
+        return false;
+    }
+
+    $probe = @tempnam($path, 'probe-');
+    if ($probe === false) {
+        return false;
+    }
+
+    @unlink($probe);
+    return true;
 }
 
 function backup_run_scheduled_backup(): array
@@ -1014,6 +1113,7 @@ function backup_run_scheduled_backup(): array
     $slot = backup_schedule_due_slot($schedule);
 
     if ($slot === null) {
+        backup_apply_retention();
         return [
             ...backup_status_payload(),
             'scheduledRun' => [

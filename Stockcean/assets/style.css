@@ -457,12 +457,14 @@ td span {
 .side-column {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .stack-form {
   display: grid;
   gap: 12px;
   padding: 16px;
+  min-width: 0;
 }
 
 .inline-fields {
@@ -474,6 +476,7 @@ td span {
 .order-lines-box {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .order-lines-head {
@@ -493,17 +496,38 @@ td span {
 .purchase-lines {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .purchase-line {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(84px, 0.34fr) minmax(100px, 0.45fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(76px, 88px) minmax(92px, 104px);
   gap: 8px;
   align-items: end;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+  min-width: 0;
+}
+
+.purchase-line .field,
+.purchase-line select,
+.purchase-line input {
+  min-width: 0;
+}
+
+.line-product-field {
+  grid-column: 1 / -1;
+}
+
+.line-product-field select {
+  max-width: 100%;
+}
+
+.line-remove-button {
+  grid-column: 1 / -1;
+  width: max-content;
 }
 
 .line-remove-button {
@@ -693,6 +717,11 @@ td span {
   .inline-fields,
   .purchase-line {
     grid-template-columns: 1fr;
+  }
+
+  .line-product-field,
+  .line-remove-button {
+    grid-column: auto;
   }
 
   .topbar h1 {
