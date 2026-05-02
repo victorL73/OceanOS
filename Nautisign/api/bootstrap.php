@@ -121,9 +121,38 @@ function nautisign_www_root(): string
 function nautisign_quotes_dir(): string
 {
     return nautisign_www_root()
+        . DIRECTORY_SEPARATOR . 'Devis'
+        . DIRECTORY_SEPARATOR . 'storage'
+        . DIRECTORY_SEPARATOR . 'quotes';
+}
+
+function nautisign_legacy_quotes_dir(): string
+{
+    return nautisign_www_root()
         . DIRECTORY_SEPARATOR . 'Mobywork'
         . DIRECTORY_SEPARATOR . 'storage'
         . DIRECTORY_SEPARATOR . 'quotes';
+}
+
+function nautisign_quote_sources(): array
+{
+    return [
+        'devis' => [
+            'label' => 'Devis',
+            'relativePath' => 'Devis/storage/quotes',
+            'dir' => nautisign_quotes_dir(),
+        ],
+        'mobywork' => [
+            'label' => 'Mobywork',
+            'relativePath' => 'Mobywork/storage/quotes',
+            'dir' => nautisign_legacy_quotes_dir(),
+        ],
+    ];
+}
+
+function nautisign_default_quote_source(): string
+{
+    return 'devis';
 }
 
 function nautisign_signed_dir(): string
@@ -175,30 +204,98 @@ function nautisign_safe_filename_stem(string $value, string $fallback): string
 
 function nautisign_quote_path(string $filename): string
 {
-    $safe = nautisign_safe_basename($filename);
-    if ($safe === '' || !preg_match('/\.pdf$/i', $safe)) {
-        throw new InvalidArgumentException('Devis PDF invalide.');
-    }
-
-    $path = nautisign_quotes_dir() . DIRECTORY_SEPARATOR . $safe;
-    $quotesRoot = realpath(nautisign_quotes_dir());
-    $realPath = realpath($path);
-    if ($quotesRoot === false || $realPath === false || !is_file($realPath)) {
+    $quote = nautisign_find_quote_file($filename);
+    if ($quote === null) {
+        $safe = nautisign_safe_basename($filename);
+        if ($safe === '' || !preg_match('/\.pdf$/i', $safe)) {
+            throw new InvalidArgumentException('Devis PDF invalide.');
+        }
         throw new InvalidArgumentException('Devis PDF introuvable.');
     }
-    if (strpos($realPath, $quotesRoot . DIRECTORY_SEPARATOR) !== 0 && $realPath !== $quotesRoot) {
-        throw new InvalidArgumentException('Chemin de devis invalide.');
+
+    return $quote['path'];
+}
+
+function nautisign_parse_quote_reference(string $reference): array
+{
+    $reference = trim(str_replace('\\', '/', $reference));
+    $parts = explode('/', $reference, 2);
+    $sources = nautisign_quote_sources();
+    if (count($parts) === 2 && isset($sources[$parts[0]])) {
+        return [
+            'source' => $parts[0],
+            'filename' => nautisign_safe_basename($parts[1]),
+        ];
     }
 
-    return $realPath;
+    return [
+        'source' => '',
+        'filename' => nautisign_safe_basename($reference),
+    ];
+}
+
+function nautisign_quote_token(string $source, string $filename): string
+{
+    return $source . '/' . nautisign_safe_basename($filename);
+}
+
+function nautisign_find_quote_file(string $reference): ?array
+{
+    $parsed = nautisign_parse_quote_reference($reference);
+    $filename = (string) ($parsed['filename'] ?? '');
+    if ($filename === '' || !preg_match('/\.pdf$/i', $filename)) {
+        return null;
+    }
+
+    $sources = nautisign_quote_sources();
+    $sourceKeys = (string) ($parsed['source'] ?? '') !== ''
+        ? [(string) $parsed['source']]
+        : array_keys($sources);
+
+    foreach ($sourceKeys as $sourceKey) {
+        if (!isset($sources[$sourceKey])) {
+            continue;
+        }
+        $root = realpath((string) $sources[$sourceKey]['dir']);
+        if ($root === false) {
+            continue;
+        }
+        $path = $root . DIRECTORY_SEPARATOR . $filename;
+        $realPath = realpath($path);
+        if ($realPath === false || !is_file($realPath)) {
+            continue;
+        }
+        if (strpos($realPath, $root . DIRECTORY_SEPARATOR) !== 0 && $realPath !== $root) {
+            continue;
+        }
+
+        return [
+            'source' => $sourceKey,
+            'sourceLabel' => (string) $sources[$sourceKey]['label'],
+            'sourcePath' => (string) $sources[$sourceKey]['relativePath'],
+            'filename' => $filename,
+            'token' => nautisign_quote_token($sourceKey, $filename),
+            'path' => $realPath,
+        ];
+    }
+
+    return null;
 }
 
 function nautisign_quote_file_payload(string $filename): array
 {
-    $path = nautisign_quote_path($filename);
+    $quote = nautisign_find_quote_file($filename);
+    if ($quote === null) {
+        throw new InvalidArgumentException('Devis PDF introuvable.');
+    }
+    $path = $quote['path'];
     return [
-        'filename' => basename($path),
-        'label' => basename($path, '.pdf'),
+        'filename' => $quote['token'],
+        'basename' => $quote['filename'],
+        'label' => basename((string) $quote['filename'], '.pdf'),
+        'source' => $quote['source'],
+        'sourceLabel' => $quote['sourceLabel'],
+        'sourcePath' => $quote['sourcePath'],
         'size' => filesize($path) ?: 0,
         'modifiedAt' => date('Y-m-d H:i:s', filemtime($path) ?: time()),
         'hash' => hash_file('sha256', $path) ?: '',
@@ -207,27 +304,32 @@ function nautisign_quote_file_payload(string $filename): array
 
 function nautisign_list_quote_files(): array
 {
-    $dir = nautisign_quotes_dir();
-    if (!is_dir($dir)) {
-        return [];
-    }
-
     $files = [];
-    foreach (scandir($dir) ?: [] as $entry) {
-        if ($entry === '.' || $entry === '..' || !preg_match('/\.pdf$/i', $entry)) {
+    foreach (nautisign_quote_sources() as $source => $sourceConfig) {
+        $dir = (string) ($sourceConfig['dir'] ?? '');
+        if (!is_dir($dir)) {
             continue;
         }
-        $path = $dir . DIRECTORY_SEPARATOR . $entry;
-        if (!is_file($path)) {
-            continue;
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..' || !preg_match('/\.pdf$/i', $entry)) {
+                continue;
+            }
+            $path = $dir . DIRECTORY_SEPARATOR . $entry;
+            if (!is_file($path)) {
+                continue;
+            }
+            $files[] = [
+                'filename' => nautisign_quote_token((string) $source, $entry),
+                'basename' => $entry,
+                'label' => basename($entry, '.pdf'),
+                'source' => (string) $source,
+                'sourceLabel' => (string) ($sourceConfig['label'] ?? $source),
+                'sourcePath' => (string) ($sourceConfig['relativePath'] ?? ''),
+                'size' => filesize($path) ?: 0,
+                'modifiedAt' => date('Y-m-d H:i:s', filemtime($path) ?: time()),
+                'hash' => hash_file('sha256', $path) ?: '',
+            ];
         }
-        $files[] = [
-            'filename' => $entry,
-            'label' => basename($entry, '.pdf'),
-            'size' => filesize($path) ?: 0,
-            'modifiedAt' => date('Y-m-d H:i:s', filemtime($path) ?: time()),
-            'hash' => hash_file('sha256', $path) ?: '',
-        ];
     }
 
     usort($files, static fn(array $a, array $b): int => strcmp((string) $b['modifiedAt'], (string) $a['modifiedAt']));

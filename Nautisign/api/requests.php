@@ -50,7 +50,14 @@ try {
         if ($action === 'quotes') {
             nautisign_json_response([
                 'ok' => true,
-                'quotesDir' => 'Mobywork/storage/quotes',
+                'quotesDir' => 'Devis/storage/quotes',
+                'quoteSources' => array_map(
+                    static fn(array $source): array => [
+                        'label' => (string) ($source['label'] ?? ''),
+                        'relativePath' => (string) ($source['relativePath'] ?? ''),
+                    ],
+                    nautisign_quote_sources()
+                ),
                 'quotes' => nautisign_list_quote_files(),
             ]);
         }
@@ -61,6 +68,7 @@ try {
                 'managedBy' => 'OceanOS',
                 'user' => nautisign_public_user($user),
                 'requests' => nautisign_list_requests($pdo, $user),
+                'quotesDir' => 'Devis/storage/quotes',
                 'quotes' => nautisign_list_quote_files(),
             ]);
         }

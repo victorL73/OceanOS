@@ -196,7 +196,7 @@ function renderQuoteSelect() {
   if (state.quotes.length === 0) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "Aucun PDF dans Mobywork/storage/quotes";
+    option.textContent = "Aucun PDF dans Devis/storage/quotes";
     elements.quoteSelect.appendChild(option);
     elements.createButton.disabled = true;
     return;
@@ -206,7 +206,8 @@ function renderQuoteSelect() {
   state.quotes.forEach((quote) => {
     const option = document.createElement("option");
     option.value = quote.filename;
-    option.textContent = `${quote.label} (${formatBytes(quote.size)})`;
+    const source = quote.sourceLabel ? `${quote.sourceLabel} - ` : "";
+    option.textContent = `${source}${quote.label} (${formatBytes(quote.size)})`;
     elements.quoteSelect.appendChild(option);
   });
 }

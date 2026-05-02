@@ -98,10 +98,15 @@ install_packages() {
     php-curl \
     php-mbstring \
     php-mysql \
+    php-imap \
     php-xml \
     php-zip \
     php-gd \
     php-intl
+
+  if have_command phpenmod; then
+    phpenmod imap >/dev/null 2>&1 || true
+  fi
 
   if [[ "$(node_major)" -lt 18 ]]; then
     log "Node.js 18+ est requis. Installation de Node.js 22 via NodeSource..."
@@ -441,11 +446,11 @@ run_update() {
   fi
 
   set +e
-  deps_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" node-deps 2>&1)"
+  deps_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" deps 2>&1)"
   deps_status=$?
   set -e
   if [[ "$deps_status" -ne 0 ]]; then
-    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les dependances Node ont echoue.","before":"%s","output":"%s","depsOutput":"%s"}' \
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les dependances serveur ont echoue.","before":"%s","output":"%s","depsOutput":"%s"}' \
       "$(json_escape "$before")" \
       "$(json_escape "$output")" \
       "$(json_escape "$deps_output")"
