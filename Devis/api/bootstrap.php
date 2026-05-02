@@ -262,7 +262,11 @@ function devis_normalize_lines(array $lines): array
             : ($productId > 0 ? 'product' : 'fee');
         $quantity = max(0.0, devis_decimal($line['quantity'] ?? 1));
         $unitPrice = max(0.0, devis_decimal($line['unit_price_ht'] ?? $line['unitPriceHt'] ?? 0));
+        $catalogPrice = max(0.0, devis_decimal($line['catalog_price_ht'] ?? $line['catalogPriceHt'] ?? $line['base_unit_price_ht'] ?? $unitPrice));
         $taxRate = max(0.0, devis_decimal($line['tax_rate'] ?? $line['taxRate'] ?? 20));
+        $rawPriceMode = strtolower(trim((string) ($line['price_mode'] ?? $line['priceMode'] ?? 'standard')));
+        $priceMode = in_array($rawPriceMode, ['standard', 'b2b'], true) ? $rawPriceMode : 'standard';
+        $b2bPercent = max(0.0, min(100.0, devis_decimal($line['b2b_percent'] ?? $line['b2bPercent'] ?? 0)));
         $rawFeeType = strtolower(trim((string) ($line['fee_type'] ?? $line['feeType'] ?? 'other')));
         $feeType = in_array($rawFeeType, ['delivery', 'handling', 'other'], true) ? $rawFeeType : 'other';
         if ($lineType !== 'fee' && $name === '' && $productId <= 0) {
@@ -279,8 +283,11 @@ function devis_normalize_lines(array $lines): array
             'product_reference' => $lineType === 'fee' ? '' : trim((string) ($line['product_reference'] ?? $line['reference'] ?? '')),
             'name' => $name !== '' ? $name : ($lineType === 'fee' ? 'Frais annexe' : 'Produit #' . $productId),
             'quantity' => $quantity,
+            'catalog_price_ht' => $lineType === 'fee' ? null : $catalogPrice,
             'unit_price_ht' => $unitPrice,
             'tax_rate' => $taxRate,
+            'price_mode' => $lineType === 'fee' ? null : $priceMode,
+            'b2b_percent' => $lineType === 'fee' || $priceMode !== 'b2b' ? null : $b2bPercent,
         ];
     }
 

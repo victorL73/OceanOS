@@ -31,6 +31,8 @@ const elements = {
   clientEmail: $("client-email"),
   quoteStatus: $("quote-status"),
   productSource: $("product-source"),
+  b2bToggle: $("b2b-toggle"),
+  b2bPercent: $("b2b-percent"),
   productSearch: $("product-search"),
   productResults: $("product-results"),
   feeType: $("fee-type"),
@@ -53,6 +55,8 @@ const state = {
   products: [],
   selectedId: "new",
   draft: null,
+  b2bEnabled: false,
+  b2bPercent: 50,
 };
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -103,6 +107,45 @@ function parseNumber(value) {
   const normalized = String(value ?? "").replace(/\s+/g, "").replace(",", ".");
   const number = Number(normalized);
   return Number.isFinite(number) ? number : 0;
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function formatPercent(value) {
+  const percent = Number(value || 0);
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1).replace(".", ",")} %`;
+}
+
+function b2bPercentValue() {
+  const value = parseNumber(elements.b2bPercent?.value || state.b2bPercent || 50);
+  return Math.max(1, Math.min(100, value || 50));
+}
+
+function syncB2bControls() {
+  if (!elements.b2bToggle || !elements.b2bPercent) return;
+  elements.b2bPercent.value = String(state.b2bPercent);
+  elements.b2bPercent.disabled = !state.b2bEnabled;
+  elements.b2bToggle.setAttribute("aria-pressed", state.b2bEnabled ? "true" : "false");
+  elements.b2bToggle.classList.toggle("is-active", state.b2bEnabled);
+}
+
+function productBasePrice(product) {
+  return Math.max(0, parseNumber(product?.price));
+}
+
+function productPriceFromBase(basePrice) {
+  const base = Math.max(0, parseNumber(basePrice));
+  return state.b2bEnabled ? roundMoney(base * (state.b2bPercent / 100)) : roundMoney(base);
+}
+
+function productBasePriceForLine(line) {
+  const storedBase = parseNumber(line.catalog_price_ht ?? line.catalogPriceHt ?? line.base_unit_price_ht);
+  if (storedBase > 0) return storedBase;
+  const product = state.products.find((item) => Number(item.id) === Number(line.product_id));
+  const catalogPrice = productBasePrice(product);
+  return catalogPrice > 0 ? catalogPrice : Math.max(0, parseNumber(line.unit_price_ht));
 }
 
 async function apiRequest(url, options = {}) {
@@ -273,6 +316,7 @@ function renderQuotes() {
 function renderBuilder() {
   recalculateDraft();
   const draft = activeQuote();
+  syncB2bControls();
   elements.builderTitle.textContent = draft.id ? (draft.reference || `DEV-${draft.id}`) : "Nouveau devis";
   elements.clientName.value = draft.client_name || "";
   elements.clientEmail.value = draft.client_email || "";
@@ -300,7 +344,7 @@ function renderLines(draft) {
     const reference = line.product_reference || line.reference || line.product_id || "";
     const meta = isFee
       ? `Frais annexe${line.fee_type ? ` - ${escapeHtml(feeTypeLabel(line.fee_type))}` : ""}`
-      : (reference ? `Ref. ${escapeHtml(reference)}` : "Produit manuel");
+      : `${reference ? `Ref. ${escapeHtml(reference)}` : "Produit manuel"}${line.price_mode === "b2b" ? ` - B2B ${escapeHtml(formatPercent(line.b2b_percent || 50))}` : ""}`;
     return `
       <tr data-line-index="${index}" class="${isFee ? "fee-line" : ""}">
         <td>
@@ -340,15 +384,23 @@ function renderProductResults() {
     elements.productResults.innerHTML = "";
     return;
   }
-  elements.productResults.innerHTML = results.map((product) => `
-    <div class="product-result">
-      <div>
-        <strong>${escapeHtml(product.name || `Produit #${product.id}`)}</strong>
-        <span>${escapeHtml(product.reference || `ID ${product.id}`)}</span>
+  elements.productResults.innerHTML = results.map((product) => {
+    const basePrice = productBasePrice(product);
+    const appliedPrice = productPriceFromBase(basePrice);
+    const b2bNote = state.b2bEnabled
+      ? `<span class="product-price-note">Catalogue ${escapeHtml(money.format(basePrice))} - B2B ${escapeHtml(formatPercent(state.b2bPercent))}</span>`
+      : "";
+    return `
+      <div class="product-result">
+        <div>
+          <strong>${escapeHtml(product.name || `Produit #${product.id}`)}</strong>
+          <span>${escapeHtml(product.reference || `ID ${product.id}`)}</span>
+          ${b2bNote}
+        </div>
+        <button class="ghost-button" data-add-product="${product.id}" type="button">${money.format(appliedPrice)}</button>
       </div>
-      <button class="ghost-button" data-add-product="${product.id}" type="button">${money.format(Number(product.price || 0))}</button>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function feeTypeLabel(type) {
@@ -378,11 +430,31 @@ function updateDraftFromInputs() {
   state.draft = draft;
 }
 
+function applyProductPricingToDraft() {
+  updateDraftFromInputs();
+  const draft = activeQuote();
+  draft.lines = (draft.lines || []).map((line) => {
+    const lineType = line.line_type || (line.product_id ? "product" : "fee");
+    if (lineType !== "product") return line;
+    const basePrice = productBasePriceForLine(line);
+    return {
+      ...line,
+      line_type: "product",
+      catalog_price_ht: basePrice,
+      unit_price_ht: productPriceFromBase(basePrice),
+      price_mode: state.b2bEnabled ? "b2b" : "standard",
+      b2b_percent: state.b2bEnabled ? state.b2bPercent : null,
+    };
+  });
+  state.draft = draft;
+}
+
 function addProduct(productId) {
   updateDraftFromInputs();
   const product = state.products.find((item) => Number(item.id) === Number(productId));
   if (!product) return;
   const draft = activeQuote();
+  const catalogPrice = productBasePrice(product);
   draft.lines = [
     ...(draft.lines || []),
     {
@@ -391,8 +463,11 @@ function addProduct(productId) {
       product_reference: product.reference || "",
       name: product.name || `Produit #${product.id}`,
       quantity: 1,
-      unit_price_ht: parseNumber(product.price),
+      catalog_price_ht: catalogPrice,
+      unit_price_ht: productPriceFromBase(catalogPrice),
       tax_rate: 20,
+      price_mode: state.b2bEnabled ? "b2b" : "standard",
+      b2b_percent: state.b2bEnabled ? state.b2bPercent : null,
     },
   ];
   state.draft = draft;
@@ -444,7 +519,28 @@ function updateLine(row, input) {
   const draft = activeQuote();
   if (!draft.lines[index] || !field) return;
   draft.lines[index][field] = parseNumber(input.value);
+  if (field === "unit_price_ht" && (draft.lines[index].line_type || "product") === "product") {
+    draft.lines[index].catalog_price_ht = parseNumber(input.value);
+    draft.lines[index].price_mode = "standard";
+    draft.lines[index].b2b_percent = null;
+  }
   state.draft = draft;
+  renderBuilder();
+}
+
+function toggleB2bMode() {
+  state.b2bEnabled = !state.b2bEnabled;
+  state.b2bPercent = b2bPercentValue();
+  applyProductPricingToDraft();
+  renderBuilder();
+}
+
+function updateB2bPercent() {
+  state.b2bPercent = b2bPercentValue();
+  elements.b2bPercent.value = String(state.b2bPercent);
+  if (state.b2bEnabled) {
+    applyProductPricingToDraft();
+  }
   renderBuilder();
 }
 
@@ -539,6 +635,13 @@ function installListeners() {
   elements.clientName.addEventListener("input", updateDraftFromInputs);
   elements.clientEmail.addEventListener("input", updateDraftFromInputs);
   elements.quoteStatus.addEventListener("change", updateDraftFromInputs);
+  elements.b2bToggle.addEventListener("click", toggleB2bMode);
+  elements.b2bPercent.addEventListener("change", updateB2bPercent);
+  elements.b2bPercent.addEventListener("input", () => {
+    state.b2bPercent = b2bPercentValue();
+    syncB2bControls();
+    renderProductResults();
+  });
   elements.productSearch.addEventListener("input", renderProductResults);
   elements.feeType.addEventListener("change", () => syncFeeLabel(false));
   elements.addFeeButton.addEventListener("click", addFee);

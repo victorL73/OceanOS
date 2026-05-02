@@ -402,6 +402,34 @@ select:disabled {
   align-items: end;
 }
 
+.product-controls,
+.b2b-controls {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.product-controls {
+  flex: 1 1 560px;
+}
+
+.mode-toggle {
+  white-space: nowrap;
+}
+
+.mode-toggle.is-active,
+.mode-toggle[aria-pressed="true"] {
+  border-color: rgba(31, 209, 178, 0.55);
+  background: rgba(31, 209, 178, 0.13);
+  color: var(--teal);
+}
+
+.b2b-percent-field {
+  width: 120px;
+}
+
 .product-search {
   width: min(420px, 100%);
 }
@@ -439,6 +467,10 @@ select:disabled {
 .product-result span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.product-result .product-price-note {
+  color: var(--teal);
 }
 
 .fee-box {
@@ -640,8 +672,14 @@ th {
   }
 
   .compact-input,
-  .product-search {
+  .product-search,
+  .product-controls,
+  .b2b-controls {
     max-width: none;
     width: 100%;
+  }
+
+  .b2b-percent-field {
+    flex: 1 1 120px;
   }
 }
