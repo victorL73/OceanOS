@@ -1,7 +1,14 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
-const dbPath = path.resolve(__dirname, 'emails.db');
+const configuredDbPath = process.env.MOBYWORK_SQLITE_PATH || 'emails.db';
+const dbPath = path.isAbsolute(configuredDbPath)
+    ? configuredDbPath
+    : path.resolve(__dirname, configuredDbPath);
+
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) return console.error("Erreur d'ouverture DB:", err);
     console.log("✅ Connecté au moteur SQLite local");

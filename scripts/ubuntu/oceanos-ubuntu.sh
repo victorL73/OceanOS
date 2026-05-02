@@ -55,6 +55,16 @@ random_secret() {
   date +%s%N | sha256sum | awk '{print $1}'
 }
 
+set_env_value() {
+  local file="$1" key="$2" value="$3" escaped_value
+  escaped_value="${value//&/\\&}"
+  if [[ -f "$file" ]] && grep -qE "^${key}=" "$file"; then
+    sed -i -E "s|^${key}=.*|${key}=${escaped_value}|" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
 database_service() {
   if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'mariadb.service'; then
     echo "mariadb"
@@ -150,7 +160,10 @@ PORT=$MOBYWORK_PORT
 FRONTEND_URL=http://localhost
 JWT_SECRET=$jwt_secret
 MOBYWORK_AUTH_DRIVER=oceanos
-MOBYWORK_DB_DRIVER=oceanos
+MOBYWORK_DB_DRIVER=sqlite
+MOBYWORK_SQLITE_PATH=$APP_ROOT/Mobywork/storage/emails.db
+TRUST_PROXY=1
+MOBYWORK_UPLOAD_MAX_BYTES=10485760
 MOBYWORK_DB_HOST=127.0.0.1
 MOBYWORK_DB_PORT=3306
 MOBYWORK_DB_NAME=OceanOS
@@ -164,6 +177,12 @@ EOF
     chown root:"$PHP_GROUP" "$MOBYWORK_ENV_FILE"
     log "A modifier avant production: $MOBYWORK_ENV_FILE"
   fi
+  set_env_value "$MOBYWORK_ENV_FILE" "MOBYWORK_DB_DRIVER" "sqlite"
+  set_env_value "$MOBYWORK_ENV_FILE" "MOBYWORK_SQLITE_PATH" "$APP_ROOT/Mobywork/storage/emails.db"
+  set_env_value "$MOBYWORK_ENV_FILE" "TRUST_PROXY" "1"
+  set_env_value "$MOBYWORK_ENV_FILE" "MOBYWORK_UPLOAD_MAX_BYTES" "10485760"
+  chmod 0640 "$MOBYWORK_ENV_FILE"
+  chown root:"$PHP_GROUP" "$MOBYWORK_ENV_FILE"
 }
 
 install_mobywork_service() {
@@ -337,6 +356,7 @@ fix_permissions() {
     "$APP_ROOT/Nautisign/storage"
     "$APP_ROOT/Invocean/storage"
     "$APP_ROOT/Mobywork/storage"
+    "$APP_ROOT/Mobywork/backend/attachments"
     "$APP_ROOT/Mobywork/backend/uploads"
   )
 
@@ -346,6 +366,14 @@ fix_permissions() {
     chown -R "$PHP_USER:$PHP_GROUP" "$path"
     chmod -R u+rwX,g+rwX,o-rwx "$path"
   done
+
+  if [[ -f "$APP_ROOT/Mobywork/backend/emails.db" && ! -f "$APP_ROOT/Mobywork/storage/emails.db" ]]; then
+    cp -a "$APP_ROOT/Mobywork/backend/emails.db" "$APP_ROOT/Mobywork/storage/emails.db"
+  fi
+  if [[ -f "$APP_ROOT/Mobywork/storage/emails.db" ]]; then
+    chown "$PHP_USER:$PHP_GROUP" "$APP_ROOT/Mobywork/storage/emails.db"
+    chmod 0660 "$APP_ROOT/Mobywork/storage/emails.db"
+  fi
 
   local oceanos_config_dir="$APP_ROOT/OceanOS/config"
   local local_config="$oceanos_config_dir/server.local.php"
@@ -384,7 +412,7 @@ run_update() {
     exit 2
   fi
 
-  local before after output status permissions_output permissions_status service_output service_status control_output control_status restart_output restart_status
+  local before after output status deps_output deps_status permissions_output permissions_status service_output service_status control_output control_status restart_output restart_status
   before="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
   preserve_server_config_before_pull
   set +e
@@ -400,13 +428,26 @@ run_update() {
   fi
 
   set +e
+  deps_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" node-deps 2>&1)"
+  deps_status=$?
+  set -e
+  if [[ "$deps_status" -ne 0 ]]; then
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les dependances Node ont echoue.","before":"%s","output":"%s","depsOutput":"%s"}' \
+      "$(json_escape "$before")" \
+      "$(json_escape "$output")" \
+      "$(json_escape "$deps_output")"
+    exit "$deps_status"
+  fi
+
+  set +e
   permissions_output="$(bash "$APP_ROOT/scripts/ubuntu/oceanos-ubuntu.sh" permissions 2>&1)"
   permissions_status=$?
   set -e
   if [[ "$permissions_status" -ne 0 ]]; then
-    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les permissions ont echoue.","before":"%s","output":"%s","permissionsOutput":"%s"}' \
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais les permissions ont echoue.","before":"%s","output":"%s","depsOutput":"%s","permissionsOutput":"%s"}' \
       "$(json_escape "$before")" \
       "$(json_escape "$output")" \
+      "$(json_escape "$deps_output")" \
       "$(json_escape "$permissions_output")"
     exit "$permissions_status"
   fi
@@ -416,9 +457,10 @@ run_update() {
   service_status=$?
   set -e
   if [[ "$service_status" -ne 0 ]]; then
-    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le service Mobywork n a pas pu etre reinstalle.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s"}' \
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le service Mobywork n a pas pu etre reinstalle.","before":"%s","output":"%s","depsOutput":"%s","permissionsOutput":"%s","serviceOutput":"%s"}' \
       "$(json_escape "$before")" \
       "$(json_escape "$output")" \
+      "$(json_escape "$deps_output")" \
       "$(json_escape "$permissions_output")" \
       "$(json_escape "$service_output")"
     exit "$service_status"
@@ -429,9 +471,10 @@ run_update() {
   control_status=$?
   set -e
   if [[ "$control_status" -ne 0 ]]; then
-    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le controleur n a pas pu etre reinstalle.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s"}' \
+    printf '{"ok":false,"message":"Mise a jour Git terminee, mais le controleur n a pas pu etre reinstalle.","before":"%s","output":"%s","depsOutput":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s"}' \
       "$(json_escape "$before")" \
       "$(json_escape "$output")" \
+      "$(json_escape "$deps_output")" \
       "$(json_escape "$permissions_output")" \
       "$(json_escape "$service_output")" \
       "$(json_escape "$control_output")"
@@ -447,9 +490,10 @@ run_update() {
   restart_status=$?
   set -e
   if [[ "$restart_status" -ne 0 ]]; then
-    printf '{"ok":false,"message":"Mise a jour terminee, mais le redemarrage des services a echoue.","before":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s"}' \
+    printf '{"ok":false,"message":"Mise a jour terminee, mais le redemarrage des services a echoue.","before":"%s","output":"%s","depsOutput":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s"}' \
       "$(json_escape "$before")" \
       "$(json_escape "$output")" \
+      "$(json_escape "$deps_output")" \
       "$(json_escape "$permissions_output")" \
       "$(json_escape "$service_output")" \
       "$(json_escape "$control_output")" \
@@ -458,10 +502,11 @@ run_update() {
   fi
 
   after="$(git -C "$APP_ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-  printf '{"ok":true,"message":"Mise a jour terminee.","before":"%s","after":"%s","output":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s","services":' \
+  printf '{"ok":true,"message":"Mise a jour terminee.","before":"%s","after":"%s","output":"%s","depsOutput":"%s","permissionsOutput":"%s","serviceOutput":"%s","controlOutput":"%s","restartOutput":"%s","services":' \
     "$(json_escape "$before")" \
     "$(json_escape "$after")" \
     "$(json_escape "$output")" \
+    "$(json_escape "$deps_output")" \
     "$(json_escape "$permissions_output")" \
     "$(json_escape "$service_output")" \
     "$(json_escape "$control_output")" \
@@ -530,6 +575,7 @@ ensure_permissions() {
     "$APP_ROOT/Nautisign/storage"
     "$APP_ROOT/Invocean/storage"
     "$APP_ROOT/Mobywork/storage"
+    "$APP_ROOT/Mobywork/backend/attachments"
     "$APP_ROOT/Mobywork/backend/uploads"
   )
 
@@ -539,6 +585,14 @@ ensure_permissions() {
     chown -R "$PHP_USER:$PHP_GROUP" "$path"
     chmod -R u+rwX,g+rwX,o-rwx "$path"
   done
+
+  if [[ -f "$APP_ROOT/Mobywork/backend/emails.db" && ! -f "$APP_ROOT/Mobywork/storage/emails.db" ]]; then
+    cp -a "$APP_ROOT/Mobywork/backend/emails.db" "$APP_ROOT/Mobywork/storage/emails.db"
+  fi
+  if [[ -f "$APP_ROOT/Mobywork/storage/emails.db" ]]; then
+    chown "$PHP_USER:$PHP_GROUP" "$APP_ROOT/Mobywork/storage/emails.db"
+    chmod 0660 "$APP_ROOT/Mobywork/storage/emails.db"
+  fi
 
   local oceanos_config_dir="$APP_ROOT/OceanOS/config"
   local local_config="$oceanos_config_dir/server.local.php"
@@ -606,6 +660,7 @@ Usage:
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh start
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh stop
   sudo ./scripts/ubuntu/oceanos-ubuntu.sh restart
+  sudo ./scripts/ubuntu/oceanos-ubuntu.sh node-deps
   ./scripts/ubuntu/oceanos-ubuntu.sh status
 
 Variables utiles:
@@ -619,6 +674,7 @@ EOF
 case "${1:-help}" in
   install) install_all ;;
   deps) need_root; install_packages; install_php_dependencies; install_node_dependencies ;;
+  node-deps) install_node_dependencies ;;
   build) build_mobywork_frontend ;;
   service) need_root; install_mobywork_service ;;
   apache) need_root; install_apache_site ;;

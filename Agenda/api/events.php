@@ -53,10 +53,17 @@ try {
     }
 
     if ($action === 'set_status') {
-        $event = agenda_set_event_status($pdo, $user, (int) ($input['id'] ?? 0), (string) ($input['status'] ?? 'planned'));
+        $requestedStatus = agenda_normalize_status($input['status'] ?? 'planned');
+        $event = agenda_set_event_status($pdo, $user, (int) ($input['id'] ?? 0), $requestedStatus);
+        $message = 'Statut mis a jour.';
+        if ($requestedStatus === 'done') {
+            $message = 'Reunion terminee. Salle MeetOcean fermee.';
+        } elseif ($requestedStatus === 'planned') {
+            $message = 'Evenement rouvert.';
+        }
         oceanos_json_response([
             'ok' => true,
-            'message' => 'Statut mis a jour.',
+            'message' => $message,
             'event' => $event,
             ...agenda_dashboard($pdo, $user),
         ]);

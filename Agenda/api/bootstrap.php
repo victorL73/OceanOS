@@ -581,6 +581,53 @@ function agenda_meetocean_event_join_url(PDO $pdo, array $event): string
     return $storedUrl;
 }
 
+function agenda_meetocean_room_id_from_event(PDO $pdo, array $event): ?int
+{
+    $roomId = isset($event['meetocean_room_id']) ? (int) $event['meetocean_room_id'] : 0;
+    if ($roomId > 0) {
+        return $roomId;
+    }
+
+    $storedUrl = trim((string) ($event['meetocean_join_url'] ?? ''));
+    if ($storedUrl === '') {
+        return null;
+    }
+
+    $parts = parse_url($storedUrl);
+    if (!is_array($parts) || !isset($parts['query'])) {
+        return null;
+    }
+
+    parse_str((string) $parts['query'], $query);
+    $slug = meetocean_clean_room_code($query['room'] ?? $query['code'] ?? '');
+    if ($slug === '') {
+        return null;
+    }
+
+    $statement = $pdo->prepare('SELECT id FROM meetocean_rooms WHERE slug = :slug LIMIT 1');
+    $statement->execute(['slug' => $slug]);
+    $foundRoomId = $statement->fetchColumn();
+
+    return $foundRoomId !== false ? (int) $foundRoomId : null;
+}
+
+function agenda_close_meetocean_room_for_event(PDO $pdo, array $event): void
+{
+    $roomId = agenda_meetocean_room_id_from_event($pdo, $event);
+    if ($roomId !== null && $roomId > 0) {
+        $deleteRoom = $pdo->prepare('DELETE FROM meetocean_rooms WHERE id = :id');
+        $deleteRoom->execute(['id' => $roomId]);
+    }
+
+    $clearEventRoom = $pdo->prepare(
+        'UPDATE agenda_events
+         SET meetocean_room_id = NULL,
+             meetocean_join_url = NULL
+         WHERE id = :id'
+    );
+    $clearEventRoom->execute(['id' => (int) $event['id']]);
+}
+
 function agenda_create_event(PDO $pdo, array $actor, array $input): array
 {
     $event = agenda_normalize_event_input($pdo, $input, $actor);
@@ -702,22 +749,50 @@ function agenda_delete_event(PDO $pdo, array $actor, int $eventId): void
     $event = agenda_find_event($pdo, $eventId);
     agenda_assert_can_manage_event($event, $actor);
 
-    $statement = $pdo->prepare('DELETE FROM agenda_events WHERE id = :id');
-    $statement->execute(['id' => $eventId]);
+    $pdo->beginTransaction();
+    try {
+        agenda_close_meetocean_room_for_event($pdo, $event);
+
+        $statement = $pdo->prepare('DELETE FROM agenda_events WHERE id = :id');
+        $statement->execute(['id' => $eventId]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
 }
 
 function agenda_set_event_status(PDO $pdo, array $actor, int $eventId, string $status): array
 {
     $event = agenda_find_event($pdo, $eventId);
     agenda_assert_can_manage_event($event, $actor);
+    $nextStatus = agenda_normalize_status($status);
 
-    $statement = $pdo->prepare('UPDATE agenda_events SET status = :status WHERE id = :id');
-    $statement->execute([
-        'id' => $eventId,
-        'status' => agenda_normalize_status($status),
-    ]);
+    $pdo->beginTransaction();
+    try {
+        $statement = $pdo->prepare('UPDATE agenda_events SET status = :status WHERE id = :id');
+        $statement->execute([
+            'id' => $eventId,
+            'status' => $nextStatus,
+        ]);
 
-    return agenda_public_event($pdo, agenda_find_event($pdo, $eventId));
+        if ($nextStatus === 'done') {
+            agenda_close_meetocean_room_for_event($pdo, $event);
+        }
+
+        $updated = agenda_find_event($pdo, $eventId);
+        $pdo->commit();
+
+        return agenda_public_event($pdo, $updated);
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $exception;
+    }
 }
 
 function agenda_find_event(PDO $pdo, int $eventId): array

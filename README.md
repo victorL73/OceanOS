@@ -110,7 +110,7 @@ Ce fichier contient :
 - mot de passe MySQL
 
 Flowcean, Invocean et Stockcean lisent aussi cette configuration partagee.
-Mobywork utilise OceanOS pour la connexion et les informations entreprise, mais garde ses parametres metier, mails, tris, dossiers et devis dans `Mobywork/backend/emails.db`.
+Mobywork utilise OceanOS pour la connexion et les informations entreprise, mais garde ses parametres metier, mails, tris, dossiers et devis en SQLite. En local, le fichier par defaut est `Mobywork/backend/emails.db`. Sur le serveur Ubuntu, le script configure `MOBYWORK_SQLITE_PATH` vers `Mobywork/storage/emails.db` pour garder la base dans un dossier persistant.
 
 Sur une installation serveur :
 
@@ -519,6 +519,16 @@ Ces fichiers sont crees par :
 
 ```bash
 sudo scripts/ubuntu/oceanos-ubuntu.sh control
+```
+
+Si le service Mobywork reste en `auto-restart`, verifier les logs puis relancer la preparation Node et les permissions :
+
+```bash
+sudo journalctl -u mobywork-backend -n 80 --no-pager
+sudo scripts/ubuntu/oceanos-ubuntu.sh node-deps
+sudo scripts/ubuntu/oceanos-ubuntu.sh permissions
+sudo scripts/ubuntu/oceanos-ubuntu.sh service
+sudo systemctl restart mobywork-backend
 ```
 
 ## URLs utiles en local
