@@ -132,6 +132,8 @@ const labels = {
     read: "Lu",
     replied: "Repondu",
     archived: "Archive",
+    sent: "Envoye",
+    failed: "Erreur",
   },
 };
 
@@ -314,7 +316,12 @@ function updateSignaturePreviews() {
 }
 
 function selectedMessageId() {
-  return Number(state.selectedMessage?.id || 0);
+  const value = Number(state.selectedMessage?.id || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function selectedMailKey() {
+  return String(state.selectedMessage?.id || "");
 }
 
 function initialMessageIdFromUrl() {
@@ -339,7 +346,8 @@ async function loadDashboard() {
 }
 
 async function loadMessage(messageId, activate = true) {
-  const refresh = state.imapAvailable ? "&refreshParts=1" : "";
+  const isSent = String(messageId).startsWith("sent:");
+  const refresh = !isSent && state.imapAvailable ? "&refreshParts=1" : "";
   const payload = await apiRequest(`${API.messages}?action=message&id=${encodeURIComponent(messageId)}${refresh}`);
   state.selectedMessage = payload.message || null;
   state.conversation = payload.conversation || null;
@@ -361,7 +369,7 @@ function applyDashboard(payload) {
   state.aiSettings = payload.aiSettings || null;
   state.selectedAccountId = Number(payload.selectedAccountId || state.selectedAccountId || 0);
   if (state.selectedMessage) {
-    const refreshed = state.messages.find((item) => Number(item.id) === Number(state.selectedMessage.id));
+    const refreshed = state.messages.find((item) => String(item.id) === String(state.selectedMessage.id));
     if (refreshed) state.selectedMessage = refreshed;
   }
   render();
@@ -438,12 +446,12 @@ function renderMessages() {
     return;
   }
 
-  const selectedId = selectedMessageId();
+  const selectedKey = selectedMailKey();
   elements.messagesList.innerHTML = state.messages.map((mail) => `
-    <button class="mail-row${Number(mail.id) === selectedId ? " is-selected" : ""}" data-mail-open="${mail.id}" type="button">
+    <button class="mail-row${String(mail.id) === selectedKey ? " is-selected" : ""}" data-mail-open="${escapeAttribute(mail.id)}" type="button">
       <span class="mail-sender">
-        <strong>${escapeHtml(mail.senderName || mail.senderEmail || "Expediteur")}</strong>
-        <small>${escapeHtml(mail.senderEmail || mail.accountEmail || "")}</small>
+        <strong>${escapeHtml(mail.isOutgoing ? `A ${mail.recipientText || "destinataire"}` : (mail.senderName || mail.senderEmail || "Expediteur"))}</strong>
+        <small>${escapeHtml(mail.isOutgoing ? (mail.accountEmail || "") : (mail.senderEmail || mail.accountEmail || ""))}</small>
       </span>
       <span class="mail-subject">
         <strong>${escapeHtml(mail.subject || "(Sans objet)")}</strong>
@@ -451,8 +459,8 @@ function renderMessages() {
       </span>
       <span class="mail-tags">
         ${(mail.attachments?.length || 0) > 0 ? badge(`${mail.attachments.length} PJ`, "attachment") : ""}
-        ${badge(labels.category[mail.category] || mail.category, mail.category)}
-        ${badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
+        ${mail.isOutgoing ? "" : badge(labels.category[mail.category] || mail.category, mail.category)}
+        ${mail.isOutgoing ? "" : badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
         ${badge(labels.status[mail.status] || mail.status, mail.status)}
       </span>
     </button>
@@ -463,6 +471,7 @@ function renderTriageBoard() {
   const categories = ["client", "vente", "gestion", "support", "finance", "spam", "autre"];
   const counts = Object.fromEntries(categories.map((category) => [category, 0]));
   state.messages.forEach((mail) => {
+    if (mail.isOutgoing) return;
     counts[mail.category] = (counts[mail.category] || 0) + 1;
   });
 
@@ -775,10 +784,10 @@ function renderDetail() {
 
   elements.mailDetailEmpty.classList.add("hidden");
   elements.mailDetail.classList.remove("hidden");
-  elements.mailTriagePanel.classList.remove("hidden");
+  elements.mailTriagePanel.classList.toggle("hidden", Boolean(mail.isOutgoing));
   const senderLine = [mail.senderName, mail.senderEmail ? `<${mail.senderEmail}>` : ""].filter(Boolean).join(" ");
   const activeConversationItem = currentConversationItem(mail);
-  const activeIsIncoming = !activeConversationItem || activeConversationItem.type === "incoming";
+  const activeIsIncoming = !mail.isOutgoing && (!activeConversationItem || activeConversationItem.type === "incoming");
   const bodyHtml = activeIsIncoming ? String(mail.bodyHtml || "").trim() : "";
   const conversationHtml = renderConversation();
   const bodyMarkup = renderMailBodyMarkup(mail, bodyHtml);
@@ -790,8 +799,8 @@ function renderDetail() {
       </div>
       <div class="detail-tags">
         ${(mail.attachments?.length || 0) > 0 ? badge(`${mail.attachments.length} PJ`, "attachment") : ""}
-        ${badge(labels.category[mail.category] || mail.category, mail.category)}
-        ${badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
+        ${mail.isOutgoing ? "" : badge(labels.category[mail.category] || mail.category, mail.category)}
+        ${mail.isOutgoing ? "" : badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
         ${badge(labels.status[mail.status] || mail.status, mail.status)}
       </div>
     </div>
@@ -803,7 +812,7 @@ function renderDetail() {
       ${renderHeaderRow("Boite", mail.accountLabel || mail.accountEmail)}
       ${renderHeaderRow("Dossier", mail.mailbox)}
     </section>
-    ${activeIsIncoming ? renderAttachments(mail) : renderOutgoingAttachments(activeConversationItem)}
+    ${activeIsIncoming ? renderAttachments(mail) : renderOutgoingAttachments(activeConversationItem || mail)}
     ${mail.aiSummary || mail.aiActions ? `
       <section class="ai-summary">
         ${mail.aiSummary ? `<strong>Synthese IA</strong><span>${escapeHtml(mail.aiSummary)}</span>` : ""}
@@ -822,6 +831,7 @@ function renderDetail() {
     `}
   `;
   if (bodyHtml) hydrateMailFrame(bodyHtml);
+  if (mail.isOutgoing) return;
 
   elements.messageCategory.value = mail.category || "autre";
   elements.messagePriority.value = mail.priority || "normal";
@@ -836,7 +846,7 @@ function replySubject(subject) {
 
 function fillReplyDefaults(force = false, replyAll = state.replyAll) {
   const mail = state.selectedMessage;
-  if (!mail || state.composeMode) return;
+  if (!mail || mail.isOutgoing || state.composeMode) return;
   const targets = replyTargets(mail, replyAll);
   state.replyAll = Boolean(replyAll);
   if (force || !elements.replyTo.value) elements.replyTo.value = targets.to;
@@ -860,7 +870,7 @@ function clearReplyForm() {
 function renderReply() {
   const mail = state.selectedMessage;
   const canCompose = state.selectedAccountId > 0;
-  const showPanel = state.composeMode ? canCompose : Boolean(mail);
+  const showPanel = state.composeMode ? canCompose : Boolean(mail && !mail.isOutgoing);
   elements.replyEmpty.classList.toggle("hidden", showPanel);
   elements.replyPanel.classList.toggle("hidden", !showPanel);
   if (elements.replyEyebrow) elements.replyEyebrow.textContent = state.composeMode ? "Ecriture" : "Reponse";
@@ -877,6 +887,10 @@ function renderReply() {
 }
 
 function openReply(replyAll = false) {
+  if (state.selectedMessage?.isOutgoing) {
+    showMessage("Ce mail envoye est deja consultable dans l historique.", "error");
+    return;
+  }
   const wasComposing = state.composeMode;
   state.composeMode = false;
   state.replyAll = Boolean(replyAll);
@@ -1189,7 +1203,15 @@ async function sendReply(event) {
       applyDashboard(payload.dashboard || payload);
       state.composeMode = false;
       clearReplyForm();
-      setActiveView("inbox");
+      if (payload.sentId) {
+        try {
+          await loadMessage(`sent:${payload.sentId}`, true);
+        } catch (openSentError) {
+          setActiveView("inbox");
+        }
+      } else {
+        setActiveView("inbox");
+      }
     } else {
       state.selectedMessage = payload.mail || state.selectedMessage;
       if (payload.dashboard) {

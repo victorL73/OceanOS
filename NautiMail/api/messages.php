@@ -23,7 +23,19 @@ try {
         }
 
         if ($action === 'message') {
-            $message = nautimail_require_message_access($pdo, $user, (int) ($_GET['id'] ?? 0));
+            $rawId = trim((string) ($_GET['id'] ?? ''));
+            if (str_starts_with($rawId, 'sent:')) {
+                $sentMessage = nautimail_require_sent_message_access($pdo, $user, (int) substr($rawId, 5));
+                nautimail_json_response([
+                    'ok' => true,
+                    'managedBy' => 'OceanOS',
+                    'user' => oceanos_public_user($user),
+                    'message' => nautimail_public_sent_message($sentMessage),
+                    'conversation' => nautimail_sent_message_conversation($sentMessage),
+                ]);
+            }
+
+            $message = nautimail_require_message_access($pdo, $user, (int) $rawId);
             if (!empty($_GET['refreshParts']) || nautimail_message_missing_inline_sources($message)) {
                 $message = nautimail_refresh_message_parts($pdo, $user, $message);
             }

@@ -847,6 +847,44 @@ function nautimail_public_outgoing_attachments(mixed $value): array
     return $attachments;
 }
 
+function nautimail_public_sent_message(array $row): array
+{
+    $date = $row['sent_at'] ? (string) $row['sent_at'] : (string) $row['created_at'];
+    return [
+        'id' => 'sent:' . (int) $row['id'],
+        'kind' => 'sent',
+        'isOutgoing' => true,
+        'sentId' => (int) $row['id'],
+        'accountId' => (int) $row['account_id'],
+        'accountLabel' => (string) ($row['account_label'] ?? ''),
+        'accountEmail' => (string) ($row['account_email'] ?? ''),
+        'mailbox' => 'Envoyes',
+        'imapUid' => 0,
+        'messageId' => '',
+        'threadKey' => (string) ($row['thread_key'] ?? ''),
+        'subject' => (string) ($row['subject'] ?? ''),
+        'senderName' => (string) ($row['account_label'] ?? 'NautiMail'),
+        'senderEmail' => (string) ($row['account_email'] ?? ''),
+        'recipientText' => (string) ($row['to_email'] ?? ''),
+        'ccText' => (string) ($row['cc_email'] ?? ''),
+        'bccText' => (string) ($row['bcc_email'] ?? ''),
+        'receivedAt' => $date,
+        'preview' => nautimail_message_preview((string) ($row['body_text'] ?? '')),
+        'bodyText' => (string) ($row['body_text'] ?? ''),
+        'bodyHtml' => '',
+        'attachments' => nautimail_public_outgoing_attachments($row['attachments_json'] ?? null),
+        'category' => 'autre',
+        'priority' => 'normal',
+        'status' => (string) ($row['status'] ?? 'sent'),
+        'aiSummary' => '',
+        'aiActions' => '',
+        'assignedUserId' => null,
+        'assignedUserDisplayName' => '',
+        'createdAt' => (string) $row['created_at'],
+        'updatedAt' => (string) ($row['sent_at'] ?: $row['created_at']),
+    ];
+}
+
 function nautimail_attachment_lookup_keys(array $attachment): array
 {
     $keys = [];
@@ -1143,6 +1181,40 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
         $statement->execute($messageParams);
         $messages = array_map('nautimail_public_message', $statement->fetchAll());
 
+        if ($category === '' && $status === '') {
+            $sentWhere = ['s.account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ')', 's.message_id IS NULL'];
+            $sentParams = $accountIds;
+            if ($selectedAccountId > 0) {
+                $sentWhere[] = 's.account_id = ?';
+                $sentParams[] = $selectedAccountId;
+            }
+            if ($search !== '') {
+                $sentWhere[] = '(s.subject LIKE ? OR s.to_email LIKE ? OR s.cc_email LIKE ? OR s.bcc_email LIKE ? OR s.body_text LIKE ?)';
+                $like = '%' . $search . '%';
+                array_push($sentParams, $like, $like, $like, $like, $like);
+            }
+
+            $sentSql = 'SELECT s.*, a.label AS account_label, a.email_address AS account_email
+                        FROM nautimail_sent_messages s
+                        INNER JOIN nautimail_accounts a ON a.id = s.account_id
+                        WHERE ' . implode(' AND ', $sentWhere) . '
+                        ORDER BY COALESCE(s.sent_at, s.created_at) DESC, s.id DESC
+                        LIMIT 80';
+            $sentStatement = $pdo->prepare($sentSql);
+            $sentStatement->execute($sentParams);
+            $messages = array_merge($messages, array_map('nautimail_public_sent_message', $sentStatement->fetchAll()));
+            usort($messages, static function (array $left, array $right): int {
+                $leftDate = nautimail_conversation_date_value((string) ($left['receivedAt'] ?? $left['createdAt'] ?? ''));
+                $rightDate = nautimail_conversation_date_value((string) ($right['receivedAt'] ?? $right['createdAt'] ?? ''));
+                $dateCompare = $rightDate <=> $leftDate;
+                if ($dateCompare !== 0) {
+                    return $dateCompare;
+                }
+                return strcmp((string) ($right['id'] ?? ''), (string) ($left['id'] ?? ''));
+            });
+            $messages = array_slice($messages, 0, 140);
+        }
+
         $statsWhere = 'account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ')';
         $statsStatement = $pdo->prepare(
             "SELECT
@@ -1157,9 +1229,18 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
         $statsStatement->execute($accountIds);
         $row = $statsStatement->fetch();
         if (is_array($row)) {
+            $sentCountStatement = $pdo->prepare(
+                'SELECT COUNT(*)
+                 FROM nautimail_sent_messages
+                 WHERE account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ')
+                   AND message_id IS NULL
+                   AND status = "sent"'
+            );
+            $sentCountStatement->execute($accountIds);
+            $sentStandaloneCount = (int) $sentCountStatement->fetchColumn();
             $stats = [
                 'accountCount' => count($accounts),
-                'messageCount' => (int) $row['message_count'],
+                'messageCount' => (int) $row['message_count'] + $sentStandaloneCount,
                 'newCount' => (int) $row['new_count'],
                 'urgentCount' => (int) $row['urgent_count'],
                 'aiCount' => (int) $row['ai_count'],
@@ -1216,6 +1297,61 @@ function nautimail_message_by_account_uid(PDO $pdo, int $accountId, string $mail
     ]);
     $row = $statement->fetch();
     return is_array($row) ? $row : null;
+}
+
+function nautimail_sent_message_by_id(PDO $pdo, int $sentId): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT s.*, a.label AS account_label, a.email_address AS account_email
+         FROM nautimail_sent_messages s
+         INNER JOIN nautimail_accounts a ON a.id = s.account_id
+         WHERE s.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $sentId]);
+    $row = $statement->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function nautimail_require_sent_message_access(PDO $pdo, array $user, int $sentId): array
+{
+    $message = nautimail_sent_message_by_id($pdo, $sentId);
+    if ($message === null) {
+        throw new InvalidArgumentException('Mail envoye introuvable.');
+    }
+    nautimail_require_account_access($pdo, $user, (int) $message['account_id']);
+
+    return $message;
+}
+
+function nautimail_sent_message_conversation(array $sentMessage): array
+{
+    $date = $sentMessage['sent_at'] ? (string) $sentMessage['sent_at'] : (string) $sentMessage['created_at'];
+    return [
+        'threadKey' => (string) ($sentMessage['thread_key'] ?? ''),
+        'storedThreadKey' => (string) ($sentMessage['thread_key'] ?? ''),
+        'subject' => nautimail_conversation_subject((string) ($sentMessage['subject'] ?? '')),
+        'items' => [[
+            'type' => 'sent',
+            'id' => (int) $sentMessage['id'],
+            'sentId' => (int) $sentMessage['id'],
+            'messageId' => null,
+            'subject' => (string) $sentMessage['subject'],
+            'toEmail' => (string) $sentMessage['to_email'],
+            'ccEmail' => (string) ($sentMessage['cc_email'] ?? ''),
+            'bccEmail' => (string) ($sentMessage['bcc_email'] ?? ''),
+            'date' => $date,
+            'bodyText' => (string) $sentMessage['body_text'],
+            'attachments' => nautimail_public_outgoing_attachments($sentMessage['attachments_json'] ?? null),
+            'status' => (string) $sentMessage['status'],
+            'errorMessage' => (string) ($sentMessage['error_message'] ?? ''),
+            'userLabel' => '',
+        ]],
+        'incomingCount' => 0,
+        'replyCount' => 0,
+        'sentCount' => 1,
+        'totalCount' => 1,
+    ];
 }
 
 function nautimail_require_message_access(PDO $pdo, array $user, int $messageId): array
