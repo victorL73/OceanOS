@@ -32,6 +32,7 @@ try {
                 'managedBy' => 'OceanOS',
                 'user' => oceanos_public_user($user),
                 'message' => nautimail_public_message($message),
+                'conversation' => nautimail_message_conversation($pdo, $user, (int) $message['id']),
             ]);
         }
 
@@ -121,6 +122,17 @@ try {
                 'replyId' => $result['replyId'],
                 'mail' => $result['message'],
                 'dashboard' => nautimail_dashboard($pdo, ['accountId' => $result['message']['accountId']], $user),
+            ]);
+        }
+
+        if ($action === 'send_message') {
+            $result = nautimail_send_message($pdo, $user, $input);
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'message' => 'Mail envoye.',
+                'sentId' => $result['sentId'],
+                'dashboard' => nautimail_dashboard($pdo, ['accountId' => $result['accountId']], $user),
             ]);
         }
 

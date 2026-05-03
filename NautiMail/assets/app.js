@@ -14,6 +14,7 @@ const elements = {
   aiChip: $("ai-chip"),
   currentUser: $("current-user"),
   accountSelect: $("account-select"),
+  composeButton: $("compose-button"),
   syncButton: $("sync-button"),
   analyzePendingButton: $("analyze-pending-button"),
   refreshButton: $("refresh-button"),
@@ -46,6 +47,8 @@ const elements = {
   openReplyAllButton: $("open-reply-all-button"),
   replyEmpty: $("reply-empty"),
   replyPanel: $("reply-panel"),
+  replyEyebrow: $("reply-eyebrow"),
+  replyTitle: $("reply-title"),
   replyTone: $("reply-tone"),
   replyAllButton: $("reply-all-button"),
   generateReplyButton: $("generate-reply-button"),
@@ -55,6 +58,7 @@ const elements = {
   replyBcc: $("reply-bcc"),
   replySubject: $("reply-subject"),
   replyBody: $("reply-body"),
+  replySubmitButton: $("reply-submit-button"),
   replyResetButton: $("reply-reset-button"),
   replyCancelButton: $("reply-cancel-button"),
   accountFormTitle: $("account-form-title"),
@@ -89,11 +93,13 @@ const state = {
   messages: [],
   selectedAccountId: 0,
   selectedMessage: null,
+  conversation: null,
   stats: {},
   currentView: "inbox",
   imapAvailable: false,
   aiSettings: null,
   replyAll: false,
+  composeMode: false,
   autoRefreshTimer: null,
 };
 
@@ -242,7 +248,9 @@ async function loadMessage(messageId, activate = true) {
   const refresh = state.imapAvailable ? "&refreshParts=1" : "";
   const payload = await apiRequest(`${API.messages}?action=message&id=${encodeURIComponent(messageId)}${refresh}`);
   state.selectedMessage = payload.message || null;
+  state.conversation = payload.conversation || null;
   state.replyAll = false;
+  state.composeMode = false;
   renderDetail();
   renderReply();
   if (activate) setActiveView("detail");
@@ -310,6 +318,7 @@ function renderChrome() {
         return `<option value="${account.id}"${selected}>${escapeHtml(account.label || account.emailAddress)}</option>`;
       }).join("");
   elements.accountSelect.value = previous;
+  if (elements.composeButton) elements.composeButton.disabled = state.selectedAccountId <= 0;
   elements.syncButton.disabled = !state.imapAvailable || state.selectedAccountId <= 0;
   elements.analyzePendingButton.disabled = !state.aiSettings?.hasApiKey || state.messages.length === 0;
 }
@@ -435,6 +444,75 @@ function renderAttachments(mail) {
   `;
 }
 
+function compactText(value, maxLength = 220) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function renderConversationItem(item) {
+  const type = item.type || "incoming";
+  const isIncoming = type === "incoming";
+  const isReply = type === "reply";
+  const title = isIncoming
+    ? [item.fromName, item.fromEmail ? `<${item.fromEmail}>` : ""].filter(Boolean).join(" ") || "Expediteur"
+    : `A ${item.toEmail || "destinataire"}`;
+  const subtitleParts = [
+    item.subject || "(Sans objet)",
+    item.ccEmail ? `Cc ${item.ccEmail}` : "",
+    item.bccEmail ? `Cci ${item.bccEmail}` : "",
+  ].filter(Boolean);
+  const preview = isIncoming ? item.preview : item.bodyText;
+  const action = isIncoming && !item.isCurrent
+    ? `<button class="ghost-button tiny-button" type="button" data-history-mail-open="${escapeAttribute(item.messageId)}">Ouvrir</button>`
+    : "";
+  const label = isIncoming ? (item.isCurrent ? "Mail ouvert" : "Recu") : (isReply ? "Reponse envoyee" : "Mail envoye");
+
+  return `
+    <article class="conversation-item ${escapeAttribute(type)}${item.isCurrent ? " is-current" : ""}">
+      <span class="conversation-marker">${escapeHtml(label)}</span>
+      <div class="conversation-content">
+        <div class="conversation-head">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(formatDateTime(item.date))}</span>
+        </div>
+        <small>${escapeHtml(subtitleParts.join(" - "))}</small>
+        ${preview ? `<p>${escapeHtml(compactText(preview, isIncoming ? 180 : 260))}</p>` : ""}
+        <div class="conversation-actions">
+          ${item.status ? badge(labels.status[item.status] || item.status, item.status) : ""}
+          ${item.errorMessage ? badge("Erreur", "danger") : ""}
+          ${action}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderConversation() {
+  const conversation = state.conversation || {};
+  const items = Array.isArray(conversation.items) ? conversation.items : [];
+  if (items.length <= 1 && Number(conversation.replyCount || 0) <= 0 && Number(conversation.sentCount || 0) <= 0) {
+    return "";
+  }
+
+  const countLabel = [
+    `${Number(conversation.incomingCount || 0)} recu(s)`,
+    `${Number(conversation.replyCount || 0) + Number(conversation.sentCount || 0)} envoye(s)`,
+  ].join(" - ");
+
+  return `
+    <section class="conversation-panel">
+      <div class="section-heading">
+        <strong>Historique du fil</strong>
+        <span>${escapeHtml(countLabel)}</span>
+      </div>
+      <div class="conversation-list">
+        ${items.map(renderConversationItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function mailFrameDocument(bodyHtml) {
   const baseHref = escapeAttribute(window.location.href);
   return `<!doctype html>
@@ -554,6 +632,7 @@ function renderDetail() {
         ${mail.aiActions ? `<strong>Actions</strong><span>${escapeHtml(mail.aiActions)}</span>` : ""}
       </section>
     ` : ""}
+    ${renderConversation()}
     ${bodyHtml
       ? '<iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>'
       : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`}
@@ -573,7 +652,7 @@ function replySubject(subject) {
 
 function fillReplyDefaults(force = false, replyAll = state.replyAll) {
   const mail = state.selectedMessage;
-  if (!mail) return;
+  if (!mail || state.composeMode) return;
   const targets = replyTargets(mail, replyAll);
   state.replyAll = Boolean(replyAll);
   if (force || !elements.replyTo.value) elements.replyTo.value = targets.to;
@@ -585,16 +664,50 @@ function fillReplyDefaults(force = false, replyAll = state.replyAll) {
   }
 }
 
+function clearReplyForm() {
+  elements.replyTo.value = "";
+  elements.replyCc.value = "";
+  elements.replyBcc.value = "";
+  elements.replySubject.value = "";
+  elements.replyBody.value = "";
+}
+
 function renderReply() {
   const mail = state.selectedMessage;
-  elements.replyEmpty.classList.toggle("hidden", Boolean(mail));
-  elements.replyPanel.classList.toggle("hidden", !mail);
-  if (mail) fillReplyDefaults(false);
+  const canCompose = state.selectedAccountId > 0;
+  const showPanel = state.composeMode ? canCompose : Boolean(mail);
+  elements.replyEmpty.classList.toggle("hidden", showPanel);
+  elements.replyPanel.classList.toggle("hidden", !showPanel);
+  if (elements.replyEyebrow) elements.replyEyebrow.textContent = state.composeMode ? "Ecriture" : "Reponse";
+  if (elements.replyTitle) elements.replyTitle.textContent = state.composeMode ? "Nouveau mail" : "Brouillon";
+  if (elements.replyAllButton) elements.replyAllButton.classList.toggle("hidden", state.composeMode);
+  if (elements.generateReplyButton) elements.generateReplyButton.classList.toggle("hidden", state.composeMode);
+  if (elements.replyTone) elements.replyTone.disabled = state.composeMode;
+  if (!showPanel) return;
+  if (state.composeMode) {
+    return;
+  }
+  fillReplyDefaults(false);
 }
 
 function openReply(replyAll = false) {
+  const wasComposing = state.composeMode;
+  state.composeMode = false;
   state.replyAll = Boolean(replyAll);
+  if (wasComposing) clearReplyForm();
   fillReplyDefaults(true, state.replyAll);
+  setActiveView("reply");
+}
+
+function openCompose() {
+  if (state.selectedAccountId <= 0) {
+    showMessage("Selectionnez une adresse mail pour ecrire.", "error");
+    return;
+  }
+  state.composeMode = true;
+  state.replyAll = false;
+  clearReplyForm();
+  renderReply();
   setActiveView("reply");
 }
 
@@ -774,6 +887,7 @@ async function saveMessageTriage(event) {
 }
 
 async function generateReply() {
+  if (state.composeMode) return;
   const messageId = selectedMessageId();
   if (messageId <= 0) return;
   elements.generateReplyButton.disabled = true;
@@ -804,25 +918,60 @@ async function generateReply() {
 async function sendReply(event) {
   event.preventDefault();
   const messageId = selectedMessageId();
-  if (messageId <= 0) return;
+  const isCompose = state.composeMode || messageId <= 0;
+  const submitButton = event.submitter || elements.replySubmitButton;
+  const submitLabel = submitButton?.textContent || "Envoyer";
+  if (isCompose && state.selectedAccountId <= 0) {
+    showMessage("Selectionnez une adresse mail pour envoyer.", "error");
+    return;
+  }
+  if (!isCompose && messageId <= 0) return;
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Envoi...";
+  }
+  showMessage(isCompose ? "Envoi du mail en cours..." : "Envoi de la reponse en cours...");
   try {
+    const requestBody = {
+      action: isCompose ? "send_message" : "send_reply",
+      accountId: state.selectedAccountId,
+      toEmail: elements.replyTo.value.trim(),
+      ccEmail: elements.replyCc.value.trim(),
+      bccEmail: elements.replyBcc.value.trim(),
+      subject: elements.replySubject.value.trim(),
+      body: elements.replyBody.value.trim(),
+    };
+    if (!isCompose) requestBody.messageId = messageId;
+
     const payload = await apiRequest(API.messages, {
       method: "POST",
-      body: JSON.stringify({
-        action: "send_reply",
-        messageId,
-        toEmail: elements.replyTo.value.trim(),
-        ccEmail: elements.replyCc.value.trim(),
-        bccEmail: elements.replyBcc.value.trim(),
-        subject: elements.replySubject.value.trim(),
-        body: elements.replyBody.value.trim(),
-      }),
+      body: JSON.stringify(requestBody),
     });
-    state.selectedMessage = payload.mail || state.selectedMessage;
-    applyDashboard(payload.dashboard || payload);
-    showMessage(payload.message || "Reponse envoyee.", "success");
+    if (isCompose) {
+      applyDashboard(payload.dashboard || payload);
+      state.composeMode = false;
+      clearReplyForm();
+      setActiveView("inbox");
+    } else {
+      state.selectedMessage = payload.mail || state.selectedMessage;
+      if (payload.dashboard) {
+        applyDashboard(payload.dashboard);
+      }
+      try {
+        await loadMessage(messageId, false);
+      } catch (refreshError) {
+        renderDetail();
+      }
+      setActiveView("detail");
+    }
+    showMessage(payload.message || (isCompose ? "Mail envoye." : "Reponse envoyee."), "success");
   } catch (error) {
     showMessage(error.message || "Envoi impossible.", "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = submitLabel;
+    }
   }
 }
 
@@ -901,13 +1050,21 @@ function startAutoRefresh() {
 
 function installListeners() {
   elements.viewTabs.forEach((button) => {
-    button.addEventListener("click", () => setActiveView(button.dataset.view || "inbox"));
+    button.addEventListener("click", () => {
+      const view = button.dataset.view || "inbox";
+      if (view === "reply" && !state.selectedMessage) {
+        openCompose();
+        return;
+      }
+      setActiveView(view);
+    });
   });
 
   elements.accountSelect.addEventListener("change", () => {
     state.selectedAccountId = Number(elements.accountSelect.value || 0);
     void loadDashboard().catch((error) => showMessage(error.message, "error"));
   });
+  elements.composeButton?.addEventListener("click", openCompose);
   elements.syncButton.addEventListener("click", () => { void syncSelectedAccount(); });
   elements.analyzePendingButton.addEventListener("click", () => { void analyzePendingMessages(); });
   elements.refreshButton.addEventListener("click", () => {
@@ -934,18 +1091,36 @@ function installListeners() {
     }
   });
 
+  elements.mailDetail.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-history-mail-open]");
+    if (button) {
+      void loadMessage(button.dataset.historyMailOpen);
+    }
+  });
+
   elements.messageForm.addEventListener("submit", saveMessageTriage);
   elements.analyzeMessageButton.addEventListener("click", () => { void analyzeSelectedMessage(); });
   elements.openReplyButton.addEventListener("click", () => openReply(false));
   elements.openReplyAllButton.addEventListener("click", () => openReply(true));
-  elements.replyAllButton.addEventListener("click", () => openReply(!state.replyAll));
-  elements.generateReplyButton.addEventListener("click", () => { void generateReply(); });
+  elements.replyAllButton?.addEventListener("click", () => openReply(!state.replyAll));
+  elements.generateReplyButton?.addEventListener("click", () => { void generateReply(); });
   elements.replyForm.addEventListener("submit", sendReply);
   elements.replyResetButton.addEventListener("click", () => {
+    if (state.composeMode) {
+      clearReplyForm();
+      return;
+    }
     elements.replyBody.value = "";
     fillReplyDefaults(true, state.replyAll);
   });
   elements.replyCancelButton.addEventListener("click", () => {
+    if (state.composeMode) {
+      state.composeMode = false;
+      clearReplyForm();
+      renderReply();
+      setActiveView("inbox");
+      return;
+    }
     setActiveView(state.selectedMessage ? "detail" : "inbox");
   });
 

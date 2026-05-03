@@ -697,6 +697,90 @@ legend {
   background: var(--surface-soft);
 }
 
+.tiny-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.conversation-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(8, 125, 121, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 125, 121, 0.05);
+}
+
+.conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-item {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.conversation-item.is-current {
+  border-color: rgba(8, 125, 121, 0.38);
+  background: rgba(8, 125, 121, 0.08);
+}
+
+.conversation-marker {
+  align-self: start;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--surface-soft);
+  color: var(--teal);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.conversation-content {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.conversation-head,
+.conversation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conversation-head strong,
+.conversation-content small,
+.conversation-content p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-head span,
+.conversation-content small {
+  color: var(--muted);
+}
+
+.conversation-content p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.42;
+}
+
 .mail-text-body,
 .mail-html-frame {
   margin-top: 16px;
@@ -846,7 +930,8 @@ legend {
   .server-grid,
   .share-grid,
   .message-headers,
-  .attachments-list {
+  .attachments-list,
+  .conversation-item {
     grid-template-columns: 1fr;
   }
 

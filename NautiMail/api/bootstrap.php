@@ -145,6 +145,32 @@ function nautimail_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nautimail_sent_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            message_id BIGINT UNSIGNED NULL,
+            account_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NULL,
+            thread_key VARCHAR(255) NULL,
+            to_email TEXT NOT NULL,
+            cc_email TEXT NULL,
+            bcc_email TEXT NULL,
+            subject VARCHAR(255) NOT NULL,
+            body_text LONGTEXT NOT NULL,
+            status ENUM('sent', 'failed') NOT NULL DEFAULT 'sent',
+            error_message TEXT NULL,
+            sent_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_nautimail_sent_message (message_id),
+            KEY idx_nautimail_sent_account (account_id),
+            KEY idx_nautimail_sent_thread (thread_key),
+            KEY idx_nautimail_sent_user (user_id),
+            CONSTRAINT fk_nautimail_sent_message FOREIGN KEY (message_id) REFERENCES nautimail_messages(id) ON DELETE SET NULL,
+            CONSTRAINT fk_nautimail_sent_account FOREIGN KEY (account_id) REFERENCES nautimail_accounts(id) ON DELETE CASCADE,
+            CONSTRAINT fk_nautimail_sent_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     if (!oceanos_column_exists($pdo, 'nautimail_messages', 'bcc_text')) {
         $pdo->exec('ALTER TABLE nautimail_messages ADD COLUMN bcc_text TEXT NULL AFTER cc_text');
     }
@@ -941,6 +967,7 @@ function nautimail_public_message(array $row): array
         'mailbox' => (string) $row['mailbox'],
         'imapUid' => (int) $row['imap_uid'],
         'messageId' => (string) ($row['message_id'] ?? ''),
+        'threadKey' => (string) ($row['thread_key'] ?? ''),
         'subject' => (string) ($row['subject'] ?? ''),
         'senderName' => (string) ($row['sender_name'] ?? ''),
         'senderEmail' => (string) ($row['sender_email'] ?? ''),
@@ -1094,6 +1121,249 @@ function nautimail_require_message_access(PDO $pdo, array $user, int $messageId)
     nautimail_require_account_access($pdo, $user, (int) $message['account_id']);
 
     return $message;
+}
+
+function nautimail_conversation_subject(string $subject): string
+{
+    $subject = trim(html_entity_decode($subject, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $subject = preg_replace('/\s+/u', ' ', $subject) ?: '';
+    if ($subject === '') {
+        return '';
+    }
+
+    do {
+        $previous = $subject;
+        $subject = preg_replace('/^\s*(?:(?:re|fw|fwd|tr)\s*(?:\[[0-9]+\])?\s*:\s*)+/iu', '', $subject) ?: $subject;
+        $subject = trim($subject);
+    } while ($subject !== $previous);
+
+    return mb_substr($subject, 0, 255);
+}
+
+function nautimail_conversation_subject_key(string $subject): string
+{
+    return mb_strtolower(nautimail_conversation_subject($subject));
+}
+
+function nautimail_conversation_date_value(?string $date): int
+{
+    if ($date === null || trim($date) === '') {
+        return 0;
+    }
+    $timestamp = strtotime($date);
+    return $timestamp === false ? 0 : $timestamp;
+}
+
+function nautimail_message_conversation(PDO $pdo, array $user, int $messageId): array
+{
+    $message = nautimail_require_message_access($pdo, $user, $messageId);
+    $accountId = (int) $message['account_id'];
+    $senderEmail = mb_strtolower(trim((string) ($message['sender_email'] ?? '')));
+    $subject = (string) ($message['subject'] ?? '');
+    $subjectKey = nautimail_conversation_subject_key($subject);
+    $storedThreadKey = trim((string) ($message['thread_key'] ?? ''));
+    $computedThreadKey = nautimail_thread_key('', $subject, $senderEmail);
+
+    $incomingRows = [];
+    $conditions = [];
+    $params = ['account_id' => $accountId];
+    if ($storedThreadKey !== '') {
+        $conditions[] = 'm.thread_key = :stored_thread_key';
+        $params['stored_thread_key'] = $storedThreadKey;
+    }
+    if ($computedThreadKey !== '' && $computedThreadKey !== $storedThreadKey) {
+        $conditions[] = 'm.thread_key = :computed_thread_key';
+        $params['computed_thread_key'] = $computedThreadKey;
+    }
+    if ($senderEmail !== '') {
+        $conditions[] = 'LOWER(m.sender_email) = :sender_email';
+        $params['sender_email'] = $senderEmail;
+    }
+    if ($subjectKey !== '') {
+        $conditions[] = 'm.subject LIKE :subject_like';
+        $params['subject_like'] = '%' . nautimail_conversation_subject($subject) . '%';
+    }
+
+    if ($conditions !== []) {
+        $statement = $pdo->prepare(
+            'SELECT m.*, a.label AS account_label, a.email_address AS account_email, u.display_name AS assigned_user_display_name
+             FROM nautimail_messages m
+             INNER JOIN nautimail_accounts a ON a.id = m.account_id
+             LEFT JOIN oceanos_users u ON u.id = m.assigned_user_id
+             WHERE m.account_id = :account_id
+               AND (' . implode(' OR ', $conditions) . ')
+             ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
+             LIMIT 160'
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $rowSubjectKey = nautimail_conversation_subject_key((string) ($row['subject'] ?? ''));
+            $rowSenderEmail = mb_strtolower(trim((string) ($row['sender_email'] ?? '')));
+            $rowThreadKey = trim((string) ($row['thread_key'] ?? ''));
+            $sameStoredThread = $storedThreadKey !== '' && $rowThreadKey !== '' && $rowThreadKey === $storedThreadKey;
+            $sameComputedThread = $computedThreadKey !== '' && $rowThreadKey !== '' && $rowThreadKey === $computedThreadKey;
+            $sameSubjectAndSender = $subjectKey !== '' && $rowSubjectKey === $subjectKey && $senderEmail !== '' && $rowSenderEmail === $senderEmail;
+
+            if ((int) $row['id'] === $messageId || $sameStoredThread || $sameComputedThread || $sameSubjectAndSender) {
+                $incomingRows[(int) $row['id']] = $row;
+            }
+        }
+    }
+
+    if (!isset($incomingRows[$messageId])) {
+        $incomingRows[$messageId] = $message;
+    }
+
+    $items = [];
+    foreach ($incomingRows as $row) {
+        $date = $row['received_at'] ? (string) $row['received_at'] : (string) $row['created_at'];
+        $items[] = [
+            'type' => 'incoming',
+            'id' => (int) $row['id'],
+            'messageId' => (int) $row['id'],
+            'isCurrent' => (int) $row['id'] === $messageId,
+            'subject' => (string) ($row['subject'] ?? ''),
+            'fromName' => (string) ($row['sender_name'] ?? ''),
+            'fromEmail' => (string) ($row['sender_email'] ?? ''),
+            'toText' => (string) ($row['recipient_text'] ?? ''),
+            'ccText' => (string) ($row['cc_text'] ?? ''),
+            'date' => $date,
+            'preview' => (string) ($row['preview'] ?? ''),
+            'status' => (string) ($row['status'] ?? ''),
+            'category' => (string) ($row['category'] ?? ''),
+            'priority' => (string) ($row['priority'] ?? ''),
+            '_timestamp' => nautimail_conversation_date_value($date),
+        ];
+    }
+
+    $incomingIds = array_keys($incomingRows);
+    if ($incomingIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($incomingIds), '?'));
+        $statement = $pdo->prepare(
+            "SELECT r.*, COALESCE(NULLIF(u.display_name, ''), u.email) AS user_label
+             FROM nautimail_replies r
+             LEFT JOIN oceanos_users u ON u.id = r.user_id
+             WHERE r.account_id = ?
+               AND r.message_id IN ({$placeholders})
+             ORDER BY COALESCE(r.sent_at, r.created_at) ASC, r.id ASC"
+        );
+        $statement->execute(array_merge([$accountId], $incomingIds));
+        foreach ($statement->fetchAll() as $row) {
+            $date = $row['sent_at'] ? (string) $row['sent_at'] : (string) $row['created_at'];
+            $items[] = [
+                'type' => 'reply',
+                'id' => (int) $row['id'],
+                'replyId' => (int) $row['id'],
+                'messageId' => (int) $row['message_id'],
+                'subject' => (string) $row['subject'],
+                'toEmail' => (string) $row['to_email'],
+                'ccEmail' => (string) ($row['cc_email'] ?? ''),
+                'bccEmail' => (string) ($row['bcc_email'] ?? ''),
+                'date' => $date,
+                'bodyText' => (string) $row['body_text'],
+                'status' => (string) $row['status'],
+                'errorMessage' => (string) ($row['error_message'] ?? ''),
+                'userLabel' => (string) ($row['user_label'] ?? ''),
+                '_timestamp' => nautimail_conversation_date_value($date),
+            ];
+        }
+    }
+
+    $sentConditions = [];
+    $sentParams = ['account_id' => $accountId];
+    if ($computedThreadKey !== '') {
+        $sentConditions[] = 's.thread_key = :sent_thread_key';
+        $sentParams['sent_thread_key'] = $computedThreadKey;
+    }
+    if ($senderEmail !== '') {
+        $sentConditions[] = '(s.to_email LIKE :sent_to_email OR s.cc_email LIKE :sent_cc_email OR s.bcc_email LIKE :sent_bcc_email)';
+        $sentParams['sent_to_email'] = '%' . $senderEmail . '%';
+        $sentParams['sent_cc_email'] = '%' . $senderEmail . '%';
+        $sentParams['sent_bcc_email'] = '%' . $senderEmail . '%';
+    }
+    if ($subjectKey !== '') {
+        $sentConditions[] = 's.subject LIKE :sent_subject_like';
+        $sentParams['sent_subject_like'] = '%' . nautimail_conversation_subject($subject) . '%';
+    }
+
+    if ($sentConditions !== []) {
+        $statement = $pdo->prepare(
+            'SELECT s.*, COALESCE(NULLIF(u.display_name, \'\'), u.email) AS user_label
+             FROM nautimail_sent_messages s
+             LEFT JOIN oceanos_users u ON u.id = s.user_id
+             WHERE s.account_id = :account_id
+               AND (' . implode(' OR ', $sentConditions) . ')
+             ORDER BY COALESCE(s.sent_at, s.created_at) ASC, s.id ASC
+             LIMIT 120'
+        );
+        $statement->execute($sentParams);
+        foreach ($statement->fetchAll() as $row) {
+            $rowSubjectKey = nautimail_conversation_subject_key((string) ($row['subject'] ?? ''));
+            $rowThreadKey = trim((string) ($row['thread_key'] ?? ''));
+            $recipientEmails = nautimail_extract_email_list(
+                (string) ($row['to_email'] ?? '') . ', ' . (string) ($row['cc_email'] ?? '') . ', ' . (string) ($row['bcc_email'] ?? ''),
+                false,
+                80
+            );
+            $sameThread = $computedThreadKey !== '' && $rowThreadKey !== '' && $rowThreadKey === $computedThreadKey;
+            $sameSubjectAndRecipient = $subjectKey !== '' && $rowSubjectKey === $subjectKey && $senderEmail !== '' && in_array($senderEmail, $recipientEmails, true);
+            if (!$sameThread && !$sameSubjectAndRecipient) {
+                continue;
+            }
+
+            $date = $row['sent_at'] ? (string) $row['sent_at'] : (string) $row['created_at'];
+            $items[] = [
+                'type' => 'sent',
+                'id' => (int) $row['id'],
+                'sentId' => (int) $row['id'],
+                'messageId' => isset($row['message_id']) ? (int) $row['message_id'] : null,
+                'subject' => (string) $row['subject'],
+                'toEmail' => (string) $row['to_email'],
+                'ccEmail' => (string) ($row['cc_email'] ?? ''),
+                'bccEmail' => (string) ($row['bcc_email'] ?? ''),
+                'date' => $date,
+                'bodyText' => (string) $row['body_text'],
+                'status' => (string) $row['status'],
+                'errorMessage' => (string) ($row['error_message'] ?? ''),
+                'userLabel' => (string) ($row['user_label'] ?? ''),
+                '_timestamp' => nautimail_conversation_date_value($date),
+            ];
+        }
+    }
+
+    usort($items, static function (array $left, array $right): int {
+        $dateCompare = ($left['_timestamp'] ?? 0) <=> ($right['_timestamp'] ?? 0);
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+        return ((int) ($left['id'] ?? 0)) <=> ((int) ($right['id'] ?? 0));
+    });
+
+    $incomingCount = 0;
+    $replyCount = 0;
+    $sentCount = 0;
+    foreach ($items as &$item) {
+        unset($item['_timestamp']);
+        if ($item['type'] === 'incoming') {
+            $incomingCount++;
+        } elseif ($item['type'] === 'reply') {
+            $replyCount++;
+        } elseif ($item['type'] === 'sent') {
+            $sentCount++;
+        }
+    }
+    unset($item);
+
+    return [
+        'threadKey' => $computedThreadKey,
+        'storedThreadKey' => $storedThreadKey,
+        'subject' => nautimail_conversation_subject($subject),
+        'items' => $items,
+        'incomingCount' => $incomingCount,
+        'replyCount' => $replyCount,
+        'sentCount' => $sentCount,
+        'totalCount' => count($items),
+    ];
 }
 
 function nautimail_html_cid_values(string $html): array
@@ -1679,13 +1949,9 @@ function nautimail_heuristic_triage(string $subject, string $sender, string $bod
 
 function nautimail_thread_key(?string $messageId, string $subject, string $senderEmail): string
 {
-    $messageId = trim((string) $messageId);
-    if ($messageId !== '') {
-        return mb_substr($messageId, 0, 255);
-    }
-
-    $normalizedSubject = preg_replace('/^(re|fw|fwd)\s*:\s*/iu', '', mb_strtolower($subject)) ?: $subject;
-    return mb_substr(hash('sha256', $senderEmail . '|' . $normalizedSubject), 0, 64);
+    $normalizedSubject = nautimail_conversation_subject_key($subject);
+    $correspondent = mb_strtolower(trim($senderEmail));
+    return mb_substr(hash('sha256', $correspondent . '|' . $normalizedSubject), 0, 64);
 }
 
 function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int $uid, array $payload): bool
@@ -2237,6 +2503,105 @@ function nautimail_smtp_send(array $account, array $toRecipients, array $ccRecip
     } finally {
         @fclose($socket);
     }
+}
+
+function nautimail_insert_sent_message(
+    PDO $pdo,
+    ?int $messageId,
+    int $accountId,
+    int $userId,
+    string $threadKey,
+    array $toRecipients,
+    array $ccRecipients,
+    array $bccRecipients,
+    string $subject,
+    string $body,
+    string $status,
+    ?string $errorMessage = null
+): int {
+    $statement = $pdo->prepare(
+        'INSERT INTO nautimail_sent_messages
+            (message_id, account_id, user_id, thread_key, to_email, cc_email, bcc_email, subject, body_text, status, error_message, sent_at)
+         VALUES
+            (:message_id, :account_id, :user_id, :thread_key, :to_email, :cc_email, :bcc_email, :subject, :body_text, :status, :error_message, :sent_at)'
+    );
+    $statement->execute([
+        'message_id' => $messageId !== null && $messageId > 0 ? $messageId : null,
+        'account_id' => $accountId,
+        'user_id' => $userId,
+        'thread_key' => $threadKey !== '' ? $threadKey : null,
+        'to_email' => implode(', ', $toRecipients),
+        'cc_email' => $ccRecipients !== [] ? implode(', ', $ccRecipients) : null,
+        'bcc_email' => $bccRecipients !== [] ? implode(', ', $bccRecipients) : null,
+        'subject' => $subject,
+        'body_text' => $body,
+        'status' => $status,
+        'error_message' => $errorMessage,
+        'sent_at' => $status === 'sent' ? date('Y-m-d H:i:s') : null,
+    ]);
+
+    return (int) $pdo->lastInsertId();
+}
+
+function nautimail_send_message(PDO $pdo, array $user, array $input): array
+{
+    $accountId = (int) ($input['accountId'] ?? 0);
+    $account = nautimail_private_account(nautimail_require_account_access($pdo, $user, $accountId));
+    if (!nautimail_can_reply_account($pdo, $user, (int) $account['id'])) {
+        nautimail_json_response([
+            'ok' => false,
+            'error' => 'forbidden',
+            'message' => 'Envoi non autorise pour cette adresse.',
+        ], 403);
+    }
+
+    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? ''), true, 20);
+    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 30);
+    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 30);
+    $subject = nautimail_clean_text($input['subject'] ?? '', 255, true);
+    $body = nautimail_clean_text($input['body'] ?? '', 120000, false);
+    if ($subject === '' || $body === '') {
+        throw new InvalidArgumentException('Sujet et message sont obligatoires.');
+    }
+
+    $threadKey = nautimail_thread_key('', $subject, $toRecipients[0] ?? '');
+    try {
+        nautimail_smtp_send($account, $toRecipients, $ccRecipients, $bccRecipients, $subject, $body);
+        $sentId = nautimail_insert_sent_message(
+            $pdo,
+            null,
+            (int) $account['id'],
+            (int) $user['id'],
+            $threadKey,
+            $toRecipients,
+            $ccRecipients,
+            $bccRecipients,
+            $subject,
+            $body,
+            'sent'
+        );
+    } catch (Throwable $exception) {
+        nautimail_insert_sent_message(
+            $pdo,
+            null,
+            (int) $account['id'],
+            (int) $user['id'],
+            $threadKey,
+            $toRecipients,
+            $ccRecipients,
+            $bccRecipients,
+            $subject,
+            $body,
+            'failed',
+            $exception->getMessage()
+        );
+        throw $exception;
+    }
+
+    return [
+        'sentId' => $sentId,
+        'accountId' => (int) $account['id'],
+    ];
 }
 
 function nautimail_send_reply(PDO $pdo, array $user, array $input): array
