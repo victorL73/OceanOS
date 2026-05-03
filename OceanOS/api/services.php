@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-05-02-no-mobywork-node';
+const OCEANOS_SERVICES_API_VERSION = '2026-05-03-git-revision-label';
 
 function oceanos_app_root(): string
 {
@@ -324,14 +324,176 @@ function oceanos_git_output(array $args, bool $allowFailure = false): array
     return $result;
 }
 
+function oceanos_is_absolute_path(string $path): bool
+{
+    return str_starts_with($path, '/')
+        || str_starts_with($path, '\\\\')
+        || preg_match('/^[A-Za-z]:[\\\\\\/]/', $path) === 1;
+}
+
+function oceanos_git_directory(?string $root = null): string
+{
+    $root = $root !== null && $root !== '' ? $root : oceanos_app_root();
+    $gitPath = $root . DIRECTORY_SEPARATOR . '.git';
+
+    if (is_dir($gitPath)) {
+        return $gitPath;
+    }
+
+    if (!is_file($gitPath)) {
+        return '';
+    }
+
+    $content = trim((string) @file_get_contents($gitPath));
+    if (!preg_match('/^gitdir:\s*(.+)$/i', $content, $matches)) {
+        return '';
+    }
+
+    $path = trim($matches[1]);
+    if ($path === '') {
+        return '';
+    }
+
+    if (!oceanos_is_absolute_path($path)) {
+        $path = $root . DIRECTORY_SEPARATOR . $path;
+    }
+
+    return is_dir($path) ? $path : '';
+}
+
+function oceanos_revision_roots(): array
+{
+    $roots = [oceanos_app_root()];
+    $envRoot = trim((string) (getenv('OCEANOS_GIT_ROOT') ?: ''));
+    if ($envRoot !== '') {
+        $roots[] = $envRoot;
+    }
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        $userProfile = trim((string) (getenv('USERPROFILE') ?: ''));
+        if ($userProfile !== '') {
+            $roots[] = $userProfile . DIRECTORY_SEPARATOR . 'Documents' . DIRECTORY_SEPARATOR . 'GitHub' . DIRECTORY_SEPARATOR . 'OceanOS';
+        }
+    }
+
+    return array_values(array_unique(array_filter($roots, static fn(string $root): bool => is_dir($root))));
+}
+
+function oceanos_revision_root(): string
+{
+    foreach (oceanos_revision_roots() as $root) {
+        if (oceanos_git_directory($root) !== '') {
+            return $root;
+        }
+    }
+
+    return oceanos_app_root();
+}
+
+function oceanos_git_ref_hash(string $gitDir, string $ref): string
+{
+    $refPath = $gitDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $ref);
+    if (is_file($refPath)) {
+        return trim((string) @file_get_contents($refPath));
+    }
+
+    $packedRefs = $gitDir . DIRECTORY_SEPARATOR . 'packed-refs';
+    if (!is_file($packedRefs)) {
+        return '';
+    }
+
+    foreach (file($packedRefs, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $line = trim((string) $line);
+        if ($line === '' || str_starts_with($line, '#') || str_starts_with($line, '^')) {
+            continue;
+        }
+
+        [$hash, $packedRef] = array_pad(preg_split('/\s+/', $line, 2) ?: [], 2, '');
+        if ($packedRef === $ref) {
+            return trim((string) $hash);
+        }
+    }
+
+    return '';
+}
+
+function oceanos_git_head_from_files(?string $root = null): array
+{
+    $gitDir = oceanos_git_directory($root);
+    $headPath = $gitDir !== '' ? $gitDir . DIRECTORY_SEPARATOR . 'HEAD' : '';
+    if ($headPath === '' || !is_file($headPath)) {
+        return ['current' => '', 'branch' => ''];
+    }
+
+    $head = trim((string) @file_get_contents($headPath));
+    if (preg_match('/^ref:\s*(.+)$/', $head, $matches)) {
+        $ref = trim($matches[1]);
+        $hash = oceanos_git_ref_hash($gitDir, $ref);
+        $branch = preg_replace('#^refs/heads/#', '', $ref);
+
+        return [
+            'current' => $hash !== '' ? substr($hash, 0, 7) : '',
+            'branch' => $branch !== $ref ? $branch : $ref,
+        ];
+    }
+
+    return [
+        'current' => preg_match('/^[a-f0-9]{7,40}$/i', $head) ? substr($head, 0, 7) : '',
+        'branch' => 'HEAD',
+    ];
+}
+
 function oceanos_git_short_head(): string
 {
     try {
         $result = oceanos_git_output(['rev-parse', '--short', 'HEAD'], true);
-        return trim(strtok((string) ($result['stdout'] ?? ''), "\r\n") ?: '');
+        $head = trim(strtok((string) ($result['stdout'] ?? ''), "\r\n") ?: '');
+        if ($head !== '') {
+            return $head;
+        }
     } catch (Throwable) {
-        return '';
     }
+
+    return (string) (oceanos_git_head_from_files()['current'] ?? '');
+}
+
+function oceanos_git_branch_name(): string
+{
+    try {
+        $result = oceanos_git_output(['rev-parse', '--abbrev-ref', 'HEAD'], true);
+        $branch = trim(strtok((string) ($result['stdout'] ?? ''), "\r\n") ?: '');
+        if ($branch !== '') {
+            return $branch;
+        }
+    } catch (Throwable) {
+    }
+
+    return (string) (oceanos_git_head_from_files()['branch'] ?? '');
+}
+
+function oceanos_git_revision_payload(bool $gitAvailable): array
+{
+    $revisionRoot = oceanos_revision_root();
+    $gitDir = oceanos_git_directory($revisionRoot);
+    if ($gitDir === '') {
+        return [
+            'available' => $gitAvailable,
+            'current' => '',
+            'branch' => '',
+        ];
+    }
+
+    $fromFiles = oceanos_git_head_from_files($revisionRoot);
+    $usesAppRoot = $revisionRoot === oceanos_app_root();
+    $current = $usesAppRoot ? oceanos_git_short_head() : '';
+    $branch = $usesAppRoot ? oceanos_git_branch_name() : '';
+
+    return [
+        'available' => $gitAvailable || ($fromFiles['current'] ?? '') !== '',
+        'current' => $current !== '' ? $current : (string) ($fromFiles['current'] ?? ''),
+        'branch' => $branch !== '' ? $branch : (string) ($fromFiles['branch'] ?? ''),
+        'root' => $revisionRoot,
+    ];
 }
 
 function oceanos_preserve_server_config_before_pull(): void
@@ -358,7 +520,7 @@ function oceanos_preserve_server_config_before_pull(): void
 function oceanos_run_git_update_direct(): array
 {
     $root = oceanos_app_root();
-    if (!is_dir($root . DIRECTORY_SEPARATOR . '.git')) {
+    if (oceanos_git_directory() === '') {
         throw new RuntimeException('Depot Git introuvable dans ' . $root . '.');
     }
 
@@ -380,6 +542,8 @@ function oceanos_run_git_update_direct(): array
             : 'Mise a jour Git terminee.',
         'before' => $before,
         'after' => $after,
+        'current' => $after,
+        'branch' => oceanos_git_branch_name(),
         'output' => $output,
         'servicesRestarted' => false,
     ];
@@ -390,6 +554,7 @@ function oceanos_service_status_payload(): array
     $controlAvailable = oceanos_service_control_available();
     $gitAvailable = oceanos_git_available();
     $updateAvailable = $gitAvailable;
+    $gitRevision = oceanos_git_revision_payload($gitAvailable);
     if (!$controlAvailable) {
         if (PHP_OS_FAMILY === 'Linux' && oceanos_can_run_process()) {
             $message = 'Etats lus via systemctl. Lancez sudo scripts/ubuntu/oceanos-ubuntu.sh control pour activer les boutons.';
@@ -401,6 +566,7 @@ function oceanos_service_status_payload(): array
                 'controlAvailable' => false,
                 'gitAvailable' => $gitAvailable,
                 'updateAvailable' => $updateAvailable,
+                'git' => $gitRevision,
                 'controller' => oceanos_service_control_path(),
                 'services' => oceanos_read_service_status_direct($message),
                 'message' => $message,
@@ -418,6 +584,7 @@ function oceanos_service_status_payload(): array
             'controlAvailable' => false,
             'gitAvailable' => $gitAvailable,
             'updateAvailable' => $updateAvailable,
+            'git' => $gitRevision,
             'controller' => oceanos_service_control_path(),
             'services' => oceanos_unknown_services($message),
             'message' => $message,
@@ -441,6 +608,7 @@ function oceanos_service_status_payload(): array
                 'controlAvailable' => false,
                 'gitAvailable' => $gitAvailable,
                 'updateAvailable' => $updateAvailable,
+                'git' => $gitRevision,
                 'controller' => oceanos_service_control_path(),
                 'services' => oceanos_read_service_status_direct($message),
                 'message' => $message,
@@ -454,6 +622,7 @@ function oceanos_service_status_payload(): array
             'controlAvailable' => false,
             'gitAvailable' => $gitAvailable,
             'updateAvailable' => $updateAvailable,
+            'git' => $gitRevision,
             'controller' => oceanos_service_control_path(),
             'services' => oceanos_unknown_services($message),
             'message' => $message,
@@ -467,6 +636,7 @@ function oceanos_service_status_payload(): array
         'controlAvailable' => true,
         'gitAvailable' => $gitAvailable,
         'updateAvailable' => $updateAvailable,
+        'git' => $gitRevision,
         'controller' => oceanos_service_control_path(),
         'services' => $services,
         'message' => 'Etat des services charge.',

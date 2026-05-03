@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
   <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
   <link rel="stylesheet" href="assets/guard.css">
-  <link rel="stylesheet" href="assets/oceanos.css?v=20260427-company-scope">
+  <link rel="stylesheet" href="assets/oceanos.css?v=20260503-git-revision-pill">
 </head>
 <body>
   <main class="shell" data-state="loading">
@@ -331,6 +331,7 @@
                     <h2>Etat Ubuntu</h2>
                   </div>
                   <div class="services-toolbar">
+                    <span class="git-revision-pill" id="git-revision-pill">Git : --</span>
                     <button class="ghost-button" id="reload-services" type="button">Actualiser</button>
                     <button class="primary-button" id="update-services" type="button">Mettre a jour</button>
                   </div>
@@ -358,6 +359,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260502-tresorcean"></script>
-  <script src="assets/oceanos.js?v=20260502-tresorcean"></script>
+  <script src="assets/oceanos.js?v=20260503-git-revision-pill"></script>
 </body>
 </html>

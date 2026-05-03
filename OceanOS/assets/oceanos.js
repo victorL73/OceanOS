@@ -3,7 +3,7 @@ const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
 const COMPANY_URL = "/OceanOS/api/company.php";
-  const SERVICES_URL = "/OceanOS/api/services.php?v=20260502-no-mobywork-node";
+  const SERVICES_URL = "/OceanOS/api/services.php?v=20260503-git-revision-pill";
 
 const apps = [
   {
@@ -233,6 +233,7 @@ const elements = {
   usersMessage: $("users-message"),
   usersList: $("users-list"),
   servicesPanel: $("services-panel"),
+  gitRevisionPill: $("git-revision-pill"),
   reloadServices: $("reload-services"),
   updateServices: $("update-services"),
   servicesStatus: $("services-status"),
@@ -251,6 +252,7 @@ let companySettings = null;
 let servicesState = [];
 let servicesControlAvailable = false;
 let servicesUpdateAvailable = false;
+let servicesGitState = null;
 
 function setVisible(view) {
   elements.loadingView.classList.toggle("hidden", view !== "loading");
@@ -702,24 +704,51 @@ function serviceActionLabel(action) {
   return "Relancer";
 }
 
+function gitRevisionText(git = servicesGitState) {
+  const current = git?.current || "";
+  if (!current) return "";
+  const branch = git?.branch && git.branch !== "HEAD" ? ` / ${git.branch}` : "";
+  return ` Revision Git : ${current}${branch}.`;
+}
+
+function renderGitRevision(git = servicesGitState) {
+  if (!elements.gitRevisionPill) return;
+
+  const current = git?.current || "";
+  if (!current) {
+    elements.gitRevisionPill.textContent = "Git : revision indisponible";
+    elements.gitRevisionPill.dataset.state = "missing";
+    return;
+  }
+
+  const branch = git?.branch && git.branch !== "HEAD" ? ` / ${git.branch}` : "";
+  elements.gitRevisionPill.textContent = `Git : ${current}${branch}`;
+  elements.gitRevisionPill.dataset.state = "ready";
+}
+
 async function loadServices() {
   if (!canManageServices()) return;
 
   showServicesStatus("Chargement de l'etat serveur...");
+  renderGitRevision();
   elements.servicesList.innerHTML = '<div class="users-empty">Chargement des services...</div>';
   try {
     const payload = await requestJson(SERVICES_URL);
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
     servicesUpdateAvailable = Boolean(payload.updateAvailable);
+    servicesGitState = payload.git || null;
+    renderGitRevision(payload.git);
     elements.updateServices.disabled = !servicesUpdateAvailable;
     renderServices();
     const updateHint = servicesUpdateAvailable && !servicesControlAvailable
       ? " Mise a jour Git disponible, mais le redemarrage des services reste desactive sur cet environnement."
       : "";
-    showServicesStatus(`${payload.message || "Etat des services charge."}${updateHint}`, servicesUpdateAvailable ? "success" : "");
+    showServicesStatus(`${payload.message || "Etat des services charge."}${gitRevisionText(payload.git)}${updateHint}`, servicesUpdateAvailable ? "success" : "");
   } catch (error) {
     servicesState = [];
+    servicesGitState = null;
+    renderGitRevision();
     elements.updateServices.disabled = true;
     servicesUpdateAvailable = false;
     elements.servicesList.innerHTML = "";
@@ -743,9 +772,13 @@ async function runServerUpdate() {
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
     servicesUpdateAvailable = Boolean(payload.updateAvailable);
+    servicesGitState = payload.git || null;
     renderServices();
     const result = payload.actionResult || {};
-    const suffix = result.before && result.after ? ` (${result.before} -> ${result.after})` : "";
+    renderGitRevision(result.current ? { current: result.current, branch: result.branch } : payload.git);
+    const suffix = result.before && result.after
+      ? ` Revision Git : ${result.before} -> ${result.after}.`
+      : gitRevisionText(result.current ? { current: result.current, branch: result.branch } : payload.git);
     showServicesStatus(`${result.message || "Mise a jour terminee."}${suffix} Rechargement de la page...`, "success");
     window.setTimeout(() => {
       window.location.reload();
