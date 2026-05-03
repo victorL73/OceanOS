@@ -3605,6 +3605,7 @@ function invocean_sync_nautisign_internal_quotes(PDO $pdo): ?array
     $created = 0;
     $updated = 0;
     $ignored = 0;
+    $activeExternalIds = [];
 
     foreach ($requests as $request) {
         if (!is_array($request)) {
@@ -3617,6 +3618,7 @@ function invocean_sync_nautisign_internal_quotes(PDO $pdo): ?array
             $payload = invocean_nautisign_internal_payload($request, is_array($quoteRow) ? $quoteRow : null);
             $quote = invocean_normalize_quote_payload($payload, 'nautisign');
             $seen++;
+            $activeExternalIds[] = $quote['externalId'];
             $result = invocean_upsert_signed_quote($pdo, $quote);
             if ($result === 'created') {
                 $created++;
@@ -3627,15 +3629,46 @@ function invocean_sync_nautisign_internal_quotes(PDO $pdo): ?array
             $ignored++;
         }
     }
+    $removed = invocean_mark_missing_nautisign_quotes_ignored($pdo, $activeExternalIds);
 
     return [
         'seen' => $seen,
         'created' => $created,
         'updated' => $updated,
         'ignored' => $ignored,
-        'message' => sprintf('%d devis Nautisign signe(s) lu(s), %d cree(s), %d mis a jour.', $seen, $created, $updated),
+        'removed' => $removed,
+        'message' => sprintf('%d devis Nautisign signe(s) lu(s), %d cree(s), %d mis a jour, %d retire(s).', $seen, $created, $updated, $removed),
         'mode' => 'internal',
     ];
+}
+
+function invocean_mark_missing_nautisign_quotes_ignored(PDO $pdo, array $activeExternalIds): int
+{
+    $activeExternalIds = array_values(array_unique(array_filter(array_map(
+        static fn(mixed $id): string => trim((string) $id),
+        $activeExternalIds
+    ))));
+
+    $where = "source = 'nautisign' AND status = 'signed'";
+    $params = [];
+    if ($activeExternalIds !== []) {
+        $placeholders = [];
+        foreach ($activeExternalIds as $index => $externalId) {
+            $key = 'external_id_' . $index;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $externalId;
+        }
+        $where .= ' AND external_id NOT IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $statement = $pdo->prepare(
+        "UPDATE invocean_signed_quotes
+         SET status = 'ignored'
+         WHERE " . $where
+    );
+    $statement->execute($params);
+
+    return $statement->rowCount();
 }
 
 function invocean_sync_nautisign_quotes(PDO $pdo): array
@@ -3713,17 +3746,19 @@ function invocean_list_signed_quotes(PDO $pdo): array
             COUNT(*) AS quote_count,
             COALESCE(SUM(status = 'signed'), 0) AS signed_count,
             COALESCE(SUM(status = 'converted'), 0) AS converted_count,
-            COALESCE(SUM(status = 'ignored'), 0) AS ignored_count,
             COALESCE(SUM(total_tax_incl), 0) AS total_tax_incl
-         FROM invocean_signed_quotes"
+         FROM invocean_signed_quotes
+         WHERE status <> 'ignored'"
     )->fetch() ?: [];
+    $ignoredCount = (int) $pdo->query("SELECT COUNT(*) FROM invocean_signed_quotes WHERE status = 'ignored'")->fetchColumn();
 
     $statement = $pdo->query(
-        'SELECT q.*, i.invoice_number
+        "SELECT q.*, i.invoice_number
          FROM invocean_signed_quotes q
          LEFT JOIN invocean_invoices i ON i.id = q.invoice_id
+         WHERE q.status <> 'ignored'
          ORDER BY COALESCE(q.signed_at, q.quote_date, q.created_at) DESC, q.id DESC
-         LIMIT 200'
+         LIMIT 200"
     );
 
     return [
@@ -3732,7 +3767,7 @@ function invocean_list_signed_quotes(PDO $pdo): array
             'quoteCount' => (int) ($stats['quote_count'] ?? 0),
             'signedCount' => (int) ($stats['signed_count'] ?? 0),
             'convertedCount' => (int) ($stats['converted_count'] ?? 0),
-            'ignoredCount' => (int) ($stats['ignored_count'] ?? 0),
+            'ignoredCount' => $ignoredCount,
             'totalTaxIncl' => (float) ($stats['total_tax_incl'] ?? 0),
         ],
     ];

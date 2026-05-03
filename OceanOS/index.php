@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
-  <meta name="description" content="OceanOS - Portail CRM central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
+  <meta name="description" content="OceanOS - Portail ERP central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260503-git-revision-pill">
 </head>
@@ -77,7 +77,7 @@
           <span class="brand-mark">O</span>
           <div>
             <p class="eyebrow">OceanOS</p>
-            <h1>Portail CRM</h1>
+            <h1>Portail ERP</h1>
           </div>
         </div>
         <div class="user-zone">

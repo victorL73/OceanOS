@@ -7,7 +7,7 @@ OceanOS est le portail principal du dossier `www`. Il centralise la connexion, l
 ```text
 www/
   admin/                 Page de configuration initiale serveur
-  OceanOS/               Portail CRM, session centrale, comptes, IA Groq
+  OceanOS/               Portail ERP, session centrale, comptes, IA Groq
   Agenda/                Agenda personnel, taches consolidees et reunions MeetOcean
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
