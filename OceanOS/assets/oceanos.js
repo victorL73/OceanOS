@@ -3,7 +3,7 @@ const USERS_URL = "/OceanOS/api/users.php";
 const AI_URL = "/OceanOS/api/ai.php";
 const PRESTASHOP_URL = "/OceanOS/api/prestashop.php";
 const COMPANY_URL = "/OceanOS/api/company.php";
-  const SERVICES_URL = "/OceanOS/api/services.php?v=20260503-git-revision-pill";
+  const SERVICES_URL = "/OceanOS/api/services.php?v=20260503-git-update-backend";
 
 const apps = [
   {
@@ -779,7 +779,9 @@ async function runServerUpdate() {
     const suffix = result.before && result.after
       ? ` Revision Git : ${result.before} -> ${result.after}.`
       : gitRevisionText(result.current ? { current: result.current, branch: result.branch } : payload.git);
-    showServicesStatus(`${result.message || "Mise a jour terminee."}${suffix} Rechargement de la page...`, "success");
+    const backend = result.backend === "service-control" ? " Via controleur systeme." : "";
+    const warning = result.controllerWarning ? ` Controleur systeme ignore : ${result.controllerWarning}` : "";
+    showServicesStatus(`${result.message || "Mise a jour terminee."}${suffix}${backend}${warning} Rechargement de la page...`, "success");
     window.setTimeout(() => {
       window.location.reload();
     }, 1800);

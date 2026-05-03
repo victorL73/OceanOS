@@ -359,6 +359,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260502-tresorcean"></script>
-  <script src="assets/oceanos.js?v=20260503-git-revision-pill"></script>
+  <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
 </body>
 </html>

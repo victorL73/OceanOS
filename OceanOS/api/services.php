@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
-const OCEANOS_SERVICES_API_VERSION = '2026-05-03-git-revision-label';
+const OCEANOS_SERVICES_API_VERSION = '2026-05-03-git-update-backend';
 
 function oceanos_app_root(): string
 {
@@ -540,6 +540,7 @@ function oceanos_run_git_update_direct(): array
         'message' => $before !== '' && $after !== '' && $before === $after
             ? 'Depot Git deja a jour.'
             : 'Mise a jour Git terminee.',
+        'backend' => 'git-direct',
         'before' => $before,
         'after' => $after,
         'current' => $after,
@@ -547,6 +548,40 @@ function oceanos_run_git_update_direct(): array
         'output' => $output,
         'servicesRestarted' => false,
     ];
+}
+
+function oceanos_run_git_update(): array
+{
+    $controllerError = '';
+
+    if (oceanos_service_control_available()) {
+        try {
+            $result = oceanos_run_service_control('update', 'all');
+            $result['backend'] = 'service-control';
+            return $result;
+        } catch (Throwable $exception) {
+            $controllerError = $exception->getMessage();
+        }
+    }
+
+    try {
+        $result = oceanos_run_git_update_direct();
+        if ($controllerError !== '') {
+            $result['controllerWarning'] = $controllerError;
+        }
+        return $result;
+    } catch (Throwable $exception) {
+        if ($controllerError !== '') {
+            throw new RuntimeException(
+                'Mise a jour impossible. Controleur systeme: '
+                . $controllerError
+                . ' Git direct: '
+                . $exception->getMessage()
+            );
+        }
+
+        throw $exception;
+    }
 }
 
 function oceanos_service_status_payload(): array
@@ -700,7 +735,7 @@ try {
         if ($action === 'status') {
             $actionResult = ['ok' => true];
         } elseif ($action === 'update') {
-            $actionResult = oceanos_run_git_update_direct();
+            $actionResult = oceanos_run_git_update();
         } else {
             $actionResult = oceanos_run_service_control($action, $service);
         }
