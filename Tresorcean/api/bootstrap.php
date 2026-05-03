@@ -145,6 +145,25 @@ function tresorcean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS tresorcean_vat_payments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NULL,
+            period_start DATE NOT NULL,
+            period_end DATE NOT NULL,
+            paid_at DATE NOT NULL,
+            amount DECIMAL(14,6) NOT NULL DEFAULT 0,
+            label VARCHAR(190) NOT NULL DEFAULT 'Paiement TVA',
+            notes TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_tresorcean_vat_payment_period (period_start, period_end),
+            KEY idx_tresorcean_vat_payment_paid_at (paid_at),
+            KEY idx_tresorcean_vat_payment_user (user_id),
+            CONSTRAINT fk_tresorcean_vat_payment_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     $pdo->exec('INSERT IGNORE INTO tresorcean_settings (id) VALUES (1)');
 }
 
@@ -1613,6 +1632,116 @@ function tresorcean_download_expense_attachment(PDO $pdo, array $user, int $id):
     exit;
 }
 
+function tresorcean_public_vat_payment(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'userId' => isset($row['user_id']) ? (int) $row['user_id'] : null,
+        'periodStart' => (string) ($row['period_start'] ?? ''),
+        'periodEnd' => (string) ($row['period_end'] ?? ''),
+        'paidAt' => (string) ($row['paid_at'] ?? ''),
+        'amount' => (float) ($row['amount'] ?? 0),
+        'label' => (string) ($row['label'] ?? 'Paiement TVA'),
+        'notes' => (string) ($row['notes'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'userDisplayName' => (string) ($row['user_display_name'] ?? ''),
+    ];
+}
+
+function tresorcean_vat_payments(PDO $pdo, array $period): array
+{
+    $statement = $pdo->prepare(
+        'SELECT p.*, u.display_name AS user_display_name
+         FROM tresorcean_vat_payments p
+         LEFT JOIN oceanos_users u ON u.id = p.user_id
+         WHERE p.paid_at BETWEEN :paid_start AND :paid_end
+            OR p.period_start BETWEEN :period_start_a AND :period_end_a
+            OR p.period_end BETWEEN :period_start_b AND :period_end_b
+            OR (p.period_start <= :period_start_c AND p.period_end >= :period_end_c)
+         ORDER BY p.paid_at DESC, p.id DESC
+         LIMIT 120'
+    );
+    $statement->execute([
+        'paid_start' => $period['start'],
+        'paid_end' => $period['end'],
+        'period_start_a' => $period['start'],
+        'period_end_a' => $period['end'],
+        'period_start_b' => $period['start'],
+        'period_end_b' => $period['end'],
+        'period_start_c' => $period['start'],
+        'period_end_c' => $period['end'],
+    ]);
+
+    return array_map(static fn(array $row): array => tresorcean_public_vat_payment($row), $statement->fetchAll());
+}
+
+function tresorcean_get_vat_payment_row(PDO $pdo, int $id): array
+{
+    $statement = $pdo->prepare(
+        'SELECT p.*, u.display_name AS user_display_name
+         FROM tresorcean_vat_payments p
+         LEFT JOIN oceanos_users u ON u.id = p.user_id
+         WHERE p.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $id]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        throw new InvalidArgumentException('Paiement TVA introuvable.');
+    }
+
+    return $row;
+}
+
+function tresorcean_save_vat_payment(PDO $pdo, array $user, array $input): array
+{
+    $amount = round(abs(tresorcean_decimal($input['amount'] ?? 0)), 2);
+    if ($amount <= 0) {
+        throw new InvalidArgumentException('Montant TVA invalide.');
+    }
+
+    $periodStart = trim((string) ($input['periodStart'] ?? ''));
+    $periodEnd = trim((string) ($input['periodEnd'] ?? ''));
+    $paidAt = trim((string) ($input['paidAt'] ?? date('Y-m-d')));
+    foreach ([$periodStart, $periodEnd, $paidAt] as $date) {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            throw new InvalidArgumentException('Date TVA invalide.');
+        }
+    }
+    if ($periodEnd < $periodStart) {
+        [$periodStart, $periodEnd] = [$periodEnd, $periodStart];
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO tresorcean_vat_payments
+            (user_id, period_start, period_end, paid_at, amount, label, notes)
+         VALUES
+            (:user_id, :period_start, :period_end, :paid_at, :amount, :label, :notes)'
+    );
+    $statement->execute([
+        'user_id' => (int) $user['id'],
+        'period_start' => $periodStart,
+        'period_end' => $periodEnd,
+        'paid_at' => $paidAt,
+        'amount' => number_format($amount, 6, '.', ''),
+        'label' => trim((string) ($input['label'] ?? 'Paiement TVA')) ?: 'Paiement TVA',
+        'notes' => trim((string) ($input['notes'] ?? '')) ?: null,
+    ]);
+
+    return tresorcean_public_vat_payment(tresorcean_get_vat_payment_row($pdo, (int) $pdo->lastInsertId()));
+}
+
+function tresorcean_delete_vat_payment(PDO $pdo, array $user, int $id): void
+{
+    $row = tresorcean_get_vat_payment_row($pdo, $id);
+    if (!tresorcean_is_admin($user) && (int) ($row['user_id'] ?? 0) !== (int) $user['id']) {
+        throw new InvalidArgumentException('Vous ne pouvez annuler que vos paiements TVA.');
+    }
+
+    $statement = $pdo->prepare('DELETE FROM tresorcean_vat_payments WHERE id = :id');
+    $statement->execute(['id' => $id]);
+}
+
 function tresorcean_month_buckets(string $start, string $end): array
 {
     $cursor = (new DateTimeImmutable($start))->modify('first day of this month');
@@ -1650,7 +1779,7 @@ function tresorcean_bucket_key(string $date): string
     return date('Y-m');
 }
 
-function tresorcean_summarize(array $orders, array $supplierOrders, array $convertedQuotes, array $entries, array $expenseNotes, array $settings, array $period): array
+function tresorcean_summarize(array $orders, array $supplierOrders, array $convertedQuotes, array $entries, array $expenseNotes, array $vatPayments, array $settings, array $period): array
 {
     $summary = [
         'cashIn' => 0.0,
@@ -1678,6 +1807,9 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         'expenseNotesTaxExcl' => 0.0,
         'expenseNotesTaxIncl' => 0.0,
         'expenseNotesVatDeductible' => 0.0,
+        'vatDueBeforePayments' => 0.0,
+        'vatPaid' => 0.0,
+        'vatPaymentCashOut' => 0.0,
         'vatCollected' => 0.0,
         'vatDeductible' => 0.0,
         'vatDue' => 0.0,
@@ -1689,6 +1821,7 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         'manualEntries' => count($entries),
         'expenseNotes' => count($expenseNotes),
         'reimbursedExpenseNotes' => 0,
+        'vatPayments' => count($vatPayments),
         'missingCostLines' => 0,
     ];
     $series = tresorcean_month_buckets($period['start'], $period['end']);
@@ -1821,8 +1954,21 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         }
     }
 
+    foreach ($vatPayments as $payment) {
+        $amount = (float) ($payment['amount'] ?? 0);
+        if ($amount <= 0) {
+            continue;
+        }
+        $key = tresorcean_bucket_key((string) ($payment['paidAt'] ?? ''));
+        $summary['vatPaid'] += $amount;
+        $summary['vatPaymentCashOut'] += $amount;
+        if (isset($series[$key])) {
+            $series[$key]['cashOut'] += $amount;
+        }
+    }
+
     $summary['cashIn'] = $summary['revenueTaxIncl'] + $summary['manualCashIn'];
-    $summary['cashOut'] = $summary['supplierOrdersTaxIncl'] + $summary['manualCashOut'];
+    $summary['cashOut'] = $summary['supplierOrdersTaxIncl'] + $summary['manualCashOut'] + $summary['vatPaymentCashOut'];
     $summary['cashBalance'] = $summary['cashIn'] - $summary['cashOut'];
     $summary['grossMarginTaxExcl'] = $summary['revenueTaxExcl'] - $summary['estimatedCostOfGoodsTaxExcl'];
     $summary['estimatedProfitTaxExcl'] =
@@ -1832,7 +1978,10 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         - $summary['manualExpenseTaxExcl'];
     $summary['vatCollected'] = $summary['prestashopVatCollected'] + $summary['invoceanVatCollected'] + $summary['manualVatCollected'];
     $summary['vatDeductible'] = $summary['supplierVatDeductible'] + $summary['manualVatDeductible'];
-    $summary['vatDue'] = $summary['vatCollected'] - $summary['vatDeductible'];
+    $summary['vatDueBeforePayments'] = $summary['vatCollected'] - $summary['vatDeductible'];
+    $summary['vatDue'] = $summary['vatDueBeforePayments'] > 0
+        ? max(0, $summary['vatDueBeforePayments'] - $summary['vatPaid'])
+        : $summary['vatDueBeforePayments'];
 
     foreach ($series as &$bucket) {
         $bucket['profitTaxExcl'] =
@@ -1859,6 +2008,8 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
                 'manual' => $summary['manualVatDeductible'],
                 'expenseNotes' => $summary['expenseNotesVatDeductible'],
             ],
+            'beforePayments' => $summary['vatDueBeforePayments'],
+            'paid' => $summary['vatPaid'],
             'due' => $summary['vatDue'],
             'defaultPurchaseTaxRate' => (float) ($settings['defaultPurchaseTaxRate'] ?? 20),
         ],
@@ -1906,7 +2057,8 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
     }
     $entries = tresorcean_entries($pdo, $period);
     $expenseNotes = tresorcean_expense_notes($pdo, $period);
-    $computed = tresorcean_summarize($orders, $supplierOrders, $convertedQuotes, $entries, $expenseNotes, $settings, $period);
+    $vatPayments = tresorcean_vat_payments($pdo, $period);
+    $computed = tresorcean_summarize($orders, $supplierOrders, $convertedQuotes, $entries, $expenseNotes, $vatPayments, $settings, $period);
 
     return [
         'ok' => true,
@@ -1930,6 +2082,7 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
         'convertedQuotes' => $convertedQuotes,
         'entries' => $entries,
         'expenseNotes' => $expenseNotes,
+        'vatPayments' => $vatPayments,
         'summary' => $computed['summary'],
         'series' => $computed['series'],
         'vat' => $computed['vat'],

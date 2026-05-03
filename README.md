@@ -262,11 +262,13 @@ tresorcean_settings
 tresorcean_entries
 tresorcean_entry_attachments
 tresorcean_expense_notes
+tresorcean_vat_payments
 tresorcean_user_preferences
 ```
 
 Tresorcean consolide les fonds manuels, les commandes PrestaShop, les achats Stockcean et les devis Invocean signes uniquement lorsqu'ils sont passes au statut `converted`.
 Les notes de frais d'equipe sont comptabilisees dans la tresorerie uniquement lorsqu'elles sont au statut `reimbursed`.
+Les paiements de TVA sont suivis dans `tresorcean_vat_payments` pour reduire le restant a payer et enregistrer la sortie de tresorerie.
 Les pieces jointes des mouvements manuels sont stockees dans `Tresorcean/storage/` et servies uniquement par l'API authentifiee.
 
 Tables Formcean :

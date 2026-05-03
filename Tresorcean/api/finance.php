@@ -87,6 +87,25 @@ try {
             ]);
         }
 
+        if ($action === 'save_vat_payment') {
+            $payment = tresorcean_save_vat_payment($pdo, $user, $input);
+            tresorcean_json_response([
+                'ok' => true,
+                'message' => 'Paiement TVA enregistre.',
+                'vatPayment' => $payment,
+                'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
+            ]);
+        }
+
+        if ($action === 'delete_vat_payment') {
+            tresorcean_delete_vat_payment($pdo, $user, (int) ($input['id'] ?? 0));
+            tresorcean_json_response([
+                'ok' => true,
+                'message' => 'Paiement TVA annule.',
+                'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
+            ]);
+        }
+
         if ($action === 'save_settings') {
             $admin = tresorcean_require_admin($pdo);
             $settings = tresorcean_save_settings($pdo, $input);

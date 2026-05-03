@@ -796,7 +796,7 @@ canvas {
 }
 
 .vat-cards {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .vat-card {
@@ -821,6 +821,11 @@ canvas {
 
 .vat-card.credit strong {
   color: var(--green);
+}
+
+.vat-pay-button {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .empty-state {
@@ -852,6 +857,10 @@ canvas {
   }
 
   .settings-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .vat-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

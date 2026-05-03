@@ -339,6 +339,7 @@ function renderSummary() {
     ["CA PrestaShop HT", summary.prestashopRevenueTaxExcl],
     ["Devis Invocean HT", summary.invoceanQuotesTaxExcl],
     ["Notes de frais remboursees", summary.expenseNotesTaxExcl],
+    ["TVA payee", summary.vatPaid],
     ["Marge brute HT", summary.grossMarginTaxExcl],
     ["Couts produits estimes", summary.estimatedCostOfGoodsTaxExcl],
     ["Commandes incluses", summary.includedOrders, "number"],
@@ -542,7 +543,8 @@ function renderEntries() {
   const expenseEntries = (state.dashboard?.expenseNotes || [])
     .filter((note) => note.includedInMovements)
     .map((note) => ({ kind: "expense", date: note.accountingAt || note.reimbursedAt || note.expenseAt || "", item: note }));
-  const rows = [...entries, ...expenseEntries].sort((a, b) => String(b.date).localeCompare(String(a.date)) || Number(b.item.id || 0) - Number(a.item.id || 0));
+  const vatEntries = (state.dashboard?.vatPayments || []).map((payment) => ({ kind: "vat", date: payment.paidAt || "", item: payment }));
+  const rows = [...entries, ...expenseEntries, ...vatEntries].sort((a, b) => String(b.date).localeCompare(String(a.date)) || Number(b.item.id || 0) - Number(a.item.id || 0));
   if (rows.length === 0) {
     elements.entriesList.innerHTML = '<div class="empty-state">Aucun mouvement sur la periode.</div>';
     return;
@@ -564,6 +566,25 @@ function renderEntries() {
           </div>
           <div class="row-actions">
             <button class="ghost-button" data-expense-edit="${item.id}" type="button">Voir</button>
+          </div>
+        </article>
+      `;
+    }
+
+    if (kind === "vat") {
+      return `
+        <article class="entry-row" data-vat-payment-id="${item.id}">
+          <div>
+            <span class="entry-type out">TVA payee</span>
+            <strong>${escapeHtml(item.label || "Paiement TVA")}</strong>
+            <small>${formatDate(item.paidAt)} - periode ${formatDate(item.periodStart)} au ${formatDate(item.periodEnd)}</small>
+          </div>
+          <div class="entry-money">
+            <strong>-${formatMoney(item.amount)}</strong>
+            <small>Reglement fiscal</small>
+          </div>
+          <div class="row-actions">
+            <button class="ghost-button danger-text" data-vat-payment-delete="${item.id}" type="button">Annuler</button>
           </div>
         </article>
       `;
@@ -638,17 +659,21 @@ function renderExpenses() {
 function renderVatCards() {
   const vat = state.dashboard?.vat || {};
   const due = Number(vat.due || 0);
+  const beforePayments = Number(vat.beforePayments ?? due);
+  const paid = Number(vat.paid || 0);
   const cards = [
     ["TVA collectee", vat.collected?.total, `PrestaShop ${formatMoney(vat.collected?.prestashop)} - Invocean ${formatMoney(vat.collected?.invocean)} - manuel ${formatMoney(vat.collected?.manual)}`],
     ["TVA deductible", vat.deductible?.total, `Fournisseurs ${formatMoney(vat.deductible?.supplierOrders)} - notes ${formatMoney(vat.deductible?.expenseNotes)} - manuel ${formatMoney(vat.deductible?.manual)}`],
-    [due >= 0 ? "A reverser" : "Credit TVA", due, due >= 0 ? "Montant estime pour l Etat" : "Credit estime a reporter"],
+    ["TVA payee", paid, beforePayments > 0 ? `Sur ${formatMoney(beforePayments)} a regulariser` : "Aucun paiement necessaire"],
+    [due >= 0 ? "Reste a payer" : "Credit TVA", due, due >= 0 ? "Montant restant pour l Etat" : "Credit estime a reporter", due > 0],
   ];
 
-  elements.vatCards.innerHTML = cards.map(([label, value, detail]) => `
+  elements.vatCards.innerHTML = cards.map(([label, value, detail, payable]) => `
     <article class="vat-card ${label.includes("Credit") ? "credit" : ""}">
       <span>${escapeHtml(label)}</span>
       <strong>${formatMoney(value)}</strong>
       <small>${escapeHtml(detail)}</small>
+      ${payable ? '<button class="primary-button vat-pay-button" data-vat-pay-due type="button">Marquer payee</button>' : ""}
     </article>
   `).join("");
 }
@@ -1077,6 +1102,50 @@ async function deleteExpense(id) {
   }
 }
 
+async function saveVatPayment() {
+  const period = state.dashboard?.period || {};
+  const due = Math.max(0, Number(state.dashboard?.vat?.due || 0));
+  if (due <= 0) {
+    setMessage("Aucune TVA a payer sur cette periode.", "success");
+    return;
+  }
+  if (!window.confirm(`Marquer ${formatMoney(due)} de TVA comme payee ?`)) return;
+
+  setMessage("");
+  try {
+    const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "save_vat_payment",
+        amount: due.toFixed(2),
+        periodStart: period.start || elements.periodStart.value,
+        periodEnd: period.end || elements.periodEnd.value,
+        paidAt: defaultEntryDate(),
+        label: "Paiement TVA",
+      }),
+    });
+    applyDashboard(response.dashboard);
+    setMessage(response.message || "Paiement TVA enregistre.", "success");
+  } catch (error) {
+    setMessage(error.message || "Paiement TVA impossible.", "error");
+  }
+}
+
+async function deleteVatPayment(id) {
+  if (!window.confirm("Annuler ce paiement TVA ?")) return;
+  setMessage("");
+  try {
+    const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ action: "delete_vat_payment", id }),
+    });
+    applyDashboard(response.dashboard);
+    setMessage(response.message || "Paiement TVA annule.", "success");
+  } catch (error) {
+    setMessage(error.message || "Annulation impossible.", "error");
+  }
+}
+
 async function saveSettings(event) {
   event.preventDefault();
   elements.settingsSave.disabled = true;
@@ -1140,6 +1209,11 @@ function bindEvents() {
       void deleteAttachment(Number(attachmentDelete.dataset.attachmentDelete));
       return;
     }
+    const vatPaymentDelete = target.closest("[data-vat-payment-delete]");
+    if (vatPaymentDelete) {
+      void deleteVatPayment(Number(vatPaymentDelete.dataset.vatPaymentDelete));
+      return;
+    }
     const expenseEdit = target.closest("[data-expense-edit]");
     if (expenseEdit) {
       const id = Number(expenseEdit.dataset.expenseEdit);
@@ -1172,6 +1246,13 @@ function bindEvents() {
     const del = target.closest("[data-expense-delete]");
     if (del) {
       void deleteExpense(Number(del.dataset.expenseDelete));
+    }
+  });
+  elements.vatCards.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (!target) return;
+    if (target.closest("[data-vat-pay-due]")) {
+      void saveVatPayment();
     }
   });
   elements.settingsForm.addEventListener("submit", saveSettings);
