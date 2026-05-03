@@ -251,11 +251,6 @@ function nautimail_require_user(PDO $pdo): array
     return $user;
 }
 
-function nautimail_is_admin(array $user): bool
-{
-    return in_array((string) ($user['role'] ?? 'member'), ['super', 'admin'], true);
-}
-
 function nautimail_clean_text(mixed $value, int $maxLength = 4000, bool $singleLine = false): string
 {
     $text = trim((string) $value);
@@ -346,11 +341,6 @@ function nautimail_user_options(PDO $pdo): array
 
 function nautimail_accessible_account_ids(PDO $pdo, array $user): array
 {
-    if (nautimail_is_admin($user)) {
-        $rows = $pdo->query('SELECT id FROM nautimail_accounts ORDER BY email_address ASC, id ASC')->fetchAll();
-        return array_map(static fn(array $row): int => (int) $row['id'], $rows);
-    }
-
     $statement = $pdo->prepare(
         'SELECT DISTINCT a.id
          FROM nautimail_accounts a
@@ -451,8 +441,7 @@ function nautimail_notification_user_ids(PDO $pdo, int $accountId): array
          LEFT JOIN nautimail_account_users au ON au.account_id = a.id AND au.user_id = u.id
          WHERE u.is_active = 1
            AND (
-                u.role IN ('super', 'admin')
-                OR a.created_by_user_id = u.id
+                a.created_by_user_id = u.id
                 OR au.user_id IS NOT NULL
            )
          ORDER BY u.id ASC"
@@ -500,10 +489,6 @@ function nautimail_public_account(PDO $pdo, array $account, int $primaryAccountI
 
 function nautimail_can_manage_account(PDO $pdo, array $user, int $accountId): bool
 {
-    if (nautimail_is_admin($user)) {
-        return true;
-    }
-
     $account = nautimail_account_by_id($pdo, $accountId);
     if ($account !== null && (int) ($account['created_by_user_id'] ?? 0) === (int) $user['id']) {
         return true;
@@ -538,6 +523,10 @@ function nautimail_require_account_access(PDO $pdo, array $user, int $accountId)
     $account = nautimail_account_by_id($pdo, $accountId);
     if ($account === null) {
         throw new InvalidArgumentException('Adresse mail introuvable.');
+    }
+
+    if (!empty($user['nautimail_system_access'])) {
+        return $account;
     }
 
     if (!in_array($accountId, nautimail_accessible_account_ids($pdo, $user), true)) {

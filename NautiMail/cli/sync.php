@@ -42,7 +42,7 @@ function nautimail_cli_sync_user(PDO $pdo): array
         throw new RuntimeException('Aucun utilisateur OceanOS actif pour tracer la synchronisation.');
     }
 
-    $user['role'] = 'super';
+    $user['nautimail_system_access'] = true;
     return $user;
 }
 

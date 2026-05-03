@@ -91,6 +91,7 @@ const state = {
   user: null,
   dashboard: null,
   currentView: "dashboard",
+  isRefreshing: false,
 };
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -246,10 +247,34 @@ function periodForEntryDate(date) {
   };
 }
 
-async function loadDashboard() {
-  const query = periodQuery();
+async function loadDashboard(options = {}) {
+  const params = new URLSearchParams(periodQuery());
+  if (options.refresh) {
+    params.set("_", String(Date.now()));
+  }
+  const query = params.toString();
   const payload = await apiRequest(query ? `${API.finance}?${query}` : API.finance);
   applyDashboard(payload);
+}
+
+async function refreshDashboard() {
+  if (state.isRefreshing) return;
+  state.isRefreshing = true;
+  const previousLabel = elements.refreshButton.textContent;
+  elements.refreshButton.disabled = true;
+  elements.refreshButton.textContent = "Actualisation...";
+  setMessage("Actualisation des donnees...");
+
+  try {
+    await loadDashboard({ refresh: true });
+    setMessage("Donnees actualisees.", "success");
+  } catch (error) {
+    setMessage(error.message || "Actualisation impossible.", "error");
+  } finally {
+    state.isRefreshing = false;
+    elements.refreshButton.disabled = false;
+    elements.refreshButton.textContent = previousLabel;
+  }
 }
 
 function applyDashboard(payload) {
@@ -462,9 +487,10 @@ function renderConvertedQuotes() {
     const customer = quote.customerCompany || quote.customerName || "Client";
     const invoice = quote.invoiceNumber ? `Facture ${quote.invoiceNumber}` : "Facture creee";
     const date = quote.invoiceDate || quote.accountingDate || quote.convertedAt;
+    const targetUrl = quote.targetUrl || moduleUrl("/Invocean/", { tab: "quotes", quote: quote.id });
 
     return `
-      <a class="order-card order-link" href="${escapeHtml(moduleUrl("/Invocean/", { tab: "quotes", quote: quote.id }))}" title="Ouvrir ce devis dans Invocean">
+      <a class="order-card order-link" href="${escapeHtml(targetUrl)}" title="Ouvrir ce devis dans Invocean">
         <div class="order-head">
           <div>
             <strong>${escapeHtml(quote.quoteNumber || `Devis #${quote.id}`)}</strong>
@@ -1180,7 +1206,9 @@ function bindEvents() {
   elements.tabs.forEach((button) => {
     button.addEventListener("click", () => setActiveView(button.dataset.view));
   });
-  elements.refreshButton.addEventListener("click", () => loadDashboard().catch((error) => setMessage(error.message, "error")));
+  elements.refreshButton.addEventListener("click", () => {
+    void refreshDashboard();
+  });
   elements.logoutButton.addEventListener("click", logout);
   elements.periodForm.addEventListener("submit", (event) => {
     event.preventDefault();

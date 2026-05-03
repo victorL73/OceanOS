@@ -1045,12 +1045,22 @@ function tresorcean_supplier_orders(PDO $pdo, array $period, float $purchaseTaxR
 
 function tresorcean_public_converted_quote(array $row): array
 {
+    $recordKind = (string) ($row['record_kind'] ?? 'quote');
+    $id = (int) ($row['quote_id'] ?? $row['id'] ?? 0);
+    $invoiceId = isset($row['invoice_id']) ? (int) $row['invoice_id'] : null;
     $totalHt = (float) ($row['total_tax_excl'] ?? 0);
     $totalTtc = (float) ($row['total_tax_incl'] ?? 0);
+    $targetUrl = (string) ($row['target_url'] ?? '');
+    if ($targetUrl === '') {
+        $targetUrl = $recordKind === 'invoice' && $invoiceId !== null
+            ? '/Invocean/?invoice=' . $invoiceId
+            : '/Invocean/?tab=quotes&quote=' . $id;
+    }
 
     return [
-        'id' => (int) $row['id'],
-        'source' => (string) ($row['source'] ?? ''),
+        'id' => $id,
+        'recordKind' => $recordKind,
+        'source' => (string) ($row['source'] ?? 'invocean'),
         'externalId' => (string) ($row['external_id'] ?? ''),
         'quoteNumber' => (string) ($row['quote_number'] ?? ''),
         'quoteDate' => (string) ($row['quote_date'] ?? ''),
@@ -1065,10 +1075,11 @@ function tresorcean_public_converted_quote(array $row): array
         'totalTaxExcl' => $totalHt,
         'vatAmount' => max(0, $totalTtc - $totalHt),
         'totalTaxIncl' => $totalTtc,
-        'status' => (string) ($row['status'] ?? 'converted'),
-        'invoiceId' => isset($row['invoice_id']) ? (int) $row['invoice_id'] : null,
+        'status' => (string) ($row['quote_status'] ?? $row['status'] ?? 'converted'),
+        'invoiceId' => $invoiceId,
         'invoiceNumber' => (string) ($row['invoice_number'] ?? ''),
         'invoiceDate' => (string) ($row['invoice_date'] ?? ''),
+        'targetUrl' => $targetUrl,
         'createdAt' => (string) ($row['created_at'] ?? ''),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
     ];
@@ -1076,32 +1087,102 @@ function tresorcean_public_converted_quote(array $row): array
 
 function tresorcean_invocean_converted_quotes(PDO $pdo, array $period): array
 {
-    if (
-        !oceanos_table_exists($pdo, 'invocean_signed_quotes')
-        || !oceanos_table_exists($pdo, 'invocean_invoices')
-    ) {
+    $hasQuotes = oceanos_table_exists($pdo, 'invocean_signed_quotes');
+    $hasInvoices = oceanos_table_exists($pdo, 'invocean_invoices');
+    if (!$hasQuotes && !$hasInvoices) {
         return [];
     }
 
-    $accountingDate = "COALESCE(i.invoice_date, DATE(q.updated_at), DATE(q.signed_at), q.quote_date, DATE(q.created_at))";
-    $statement = $pdo->prepare(
-        "SELECT q.*,
-                i.invoice_number,
-                i.invoice_date,
-                {$accountingDate} AS accounting_date
-         FROM invocean_signed_quotes q
-         LEFT JOIN invocean_invoices i ON i.id = q.invoice_id
-         WHERE q.status = 'converted'
-           AND {$accountingDate} BETWEEN :start_date AND :end_date
-         ORDER BY accounting_date DESC, q.id DESC
-         LIMIT 200"
-    );
-    $statement->execute([
-        'start_date' => $period['start'],
-        'end_date' => $period['end'],
-    ]);
+    $converted = [];
 
-    return array_map(static fn(array $row): array => tresorcean_public_converted_quote($row), $statement->fetchAll());
+    if ($hasQuotes && $hasInvoices) {
+        $accountingDate = "COALESCE(i.invoice_date, DATE(q.updated_at), DATE(q.signed_at), q.quote_date, DATE(q.created_at))";
+        $statement = $pdo->prepare(
+            "SELECT q.*,
+                    q.id AS quote_id,
+                    q.status AS quote_status,
+                    i.invoice_number,
+                    i.invoice_date,
+                    {$accountingDate} AS accounting_date,
+                    'quote' AS record_kind
+             FROM invocean_signed_quotes q
+             LEFT JOIN invocean_invoices i ON i.id = q.invoice_id
+             WHERE q.status = 'converted'
+               AND {$accountingDate} BETWEEN :start_date AND :end_date
+             ORDER BY accounting_date DESC, q.id DESC
+             LIMIT 200"
+        );
+        $statement->execute([
+            'start_date' => $period['start'],
+            'end_date' => $period['end'],
+        ]);
+        foreach ($statement->fetchAll() as $row) {
+            $converted[] = tresorcean_public_converted_quote($row);
+        }
+    }
+
+    if ($hasInvoices && oceanos_column_exists($pdo, 'invocean_invoices', 'channel')) {
+        $accountingDate = "COALESCE(i.invoice_date, DATE(i.updated_at), DATE(i.created_at))";
+        $deletedFilter = oceanos_column_exists($pdo, 'invocean_invoices', 'deleted_at') ? 'AND i.deleted_at IS NULL' : '';
+        $linkedQuoteFilter = $hasQuotes
+            ? "AND NOT EXISTS (
+                SELECT 1
+                FROM invocean_signed_quotes q
+                WHERE q.invoice_id = i.id
+                  AND q.status = 'converted'
+              )"
+            : '';
+        $statement = $pdo->prepare(
+            "SELECT i.id,
+                    i.id AS quote_id,
+                    i.channel AS source,
+                    CAST(i.id AS CHAR) AS external_id,
+                    COALESCE(NULLIF(i.order_reference, ''), NULLIF(i.invoice_number, ''), CONCAT('Facture ', i.id)) AS quote_number,
+                    i.invoice_date AS quote_date,
+                    i.created_at AS signed_at,
+                    'converted' AS quote_status,
+                    i.customer_name,
+                    i.customer_email,
+                    i.customer_company,
+                    i.vat_number,
+                    i.currency_iso,
+                    i.total_tax_excl,
+                    i.total_tax_incl,
+                    i.id AS invoice_id,
+                    i.invoice_number,
+                    i.invoice_date,
+                    {$accountingDate} AS accounting_date,
+                    i.created_at,
+                    i.updated_at,
+                    'invoice' AS record_kind
+             FROM invocean_invoices i
+             WHERE i.channel <> 'prestashop'
+               AND i.status NOT IN ('rejected', 'archived')
+               {$deletedFilter}
+               {$linkedQuoteFilter}
+               AND {$accountingDate} BETWEEN :invoice_start_date AND :invoice_end_date
+             ORDER BY accounting_date DESC, i.id DESC
+             LIMIT 200"
+        );
+        $statement->execute([
+            'invoice_start_date' => $period['start'],
+            'invoice_end_date' => $period['end'],
+        ]);
+        foreach ($statement->fetchAll() as $row) {
+            $converted[] = tresorcean_public_converted_quote($row);
+        }
+    }
+
+    usort($converted, static function (array $left, array $right): int {
+        $dateCompare = strcmp((string) ($right['accountingDate'] ?? ''), (string) ($left['accountingDate'] ?? ''));
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+
+        return ((int) ($right['id'] ?? 0)) <=> ((int) ($left['id'] ?? 0));
+    });
+
+    return array_slice($converted, 0, 200);
 }
 
 function tresorcean_public_entry(array $row, array $attachments = []): array

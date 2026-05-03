@@ -55,6 +55,7 @@ const state = {
     page: 1,
     limit: 30,
   },
+  focusInvoiceId: 0,
   focusQuoteId: 0,
   autoSyncTimer: null,
   autoSyncTimeout: null,
@@ -697,6 +698,8 @@ function renderInvoices() {
 
   state.invoices.forEach((invoice) => {
     const row = document.createElement("tr");
+    row.dataset.invoiceId = String(invoice.id);
+    row.classList.toggle("is-focused", Number(invoice.id) === Number(state.focusInvoiceId));
 
     const invoiceCell = document.createElement("td");
     const strong = document.createElement("strong");
@@ -781,6 +784,7 @@ function renderInvoices() {
   elements.pageLabel.textContent = `Page ${page} / ${pages}`;
   elements.prevPage.disabled = page <= 1;
   elements.nextPage.disabled = page >= pages;
+  focusInvoiceRow();
 }
 
 function quoteStatusLabel(status) {
@@ -1072,15 +1076,29 @@ function switchTab(tab) {
 
 function applyInitialRouteFromUrl() {
   const params = new URLSearchParams(window.location.search);
+  const invoiceId = Number(params.get("invoice") || 0);
   const quoteId = Number(params.get("quote") || 0);
   const tab = params.get("tab");
 
-  if (quoteId > 0) {
+  if (invoiceId > 0) {
+    state.focusInvoiceId = invoiceId;
+    switchTab("invoices");
+  } else if (quoteId > 0) {
     state.focusQuoteId = quoteId;
     switchTab("quotes");
   } else if (tab === "quotes") {
     switchTab("quotes");
   }
+}
+
+function focusInvoiceRow() {
+  if (!state.focusInvoiceId || state.activeTab !== "invoices") return;
+  window.requestAnimationFrame(() => {
+    const row = elements.invoiceTableBody.querySelector(`[data-invoice-id="${state.focusInvoiceId}"]`);
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
 }
 
 function focusQuoteRow() {
