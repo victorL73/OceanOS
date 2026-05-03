@@ -18,6 +18,10 @@ try {
             nautimail_download_inline_content_id($pdo, $user, (int) ($_GET['id'] ?? 0), (string) ($_GET['cid'] ?? ''));
         }
 
+        if ($action === 'remote_image') {
+            nautimail_proxy_remote_image((string) ($_GET['url'] ?? ''));
+        }
+
         if ($action === 'message') {
             $message = nautimail_require_message_access($pdo, $user, (int) ($_GET['id'] ?? 0));
             if (!empty($_GET['refreshParts']) || nautimail_message_missing_inline_sources($message)) {
