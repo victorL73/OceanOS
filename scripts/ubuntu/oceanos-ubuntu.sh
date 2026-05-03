@@ -510,13 +510,13 @@ show_status() {
 show_help() {
   cat <<EOF
 Usage:
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh install
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh start
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh stop
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh restart
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh nautimail-cron
-  sudo ./scripts/ubuntu/oceanos-ubuntu.sh cleanup
-  ./scripts/ubuntu/oceanos-ubuntu.sh status
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh install
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh start
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh stop
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh restart
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh nautimail-cron
+  sudo bash ./scripts/ubuntu/oceanos-ubuntu.sh cleanup
+  bash ./scripts/ubuntu/oceanos-ubuntu.sh status
 
 Variables utiles:
   APP_ROOT=/var/www/oceanos
