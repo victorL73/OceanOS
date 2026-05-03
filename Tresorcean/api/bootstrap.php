@@ -95,8 +95,10 @@ function tresorcean_ensure_schema(PDO $pdo): void
             user_id BIGINT UNSIGNED NULL,
             original_name VARCHAR(255) NOT NULL,
             stored_name VARCHAR(190) NOT NULL,
+            storage_mode ENUM('file', 'database') NOT NULL DEFAULT 'file',
             mime_type VARCHAR(120) NULL,
             file_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            file_content LONGBLOB NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_tresorcean_attachment_file (stored_name),
             KEY idx_tresorcean_attachment_entry (entry_id),
@@ -105,6 +107,12 @@ function tresorcean_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_tresorcean_attachment_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+    if (!oceanos_column_exists($pdo, 'tresorcean_entry_attachments', 'storage_mode')) {
+        $pdo->exec("ALTER TABLE tresorcean_entry_attachments ADD COLUMN storage_mode ENUM('file', 'database') NOT NULL DEFAULT 'file' AFTER stored_name");
+    }
+    if (!oceanos_column_exists($pdo, 'tresorcean_entry_attachments', 'file_content')) {
+        $pdo->exec('ALTER TABLE tresorcean_entry_attachments ADD COLUMN file_content LONGBLOB NULL AFTER file_size');
+    }
 
     $pdo->exec('INSERT IGNORE INTO tresorcean_settings (id) VALUES (1)');
 }
@@ -296,12 +304,16 @@ function tresorcean_save_entry_attachments(PDO $pdo, array $user, int $entryId, 
         throw new InvalidArgumentException('Maximum ' . TRESORCEAN_ATTACHMENT_MAX_FILES . ' pieces jointes par envoi.');
     }
 
-    $dir = tresorcean_ensure_attachment_storage();
+    try {
+        $dir = tresorcean_ensure_attachment_storage();
+    } catch (Throwable) {
+        $dir = null;
+    }
     $statement = $pdo->prepare(
         'INSERT INTO tresorcean_entry_attachments
-            (entry_id, user_id, original_name, stored_name, mime_type, file_size)
+            (entry_id, user_id, original_name, stored_name, storage_mode, mime_type, file_size, file_content)
          VALUES
-            (:entry_id, :user_id, :original_name, :stored_name, :mime_type, :file_size)'
+            (:entry_id, :user_id, :original_name, :stored_name, :storage_mode, :mime_type, :file_size, :file_content)'
     );
 
     foreach ($uploads as $upload) {
@@ -327,13 +339,20 @@ function tresorcean_save_entry_attachments(PDO $pdo, array $user, int $entryId, 
         }
 
         $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
-        $target = $dir . DIRECTORY_SEPARATOR . $storedName;
-        if (!move_uploaded_file($tmpName, $target)) {
-            throw new RuntimeException('Impossible d enregistrer la piece jointe.');
+        $target = $dir ? $dir . DIRECTORY_SEPARATOR . $storedName : null;
+        $storageMode = 'file';
+        $fileContent = null;
+        if ($target === null || !move_uploaded_file($tmpName, $target)) {
+            $fileContent = file_get_contents($tmpName);
+            if ($fileContent === false) {
+                throw new RuntimeException('Impossible d enregistrer la piece jointe.');
+            }
+            $storageMode = 'database';
+            $target = null;
         }
 
         $mimeType = (string) ($upload['type'] ?? '');
-        if (function_exists('finfo_open')) {
+        if ($storageMode === 'file' && function_exists('finfo_open')) {
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
             if ($finfo !== false) {
                 $detected = finfo_file($finfo, $target);
@@ -345,16 +364,23 @@ function tresorcean_save_entry_attachments(PDO $pdo, array $user, int $entryId, 
         }
 
         try {
-            $statement->execute([
-                'entry_id' => $entryId,
-                'user_id' => (int) $user['id'],
-                'original_name' => $originalName,
-                'stored_name' => $storedName,
-                'mime_type' => substr($mimeType, 0, 120) ?: null,
-                'file_size' => $size,
-            ]);
+            $statement->bindValue(':entry_id', $entryId, PDO::PARAM_INT);
+            $statement->bindValue(':user_id', (int) $user['id'], PDO::PARAM_INT);
+            $statement->bindValue(':original_name', $originalName);
+            $statement->bindValue(':stored_name', $storedName);
+            $statement->bindValue(':storage_mode', $storageMode);
+            $statement->bindValue(':mime_type', substr($mimeType, 0, 120) ?: null);
+            $statement->bindValue(':file_size', $size, PDO::PARAM_INT);
+            if ($fileContent === null) {
+                $statement->bindValue(':file_content', null, PDO::PARAM_NULL);
+            } else {
+                $statement->bindValue(':file_content', $fileContent, PDO::PARAM_LOB);
+            }
+            $statement->execute();
         } catch (Throwable $exception) {
-            @unlink($target);
+            if ($target !== null) {
+                @unlink($target);
+            }
             throw $exception;
         }
     }
@@ -382,6 +408,9 @@ function tresorcean_get_attachment_row(PDO $pdo, int $id): array
 
 function tresorcean_delete_attachment_file(array $row): void
 {
+    if ((string) ($row['storage_mode'] ?? 'file') !== 'file') {
+        return;
+    }
     $path = tresorcean_attachment_path((string) ($row['stored_name'] ?? ''));
     if (is_file($path)) {
         @unlink($path);
@@ -412,22 +441,34 @@ function tresorcean_delete_entry_attachment_files(PDO $pdo, int $entryId): void
 function tresorcean_download_attachment(PDO $pdo, array $user, int $id): void
 {
     $row = tresorcean_get_attachment_row($pdo, $id);
-    $path = tresorcean_attachment_path((string) ($row['stored_name'] ?? ''));
-    if (!is_file($path)) {
-        throw new InvalidArgumentException('Fichier introuvable.');
-    }
-
     $name = tresorcean_safe_attachment_name((string) ($row['original_name'] ?? 'piece-jointe'));
     $asciiName = str_replace(['\\', '"'], '_', $name);
     $mimeType = trim((string) ($row['mime_type'] ?? '')) ?: 'application/octet-stream';
+    $content = null;
+    $path = null;
+    if ((string) ($row['storage_mode'] ?? 'file') === 'database') {
+        $content = $row['file_content'] ?? null;
+        if (!is_string($content)) {
+            throw new InvalidArgumentException('Fichier introuvable.');
+        }
+    } else {
+        $path = tresorcean_attachment_path((string) ($row['stored_name'] ?? ''));
+        if (!is_file($path)) {
+            throw new InvalidArgumentException('Fichier introuvable.');
+        }
+    }
 
     http_response_code(200);
     oceanos_send_security_headers();
     header('Content-Type: ' . $mimeType);
-    header('Content-Length: ' . filesize($path));
+    header('Content-Length: ' . ($content !== null ? strlen($content) : filesize($path)));
     header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($name));
     header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
-    readfile($path);
+    if ($content !== null) {
+        echo $content;
+    } else {
+        readfile($path);
+    }
     exit;
 }
 
