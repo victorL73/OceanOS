@@ -50,6 +50,7 @@ const elements = {
   entryTaxAmount: $("entry-tax-amount"),
   entryAmountTtc: $("entry-amount-ttc"),
   entryNotes: $("entry-notes"),
+  entryAttachments: $("entry-attachments"),
   entrySave: $("entry-save"),
   entryReset: $("entry-reset"),
   entriesList: $("entries-list"),
@@ -103,6 +104,13 @@ function formatMoney(value) {
   return money.format(Number(value || 0));
 }
 
+function formatFileSize(value) {
+  const size = Number(value || 0);
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${numberFormat.format(size / 1024)} Ko`;
+  return `${numberFormat.format(size / (1024 * 1024))} Mo`;
+}
+
 function formatDate(value) {
   if (!value) return "-";
   const date = new Date(String(value).replace(" ", "T"));
@@ -151,10 +159,11 @@ function setActiveView(view) {
 }
 
 async function apiRequest(url, options = {}) {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(url, {
     credentials: "same-origin",
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -423,6 +432,25 @@ function taxScopeLabel(scope) {
   }[scope] || scope;
 }
 
+function renderEntryAttachments(entry) {
+  const attachments = entry.attachments || [];
+  if (attachments.length === 0) return "";
+
+  return `
+    <div class="attachment-list">
+      ${attachments.map((attachment) => `
+        <span class="attachment-chip">
+          <a href="${escapeHtml(attachment.downloadUrl)}" target="_blank" rel="noopener">
+            <span class="attachment-name">${escapeHtml(attachment.name)}</span>
+            <small>${formatFileSize(attachment.fileSize)}</small>
+          </a>
+          <button type="button" data-attachment-delete="${attachment.id}" title="Supprimer cette piece jointe">Supprimer</button>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderEntries() {
   const entries = state.dashboard?.entries || [];
   if (entries.length === 0) {
@@ -436,6 +464,7 @@ function renderEntries() {
         <span class="entry-type ${entry.direction === "out" ? "out" : "in"}">${escapeHtml(entryTypeLabel(entry.entryType))}</span>
         <strong>${escapeHtml(entry.label)}</strong>
         <small>${formatDate(entry.occurredAt)}${entry.counterparty ? ` - ${escapeHtml(entry.counterparty)}` : ""}</small>
+        ${renderEntryAttachments(entry)}
       </div>
       <div class="entry-money">
         <strong>${entry.direction === "out" ? "-" : "+"}${formatMoney(entry.amountTaxIncl)}</strong>
@@ -651,6 +680,7 @@ function resetEntryForm() {
   elements.entryTaxAmount.value = "";
   elements.entryAmountTtc.value = "";
   elements.entryNotes.value = "";
+  elements.entryAttachments.value = "";
 }
 
 function applyEntryDefaults() {
@@ -694,6 +724,7 @@ function fillEntryForm(entry) {
   elements.entryTaxAmount.value = Number(entry.taxAmount || 0).toFixed(2);
   elements.entryAmountTtc.value = Number(entry.amountTaxIncl || 0).toFixed(2);
   elements.entryNotes.value = entry.notes || "";
+  elements.entryAttachments.value = "";
   setActiveView("entries");
   elements.entryLabel.focus();
 }
@@ -718,9 +749,18 @@ async function saveEntry(event) {
       occurredAt: elements.entryDate.value,
       notes: elements.entryNotes.value.trim(),
     };
+    const files = Array.from(elements.entryAttachments.files || []);
+    const body = files.length > 0
+      ? (() => {
+          const formData = new FormData();
+          Object.entries(payload).forEach(([key, value]) => formData.append(key, value ?? ""));
+          files.forEach((file) => formData.append("attachments[]", file));
+          return formData;
+        })()
+      : JSON.stringify(payload);
     const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
       method: "POST",
-      body: JSON.stringify(payload),
+      body,
     });
     applyDashboard(response.dashboard);
     resetEntryForm();
@@ -742,6 +782,21 @@ async function deleteEntry(id) {
     });
     applyDashboard(response.dashboard);
     setMessage(response.message || "Mouvement supprime.", "success");
+  } catch (error) {
+    setMessage(error.message || "Suppression impossible.", "error");
+  }
+}
+
+async function deleteAttachment(id) {
+  if (!window.confirm("Supprimer cette piece jointe ?")) return;
+  setMessage("");
+  try {
+    const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ action: "delete_attachment", id }),
+    });
+    applyDashboard(response.dashboard);
+    setMessage(response.message || "Piece jointe supprimee.", "success");
   } catch (error) {
     setMessage(error.message || "Suppression impossible.", "error");
   }
@@ -798,6 +853,12 @@ function bindEvents() {
   elements.entriesList.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : event.target?.parentElement;
     if (!target) return;
+    const attachmentDelete = target.closest("[data-attachment-delete]");
+    if (attachmentDelete) {
+      event.preventDefault();
+      void deleteAttachment(Number(attachmentDelete.dataset.attachmentDelete));
+      return;
+    }
     const edit = target.closest("[data-entry-edit]");
     if (edit) {
       const id = Number(edit.dataset.entryEdit);

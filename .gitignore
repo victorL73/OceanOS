@@ -27,6 +27,8 @@ node_modules/
 *.sqlite3
 Invocean/storage/*
 !Invocean/storage/.htaccess
+Tresorcean/storage/*
+!Tresorcean/storage/.htaccess
 NautiCloud/storage/*
 !NautiCloud/storage/.htaccess
 Nautisign/storage/*

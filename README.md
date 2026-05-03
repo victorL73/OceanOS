@@ -260,10 +260,12 @@ Tables Tresorcean :
 ```text
 tresorcean_settings
 tresorcean_entries
+tresorcean_entry_attachments
 tresorcean_user_preferences
 ```
 
 Tresorcean consolide les fonds manuels, les commandes PrestaShop, les achats Stockcean et les devis Invocean signes uniquement lorsqu'ils sont passes au statut `converted`.
+Les pieces jointes des mouvements manuels sont stockees dans `Tresorcean/storage/` et servies uniquement par l'API authentifiee.
 
 Tables Formcean :
 
@@ -595,7 +597,7 @@ Points à vérifier avant production :
 
 - Ne pas exposer `admin/storage/`.
 - Ne pas exposer `NautiCloud/storage/`.
-- Ne pas exposer `Invocean/storage/` ni `Devis/storage/`.
+- Ne pas exposer `Invocean/storage/`, `Devis/storage/` ni `Tresorcean/storage/`.
 - Ne pas exposer `OceanOS/config/server.php`.
 - Ne jamais versionner les fichiers `.env`, `*.secret`, les bases locales, les logs, les uploads ou les exports generes.
 - Regenerer les cles Groq, SMTP/IMAP, PrestaShop et secrets de pont si elles ont deja ete stockees dans le depot.

@@ -9,15 +9,36 @@ try {
     $user = tresorcean_require_access($pdo);
 
     if ($method === 'GET') {
+        $action = strtolower(trim((string) ($_GET['action'] ?? '')));
+        if ($action === 'attachment') {
+            tresorcean_download_attachment($pdo, $user, (int) ($_GET['id'] ?? 0));
+        }
+
         tresorcean_json_response(tresorcean_dashboard($pdo, $_GET, $user));
     }
 
     if ($method === 'POST' || $method === 'PATCH') {
-        $input = tresorcean_read_json_request();
+        $contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? ''));
+        $isMultipart = str_contains($contentType, 'multipart/form-data');
+        $input = $isMultipart ? $_POST : tresorcean_read_json_request();
         $action = strtolower(trim((string) ($input['action'] ?? '')));
 
         if ($action === 'save_entry') {
+            $wasNewEntry = (int) ($input['id'] ?? 0) <= 0;
             $entry = tresorcean_save_entry($pdo, $user, $input);
+            try {
+                if ($isMultipart && isset($_FILES['attachments'])) {
+                    $entry['attachments'] = tresorcean_save_entry_attachments($pdo, $user, (int) $entry['id'], $_FILES['attachments']);
+                }
+            } catch (Throwable $exception) {
+                if ($wasNewEntry) {
+                    try {
+                        tresorcean_delete_entry($pdo, $user, (int) $entry['id']);
+                    } catch (Throwable) {
+                    }
+                }
+                throw $exception;
+            }
             tresorcean_json_response([
                 'ok' => true,
                 'message' => 'Mouvement enregistre.',
@@ -31,6 +52,15 @@ try {
             tresorcean_json_response([
                 'ok' => true,
                 'message' => 'Mouvement supprime.',
+                'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
+            ]);
+        }
+
+        if ($action === 'delete_attachment') {
+            tresorcean_delete_attachment($pdo, $user, (int) ($input['id'] ?? 0));
+            tresorcean_json_response([
+                'ok' => true,
+                'message' => 'Piece jointe supprimee.',
                 'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
             ]);
         }

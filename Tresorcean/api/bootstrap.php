@@ -4,6 +4,9 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 const TRESORCEAN_MODULE_ID = 'tresorcean';
+const TRESORCEAN_ATTACHMENT_MAX_BYTES = 10485760;
+const TRESORCEAN_ATTACHMENT_MAX_FILES = 6;
+const TRESORCEAN_ATTACHMENT_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'odt', 'ods', 'zip'];
 
 function tresorcean_json_response(array $payload, int $status = 200): void
 {
@@ -85,6 +88,24 @@ function tresorcean_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS tresorcean_entry_attachments (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            entry_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NULL,
+            original_name VARCHAR(255) NOT NULL,
+            stored_name VARCHAR(190) NOT NULL,
+            mime_type VARCHAR(120) NULL,
+            file_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_tresorcean_attachment_file (stored_name),
+            KEY idx_tresorcean_attachment_entry (entry_id),
+            KEY idx_tresorcean_attachment_user (user_id),
+            CONSTRAINT fk_tresorcean_attachment_entry FOREIGN KEY (entry_id) REFERENCES tresorcean_entries(id) ON DELETE CASCADE,
+            CONSTRAINT fk_tresorcean_attachment_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     $pdo->exec('INSERT IGNORE INTO tresorcean_settings (id) VALUES (1)');
 }
 
@@ -126,6 +147,288 @@ function tresorcean_decimal(mixed $value): float
 {
     $normalized = str_replace(',', '.', trim((string) $value));
     return is_numeric($normalized) ? (float) $normalized : 0.0;
+}
+
+function tresorcean_storage_path(string ...$parts): string
+{
+    $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'storage';
+    foreach ($parts as $part) {
+        $path .= DIRECTORY_SEPARATOR . trim($part, "\\/");
+    }
+
+    return $path;
+}
+
+function tresorcean_attachment_dir(): string
+{
+    return tresorcean_storage_path('attachments');
+}
+
+function tresorcean_ensure_attachment_storage(): string
+{
+    $storage = tresorcean_storage_path();
+    $attachments = tresorcean_attachment_dir();
+    foreach ([$storage, $attachments] as $dir) {
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new RuntimeException('Dossier pieces jointes inaccessible.');
+        }
+    }
+    if (!is_writable($attachments)) {
+        throw new RuntimeException('Dossier pieces jointes non accessible en ecriture.');
+    }
+
+    return $attachments;
+}
+
+function tresorcean_attachment_path(string $storedName): string
+{
+    return tresorcean_attachment_dir() . DIRECTORY_SEPARATOR . basename($storedName);
+}
+
+function tresorcean_safe_attachment_name(string $name): string
+{
+    $safe = trim(basename(str_replace('\\', '/', $name)));
+    $safe = preg_replace('/[\x00-\x1F\x7F]+/', '', $safe) ?: '';
+    if ($safe === '' || $safe === '.' || $safe === '..') {
+        return 'piece-jointe';
+    }
+
+    return substr($safe, 0, 180);
+}
+
+function tresorcean_public_attachment(array $row): array
+{
+    $id = (int) $row['id'];
+    return [
+        'id' => $id,
+        'entryId' => (int) $row['entry_id'],
+        'name' => (string) ($row['original_name'] ?? 'piece-jointe'),
+        'mimeType' => (string) ($row['mime_type'] ?? ''),
+        'fileSize' => (int) ($row['file_size'] ?? 0),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'downloadUrl' => 'api/finance.php?action=attachment&id=' . $id,
+    ];
+}
+
+function tresorcean_entry_attachments(PDO $pdo, array $entryIds): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $entryIds), static fn(int $id): bool => $id > 0)));
+    if ($ids === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $statement = $pdo->prepare(
+        "SELECT *
+         FROM tresorcean_entry_attachments
+         WHERE entry_id IN ({$placeholders})
+         ORDER BY created_at ASC, id ASC"
+    );
+    $statement->execute($ids);
+
+    $grouped = [];
+    foreach ($statement->fetchAll() as $row) {
+        $entryId = (int) $row['entry_id'];
+        $grouped[$entryId][] = tresorcean_public_attachment($row);
+    }
+
+    return $grouped;
+}
+
+function tresorcean_normalize_uploaded_files(array $files): array
+{
+    if (!isset($files['name'])) {
+        return [];
+    }
+
+    if (!is_array($files['name'])) {
+        return [[
+            'name' => $files['name'] ?? '',
+            'type' => $files['type'] ?? '',
+            'tmp_name' => $files['tmp_name'] ?? '',
+            'error' => $files['error'] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'] ?? 0,
+        ]];
+    }
+
+    $normalized = [];
+    $count = count($files['name']);
+    for ($index = 0; $index < $count; $index++) {
+        $normalized[] = [
+            'name' => $files['name'][$index] ?? '',
+            'type' => $files['type'][$index] ?? '',
+            'tmp_name' => $files['tmp_name'][$index] ?? '',
+            'error' => $files['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'][$index] ?? 0,
+        ];
+    }
+
+    return $normalized;
+}
+
+function tresorcean_upload_error_label(int $error): string
+{
+    return match ($error) {
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Fichier trop volumineux.',
+        UPLOAD_ERR_PARTIAL => 'Envoi du fichier incomplet.',
+        UPLOAD_ERR_NO_TMP_DIR => 'Dossier temporaire manquant.',
+        UPLOAD_ERR_CANT_WRITE => 'Ecriture du fichier impossible.',
+        UPLOAD_ERR_EXTENSION => 'Envoi bloque par une extension PHP.',
+        default => 'Envoi du fichier impossible.',
+    };
+}
+
+function tresorcean_save_entry_attachments(PDO $pdo, array $user, int $entryId, array $files): array
+{
+    $entry = tresorcean_get_entry_row($pdo, $entryId);
+    if (!tresorcean_is_admin($user) && (int) ($entry['user_id'] ?? 0) !== (int) $user['id']) {
+        throw new InvalidArgumentException('Vous ne pouvez ajouter des pieces jointes que sur vos mouvements.');
+    }
+
+    $uploads = array_values(array_filter(
+        tresorcean_normalize_uploaded_files($files),
+        static fn(array $file): bool => (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE
+    ));
+    if ($uploads === []) {
+        return tresorcean_entry_attachments($pdo, [$entryId])[$entryId] ?? [];
+    }
+    if (count($uploads) > TRESORCEAN_ATTACHMENT_MAX_FILES) {
+        throw new InvalidArgumentException('Maximum ' . TRESORCEAN_ATTACHMENT_MAX_FILES . ' pieces jointes par envoi.');
+    }
+
+    $dir = tresorcean_ensure_attachment_storage();
+    $statement = $pdo->prepare(
+        'INSERT INTO tresorcean_entry_attachments
+            (entry_id, user_id, original_name, stored_name, mime_type, file_size)
+         VALUES
+            (:entry_id, :user_id, :original_name, :stored_name, :mime_type, :file_size)'
+    );
+
+    foreach ($uploads as $upload) {
+        $error = (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error !== UPLOAD_ERR_OK) {
+            throw new InvalidArgumentException(tresorcean_upload_error_label($error));
+        }
+
+        $size = (int) ($upload['size'] ?? 0);
+        if ($size <= 0 || $size > TRESORCEAN_ATTACHMENT_MAX_BYTES) {
+            throw new InvalidArgumentException('Chaque piece jointe doit faire entre 1 octet et 10 Mo.');
+        }
+
+        $tmpName = (string) ($upload['tmp_name'] ?? '');
+        if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+            throw new InvalidArgumentException('Piece jointe invalide.');
+        }
+
+        $originalName = tresorcean_safe_attachment_name((string) ($upload['name'] ?? 'piece-jointe'));
+        $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        if (!in_array($extension, TRESORCEAN_ATTACHMENT_EXTENSIONS, true)) {
+            throw new InvalidArgumentException('Type de fichier non autorise.');
+        }
+
+        $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+        $target = $dir . DIRECTORY_SEPARATOR . $storedName;
+        if (!move_uploaded_file($tmpName, $target)) {
+            throw new RuntimeException('Impossible d enregistrer la piece jointe.');
+        }
+
+        $mimeType = (string) ($upload['type'] ?? '');
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $detected = finfo_file($finfo, $target);
+                if (is_string($detected) && $detected !== '') {
+                    $mimeType = $detected;
+                }
+                finfo_close($finfo);
+            }
+        }
+
+        try {
+            $statement->execute([
+                'entry_id' => $entryId,
+                'user_id' => (int) $user['id'],
+                'original_name' => $originalName,
+                'stored_name' => $storedName,
+                'mime_type' => substr($mimeType, 0, 120) ?: null,
+                'file_size' => $size,
+            ]);
+        } catch (Throwable $exception) {
+            @unlink($target);
+            throw $exception;
+        }
+    }
+
+    return tresorcean_entry_attachments($pdo, [$entryId])[$entryId] ?? [];
+}
+
+function tresorcean_get_attachment_row(PDO $pdo, int $id): array
+{
+    $statement = $pdo->prepare(
+        'SELECT a.*, e.user_id AS entry_user_id
+         FROM tresorcean_entry_attachments a
+         INNER JOIN tresorcean_entries e ON e.id = a.entry_id
+         WHERE a.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $id]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        throw new InvalidArgumentException('Piece jointe introuvable.');
+    }
+
+    return $row;
+}
+
+function tresorcean_delete_attachment_file(array $row): void
+{
+    $path = tresorcean_attachment_path((string) ($row['stored_name'] ?? ''));
+    if (is_file($path)) {
+        @unlink($path);
+    }
+}
+
+function tresorcean_delete_attachment(PDO $pdo, array $user, int $id): void
+{
+    $row = tresorcean_get_attachment_row($pdo, $id);
+    if (!tresorcean_is_admin($user) && (int) ($row['entry_user_id'] ?? 0) !== (int) $user['id']) {
+        throw new InvalidArgumentException('Vous ne pouvez supprimer que vos pieces jointes.');
+    }
+
+    $statement = $pdo->prepare('DELETE FROM tresorcean_entry_attachments WHERE id = :id');
+    $statement->execute(['id' => $id]);
+    tresorcean_delete_attachment_file($row);
+}
+
+function tresorcean_delete_entry_attachment_files(PDO $pdo, int $entryId): void
+{
+    $statement = $pdo->prepare('SELECT * FROM tresorcean_entry_attachments WHERE entry_id = :entry_id');
+    $statement->execute(['entry_id' => $entryId]);
+    foreach ($statement->fetchAll() as $row) {
+        tresorcean_delete_attachment_file($row);
+    }
+}
+
+function tresorcean_download_attachment(PDO $pdo, array $user, int $id): void
+{
+    $row = tresorcean_get_attachment_row($pdo, $id);
+    $path = tresorcean_attachment_path((string) ($row['stored_name'] ?? ''));
+    if (!is_file($path)) {
+        throw new InvalidArgumentException('Fichier introuvable.');
+    }
+
+    $name = tresorcean_safe_attachment_name((string) ($row['original_name'] ?? 'piece-jointe'));
+    $asciiName = str_replace(['\\', '"'], '_', $name);
+    $mimeType = trim((string) ($row['mime_type'] ?? '')) ?: 'application/octet-stream';
+
+    http_response_code(200);
+    oceanos_send_security_headers();
+    header('Content-Type: ' . $mimeType);
+    header('Content-Length: ' . filesize($path));
+    header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($name));
+    header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+    readfile($path);
+    exit;
 }
 
 function tresorcean_money_value(mixed $value): string
@@ -645,7 +948,7 @@ function tresorcean_invocean_converted_quotes(PDO $pdo, array $period): array
     return array_map(static fn(array $row): array => tresorcean_public_converted_quote($row), $statement->fetchAll());
 }
 
-function tresorcean_public_entry(array $row): array
+function tresorcean_public_entry(array $row, array $attachments = []): array
 {
     return [
         'id' => (int) $row['id'],
@@ -663,6 +966,7 @@ function tresorcean_public_entry(array $row): array
         'notes' => (string) ($row['notes'] ?? ''),
         'createdAt' => (string) ($row['created_at'] ?? ''),
         'userDisplayName' => (string) ($row['user_display_name'] ?? ''),
+        'attachments' => $attachments,
     ];
 }
 
@@ -681,7 +985,13 @@ function tresorcean_entries(PDO $pdo, array $period): array
         'end_date' => $period['end'],
     ]);
 
-    return array_map(static fn(array $row): array => tresorcean_public_entry($row), $statement->fetchAll());
+    $rows = $statement->fetchAll();
+    $attachments = tresorcean_entry_attachments($pdo, array_map(static fn(array $row): int => (int) $row['id'], $rows));
+
+    return array_map(
+        static fn(array $row): array => tresorcean_public_entry($row, $attachments[(int) $row['id']] ?? []),
+        $rows
+    );
 }
 
 function tresorcean_normalize_entry_amounts(array $input): array
@@ -801,7 +1111,9 @@ function tresorcean_save_entry(PDO $pdo, array $user, array $input): array
         $id = (int) $pdo->lastInsertId();
     }
 
-    return tresorcean_public_entry(tresorcean_get_entry_row($pdo, $id));
+    $attachments = tresorcean_entry_attachments($pdo, [$id]);
+
+    return tresorcean_public_entry(tresorcean_get_entry_row($pdo, $id), $attachments[$id] ?? []);
 }
 
 function tresorcean_get_entry_row(PDO $pdo, int $id): array
@@ -829,6 +1141,7 @@ function tresorcean_delete_entry(PDO $pdo, array $user, int $id): void
         throw new InvalidArgumentException('Vous ne pouvez supprimer que vos mouvements.');
     }
 
+    tresorcean_delete_entry_attachment_files($pdo, $id);
     $statement = $pdo->prepare('DELETE FROM tresorcean_entries WHERE id = :id');
     $statement->execute(['id' => $id]);
 }
