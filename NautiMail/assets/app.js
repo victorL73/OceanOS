@@ -4,7 +4,7 @@ const API = {
 };
 
 const OCEANOS_URL = "/OceanOS/";
-const AUTO_REFRESH_INTERVAL_MS = 60000;
+const AUTO_REFRESH_INTERVAL_MS = 10000;
 const $ = (id) => document.getElementById(id);
 
 const elements = {
@@ -107,6 +107,7 @@ const state = {
   composeMode: false,
   selectedConversationKey: "",
   autoRefreshTimer: null,
+  syncInProgress: false,
 };
 
 const labels = {
@@ -408,7 +409,7 @@ function renderChrome() {
       }).join("");
   elements.accountSelect.value = previous;
   if (elements.composeButton) elements.composeButton.disabled = state.selectedAccountId <= 0;
-  elements.syncButton.disabled = !state.imapAvailable || state.selectedAccountId <= 0;
+  elements.syncButton.disabled = state.syncInProgress || !state.imapAvailable || state.selectedAccountId <= 0;
   elements.analyzePendingButton.disabled = !state.aiSettings?.hasApiKey || state.messages.length === 0;
 }
 
@@ -977,24 +978,27 @@ function renderAccounts() {
   `).join("");
 }
 
-async function syncSelectedAccount() {
-  if (state.selectedAccountId <= 0) return;
-  elements.syncButton.disabled = true;
-  showMessage("Releve IMAP en cours...");
+async function syncSelectedAccount(options = {}) {
+  const silent = Boolean(options.silent);
+  if (state.selectedAccountId <= 0 || !state.imapAvailable || state.syncInProgress) return;
+  state.syncInProgress = true;
+  renderChrome();
+  if (!silent) showMessage("Releve IMAP en cours...");
   try {
     const payload = await apiRequest(API.messages, {
       method: "POST",
       body: JSON.stringify({
         action: "sync_account",
         accountId: state.selectedAccountId,
-        limit: 50,
+        limit: Number(options.limit || 50),
       }),
     });
     applyDashboard(payload);
-    showMessage(payload.message || payload.syncSummary?.message || "Releve termine.", "success");
+    if (!silent) showMessage(payload.message || payload.syncSummary?.message || "Releve termine.", "success");
   } catch (error) {
-    showMessage(error.message || "Releve impossible.", "error");
+    if (!silent) showMessage(error.message || "Releve impossible.", "error");
   } finally {
+    state.syncInProgress = false;
     renderChrome();
   }
 }
@@ -1272,7 +1276,7 @@ function startAutoRefresh() {
     if (document.hidden || state.currentView === "reply") {
       return;
     }
-    void loadDashboard().catch(() => {});
+    void syncSelectedAccount({ silent: true, limit: 50 });
   }, AUTO_REFRESH_INTERVAL_MS);
 }
 
