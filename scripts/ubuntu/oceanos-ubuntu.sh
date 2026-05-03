@@ -115,7 +115,7 @@ install_nautimail_cron() {
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-*/5 * * * * $PHP_USER cd "$APP_ROOT" && /usr/bin/flock -n /tmp/oceanos-nautimail-sync.lock /usr/bin/php NautiMail/cli/sync.php --limit=50 --json >> "$NAUTIMAIL_LOG_FILE" 2>&1
+* * * * * $PHP_USER cd "$APP_ROOT" && /usr/bin/flock -n /tmp/oceanos-nautimail-sync.lock /bin/bash -c 'for i in {1..6}; do /usr/bin/php NautiMail/cli/sync.php --limit=50 --json; sleep 10; done' >> "$NAUTIMAIL_LOG_FILE" 2>&1
 EOF
   chmod 0644 "$NAUTIMAIL_CRON_FILE"
   systemctl enable --now cron >/dev/null 2>&1 || systemctl enable --now crond >/dev/null 2>&1 || true

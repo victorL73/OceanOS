@@ -367,6 +367,34 @@ function nautimail_account_shared_user_ids(PDO $pdo, int $accountId): array
     return array_map(static fn(array $row): int => (int) $row['user_id'], $statement->fetchAll());
 }
 
+function nautimail_notification_user_ids(PDO $pdo, int $accountId): array
+{
+    $statement = $pdo->prepare(
+        "SELECT DISTINCT u.id, u.visible_modules_json
+         FROM oceanos_users u
+         LEFT JOIN nautimail_accounts a ON a.id = :account_id
+         LEFT JOIN nautimail_account_users au ON au.account_id = a.id AND au.user_id = u.id
+         WHERE u.is_active = 1
+           AND (
+                u.role IN ('super', 'admin')
+                OR a.created_by_user_id = u.id
+                OR au.user_id IS NOT NULL
+           )
+         ORDER BY u.id ASC"
+    );
+    $statement->execute(['account_id' => $accountId]);
+
+    $ids = [];
+    foreach ($statement->fetchAll() as $row) {
+        $visibleModules = oceanos_decode_visible_modules($row['visible_modules_json'] ?? null);
+        if (in_array(NAUTIMAIL_MODULE_ID, $visibleModules, true)) {
+            $ids[] = (int) $row['id'];
+        }
+    }
+
+    return array_values(array_unique(array_filter($ids, static fn(int $id): bool => $id > 0)));
+}
+
 function nautimail_public_account(PDO $pdo, array $account): array
 {
     return [
@@ -1165,6 +1193,27 @@ function nautimail_message_by_id(PDO $pdo, int $messageId): ?array
          LIMIT 1'
     );
     $statement->execute(['id' => $messageId]);
+    $row = $statement->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function nautimail_message_by_account_uid(PDO $pdo, int $accountId, string $mailbox, int $uid): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT m.*, a.label AS account_label, a.email_address AS account_email, u.display_name AS assigned_user_display_name
+         FROM nautimail_messages m
+         INNER JOIN nautimail_accounts a ON a.id = m.account_id
+         LEFT JOIN oceanos_users u ON u.id = m.assigned_user_id
+         WHERE m.account_id = :account_id
+           AND m.mailbox = :mailbox
+           AND m.imap_uid = :imap_uid
+         LIMIT 1'
+    );
+    $statement->execute([
+        'account_id' => $accountId,
+        'mailbox' => $mailbox,
+        'imap_uid' => $uid,
+    ]);
     $row = $statement->fetch();
     return is_array($row) ? $row : null;
 }
@@ -2070,6 +2119,50 @@ function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int
     return $statement->rowCount() === 1;
 }
 
+function nautimail_notify_new_message(PDO $pdo, array $account, array $message): void
+{
+    if (!function_exists('oceanos_create_notification')) {
+        return;
+    }
+
+    $messageId = (int) ($message['id'] ?? 0);
+    $accountId = (int) ($account['id'] ?? $message['account_id'] ?? 0);
+    if ($messageId <= 0 || $accountId <= 0) {
+        return;
+    }
+
+    $subject = trim((string) ($message['subject'] ?? '')) !== '' ? trim((string) $message['subject']) : '(Sans objet)';
+    $sender = trim((string) ($message['sender_name'] ?? '')) !== ''
+        ? trim((string) $message['sender_name'])
+        : trim((string) ($message['sender_email'] ?? ''));
+    $accountLabel = trim((string) ($account['label'] ?? $message['account_label'] ?? $account['email_address'] ?? 'NautiMail'));
+    $body = trim(implode(' - ', array_filter([
+        $sender !== '' ? 'De ' . $sender : '',
+        $accountLabel !== '' ? 'Boite ' . $accountLabel : '',
+    ])));
+
+    foreach (nautimail_notification_user_ids($pdo, $accountId) as $userId) {
+        oceanos_create_notification(
+            $pdo,
+            $userId,
+            null,
+            'NautiMail',
+            'new_mail',
+            'info',
+            'Nouveau mail: ' . mb_substr($subject, 0, 120),
+            $body !== '' ? $body : null,
+            '/NautiMail/',
+            [
+                'messageId' => $messageId,
+                'accountId' => $accountId,
+                'subject' => $subject,
+                'sender' => $sender,
+            ],
+            'nautimail-new-mail-' . $messageId
+        );
+    }
+}
+
 function nautimail_deleted_message_exists(PDO $pdo, int $accountId, string $mailbox, int $uid): bool
 {
     $statement = $pdo->prepare(
@@ -2191,6 +2284,10 @@ function nautimail_sync_account(PDO $pdo, array $user, array $input): array
             $seen++;
             if ($wasInserted) {
                 $created++;
+                $createdMessage = nautimail_message_by_account_uid($pdo, (int) $account['id'], (string) $account['imap_folder'], $uid);
+                if ($createdMessage !== null) {
+                    nautimail_notify_new_message($pdo, $account, $createdMessage);
+                }
             } else {
                 $updated++;
             }

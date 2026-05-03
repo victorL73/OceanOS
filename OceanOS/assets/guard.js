@@ -349,7 +349,7 @@
     if (!notificationState.timer) {
       notificationState.timer = window.setInterval(() => {
         void refreshNotifications().catch(() => {});
-      }, 30000);
+      }, 10000);
     }
   }
 

@@ -1276,7 +1276,7 @@ function startAutoRefresh() {
     if (document.hidden || state.currentView === "reply") {
       return;
     }
-    void syncSelectedAccount({ silent: true, limit: 50 });
+    void loadDashboard().catch(() => {});
   }, AUTO_REFRESH_INTERVAL_MS);
 }
 
