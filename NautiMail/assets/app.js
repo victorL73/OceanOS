@@ -317,6 +317,12 @@ function selectedMessageId() {
   return Number(state.selectedMessage?.id || 0);
 }
 
+function initialMessageIdFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const messageId = Number(params.get("messageId") || params.get("mailId") || params.get("id") || 0);
+  return Number.isFinite(messageId) && messageId > 0 ? messageId : 0;
+}
+
 function queryFromFilters() {
   const params = new URLSearchParams();
   if (state.selectedAccountId > 0) params.set("accountId", String(state.selectedAccountId));
@@ -1392,6 +1398,14 @@ async function init() {
     if (!authenticated) return;
     resetAccountForm();
     await loadDashboard();
+    const initialMessageId = initialMessageIdFromUrl();
+    if (initialMessageId > 0) {
+      try {
+        await loadMessage(initialMessageId, true);
+      } catch (openError) {
+        showMessage("Impossible d ouvrir le mail demande.", "error");
+      }
+    }
     startAutoRefresh();
     setView("app");
   } catch (error) {

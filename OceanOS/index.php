@@ -358,7 +358,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260503-nautimail-notifications"></script>
+  <script defer src="assets/guard.js?v=20260503-nautimail-notification-link"></script>
   <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
 </body>
 </html>

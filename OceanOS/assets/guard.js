@@ -222,14 +222,27 @@
 
       item.addEventListener("click", () => {
         void markNotificationRead(notification).finally(() => {
-          if (notification.actionUrl) {
-            window.location.href = notification.actionUrl;
+          const targetUrl = notificationTargetUrl(notification);
+          if (targetUrl) {
+            window.location.href = targetUrl;
           }
         });
       });
 
       notificationState.list.appendChild(item);
     });
+  }
+
+  function notificationTargetUrl(notification) {
+    const payload = notification && typeof notification.payload === "object" && notification.payload
+      ? notification.payload
+      : {};
+    const messageId = Number(payload.messageId || 0);
+    if ((notification.module === "NautiMail" || notification.type === "new_mail") && messageId > 0) {
+      return `/NautiMail/?messageId=${encodeURIComponent(String(messageId))}`;
+    }
+
+    return notification.actionUrl || "";
   }
 
   async function refreshNotifications() {

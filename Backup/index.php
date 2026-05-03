@@ -53,7 +53,7 @@ function backup_h(string $value): string
   <meta name="description" content="Backup OceanOS - archives ZIP du dossier www et export SQL de la base.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
   <link rel="stylesheet" href="assets/style.css?v=20260502">
-  <script defer src="/OceanOS/assets/guard.js?v=20260503-nautimail-notifications"></script>
+  <script defer src="/OceanOS/assets/guard.js?v=20260503-nautimail-notification-link"></script>
   <script defer src="assets/app.js?v=20260502-cron-auto"></script>
 </head>
 <body>

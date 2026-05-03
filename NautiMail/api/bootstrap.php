@@ -2151,7 +2151,7 @@ function nautimail_notify_new_message(PDO $pdo, array $account, array $message):
             'info',
             'Nouveau mail: ' . mb_substr($subject, 0, 120),
             $body !== '' ? $body : null,
-            '/NautiMail/',
+            '/NautiMail/?messageId=' . rawurlencode((string) $messageId),
             [
                 'messageId' => $messageId,
                 'accountId' => $accountId,
