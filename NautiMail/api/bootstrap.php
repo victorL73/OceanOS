@@ -171,6 +171,25 @@ function nautimail_ensure_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nautimail_deleted_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            account_id BIGINT UNSIGNED NOT NULL,
+            mailbox VARCHAR(120) NOT NULL DEFAULT 'INBOX',
+            imap_uid BIGINT UNSIGNED NOT NULL,
+            message_id VARCHAR(255) NULL,
+            subject VARCHAR(255) NULL,
+            sender_email VARCHAR(190) NULL,
+            deleted_by_user_id BIGINT UNSIGNED NULL,
+            deleted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_nautimail_deleted_uid (account_id, mailbox, imap_uid),
+            KEY idx_nautimail_deleted_account (account_id),
+            KEY idx_nautimail_deleted_user (deleted_by_user_id),
+            CONSTRAINT fk_nautimail_deleted_account FOREIGN KEY (account_id) REFERENCES nautimail_accounts(id) ON DELETE CASCADE,
+            CONSTRAINT fk_nautimail_deleted_user FOREIGN KEY (deleted_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     if (!oceanos_column_exists($pdo, 'nautimail_messages', 'bcc_text')) {
         $pdo->exec('ALTER TABLE nautimail_messages ADD COLUMN bcc_text TEXT NULL AFTER cc_text');
     }
@@ -2011,6 +2030,50 @@ function nautimail_upsert_message(PDO $pdo, int $accountId, string $mailbox, int
     return $statement->rowCount() === 1;
 }
 
+function nautimail_deleted_message_exists(PDO $pdo, int $accountId, string $mailbox, int $uid): bool
+{
+    $statement = $pdo->prepare(
+        'SELECT 1
+         FROM nautimail_deleted_messages
+         WHERE account_id = :account_id
+           AND mailbox = :mailbox
+           AND imap_uid = :imap_uid
+         LIMIT 1'
+    );
+    $statement->execute([
+        'account_id' => $accountId,
+        'mailbox' => $mailbox,
+        'imap_uid' => $uid,
+    ]);
+
+    return (bool) $statement->fetchColumn();
+}
+
+function nautimail_remember_deleted_message(PDO $pdo, array $user, array $message): void
+{
+    $statement = $pdo->prepare(
+        'INSERT INTO nautimail_deleted_messages
+            (account_id, mailbox, imap_uid, message_id, subject, sender_email, deleted_by_user_id, deleted_at)
+         VALUES
+            (:account_id, :mailbox, :imap_uid, :message_id, :subject, :sender_email, :deleted_by_user_id, NOW())
+         ON DUPLICATE KEY UPDATE
+            message_id = VALUES(message_id),
+            subject = VALUES(subject),
+            sender_email = VALUES(sender_email),
+            deleted_by_user_id = VALUES(deleted_by_user_id),
+            deleted_at = NOW()'
+    );
+    $statement->execute([
+        'account_id' => (int) $message['account_id'],
+        'mailbox' => (string) $message['mailbox'],
+        'imap_uid' => (int) $message['imap_uid'],
+        'message_id' => nautimail_nullable_text($message['message_id'] ?? '', 255, true),
+        'subject' => nautimail_nullable_text($message['subject'] ?? '', 255, true),
+        'sender_email' => nautimail_nullable_text($message['sender_email'] ?? '', 190, true),
+        'deleted_by_user_id' => (int) $user['id'],
+    ]);
+}
+
 function nautimail_sync_account(PDO $pdo, array $user, array $input): array
 {
     if (!function_exists('imap_open')) {
@@ -2037,6 +2100,7 @@ function nautimail_sync_account(PDO $pdo, array $user, array $input): array
     $seen = 0;
     $created = 0;
     $updated = 0;
+    $skipped = 0;
     try {
         $uids = @imap_search($imap, 'ALL', SE_UID);
         if (!is_array($uids)) {
@@ -2048,6 +2112,10 @@ function nautimail_sync_account(PDO $pdo, array $user, array $input): array
         foreach ($uids as $uidValue) {
             $uid = (int) $uidValue;
             if ($uid <= 0) {
+                continue;
+            }
+            if (nautimail_deleted_message_exists($pdo, (int) $account['id'], (string) $account['imap_folder'], $uid)) {
+                $skipped++;
                 continue;
             }
             $overviewList = @imap_fetch_overview($imap, (string) $uid, FT_UID);
@@ -2101,7 +2169,8 @@ function nautimail_sync_account(PDO $pdo, array $user, array $input): array
         'seen' => $seen,
         'created' => $created,
         'updated' => $updated,
-        'message' => sprintf('%d mail(s) lus, %d ajoute(s), %d mis a jour.', $seen, $created, $updated),
+        'skipped' => $skipped,
+        'message' => sprintf('%d mail(s) lus, %d ajoute(s), %d mis a jour, %d ignore(s).', $seen, $created, $updated, $skipped),
     ];
 }
 
@@ -2243,6 +2312,20 @@ function nautimail_update_message(PDO $pdo, array $user, array $input): array
     }
 
     return nautimail_public_message($message);
+}
+
+function nautimail_delete_message(PDO $pdo, array $user, array $input): array
+{
+    $messageId = (int) ($input['messageId'] ?? 0);
+    $message = nautimail_require_message_access($pdo, $user, $messageId);
+    nautimail_remember_deleted_message($pdo, $user, $message);
+
+    $statement = $pdo->prepare('DELETE FROM nautimail_messages WHERE id = :id');
+    $statement->execute(['id' => $messageId]);
+
+    return [
+        'accountId' => (int) $message['account_id'],
+    ];
 }
 
 function nautimail_reply_subject(string $subject): string

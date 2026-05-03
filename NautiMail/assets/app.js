@@ -45,6 +45,7 @@ const elements = {
   analyzeMessageButton: $("analyze-message-button"),
   openReplyButton: $("open-reply-button"),
   openReplyAllButton: $("open-reply-all-button"),
+  deleteMessageButton: $("delete-message-button"),
   replyEmpty: $("reply-empty"),
   replyPanel: $("reply-panel"),
   replyEyebrow: $("reply-eyebrow"),
@@ -604,6 +605,10 @@ function renderDetail() {
   elements.mailTriagePanel.classList.remove("hidden");
   const senderLine = [mail.senderName, mail.senderEmail ? `<${mail.senderEmail}>` : ""].filter(Boolean).join(" ");
   const bodyHtml = String(mail.bodyHtml || "").trim();
+  const conversationHtml = renderConversation();
+  const bodyMarkup = bodyHtml
+    ? '<iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>'
+    : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`;
   elements.mailDetail.innerHTML = `
     <div class="detail-title">
       <div>
@@ -632,10 +637,16 @@ function renderDetail() {
         ${mail.aiActions ? `<strong>Actions</strong><span>${escapeHtml(mail.aiActions)}</span>` : ""}
       </section>
     ` : ""}
-    ${renderConversation()}
-    ${bodyHtml
-      ? '<iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>'
-      : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`}
+    ${conversationHtml ? `
+      <section class="mail-reading-layout">
+        <aside class="mail-history-column">${conversationHtml}</aside>
+        <section class="mail-preview-column">${bodyMarkup}</section>
+      </section>
+    ` : `
+      <section class="mail-reading-layout single">
+        <section class="mail-preview-column">${bodyMarkup}</section>
+      </section>
+    `}
   `;
   if (bodyHtml) hydrateMailFrame(bodyHtml);
 
@@ -886,6 +897,37 @@ async function saveMessageTriage(event) {
   }
 }
 
+async function deleteSelectedMessage() {
+  const messageId = selectedMessageId();
+  if (messageId <= 0) return;
+  const ok = window.confirm("Supprimer ce mail de NautiMail ? Il ne reviendra pas aux prochains releves.");
+  if (!ok) return;
+
+  if (elements.deleteMessageButton) elements.deleteMessageButton.disabled = true;
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_message",
+        messageId,
+      }),
+    });
+    state.selectedMessage = null;
+    state.conversation = null;
+    state.replyAll = false;
+    state.composeMode = false;
+    applyDashboard(payload.dashboard || payload);
+    renderDetail();
+    renderReply();
+    setActiveView("inbox");
+    showMessage(payload.message || "Mail supprime.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression impossible.", "error");
+  } finally {
+    if (elements.deleteMessageButton) elements.deleteMessageButton.disabled = false;
+  }
+}
+
 async function generateReply() {
   if (state.composeMode) return;
   const messageId = selectedMessageId();
@@ -1102,6 +1144,7 @@ function installListeners() {
   elements.analyzeMessageButton.addEventListener("click", () => { void analyzeSelectedMessage(); });
   elements.openReplyButton.addEventListener("click", () => openReply(false));
   elements.openReplyAllButton.addEventListener("click", () => openReply(true));
+  elements.deleteMessageButton?.addEventListener("click", () => { void deleteSelectedMessage(); });
   elements.replyAllButton?.addEventListener("click", () => openReply(!state.replyAll));
   elements.generateReplyButton?.addEventListener("click", () => { void generateReply(); });
   elements.replyForm.addEventListener("submit", sendReply);

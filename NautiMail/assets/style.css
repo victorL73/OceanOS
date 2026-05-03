@@ -781,6 +781,42 @@ legend {
   line-height: 1.42;
 }
 
+.mail-reading-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 38%) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+.mail-reading-layout.single {
+  grid-template-columns: 1fr;
+}
+
+.mail-history-column,
+.mail-preview-column {
+  min-width: 0;
+}
+
+.mail-history-column .conversation-panel {
+  max-height: min(76vh, 900px);
+  margin-top: 0;
+  overflow: auto;
+}
+
+.mail-history-column .conversation-item {
+  grid-template-columns: 1fr;
+}
+
+.mail-history-column .conversation-marker {
+  justify-self: start;
+}
+
+.mail-preview-column .mail-text-body,
+.mail-preview-column .mail-html-frame {
+  margin-top: 0;
+}
+
 .mail-text-body,
 .mail-html-frame {
   margin-top: 16px;
@@ -898,6 +934,14 @@ legend {
   .reply-grid,
   .accounts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mail-reading-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mail-history-column .conversation-panel {
+    max-height: none;
   }
 }
 

@@ -103,6 +103,16 @@ try {
             ]);
         }
 
+        if ($action === 'delete_message') {
+            $result = nautimail_delete_message($pdo, $user, $input);
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'message' => 'Mail supprime. Il ne reviendra pas au prochain releve.',
+                'dashboard' => nautimail_dashboard($pdo, ['accountId' => $result['accountId']], $user),
+            ]);
+        }
+
         if ($action === 'generate_reply') {
             $draft = nautimail_generate_reply($pdo, $user, $input);
             nautimail_json_response([
