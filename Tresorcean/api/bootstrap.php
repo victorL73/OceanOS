@@ -385,7 +385,7 @@ function tresorcean_order_lines(SimpleXMLElement $order, array $costMap): array
     return $lines;
 }
 
-function tresorcean_product_cost_map(PDO $pdo): array
+function tresorcean_product_cost_map(PDO $pdo, float $purchaseTaxRate = 0): array
 {
     if (
         !oceanos_table_exists($pdo, 'stockcean_products')
@@ -410,10 +410,12 @@ function tresorcean_product_cost_map(PDO $pdo): array
     )->fetchAll();
 
     $map = [];
+    $rateMultiplier = 1 + (max(0, $purchaseTaxRate) / 100);
     foreach ($rows as $row) {
         $productId = (int) ($row['prestashop_product_id'] ?? 0);
         if ($productId > 0) {
-            $map[$productId] = (float) ($row['average_cost'] ?? 0);
+            $averageCostTtc = (float) ($row['average_cost'] ?? 0);
+            $map[$productId] = $rateMultiplier > 0 ? $averageCostTtc / $rateMultiplier : $averageCostTtc;
         }
     }
 
@@ -498,7 +500,7 @@ function tresorcean_fetch_orders(PDO $pdo, array $period, array $settings): arra
     [$shopUrl, $apiKey] = oceanos_require_prestashop_settings($private);
     $limit = max(10, min(250, (int) ($settings['prestashopOrderLimit'] ?? 80)));
     $states = tresorcean_fetch_order_states($shopUrl, $apiKey);
-    $costMap = tresorcean_product_cost_map($pdo);
+    $costMap = tresorcean_product_cost_map($pdo, (float) ($settings['defaultPurchaseTaxRate'] ?? 20));
 
     $query = [
         'display' => '[id,reference,current_state,payment,total_paid,total_paid_tax_excl,total_paid_tax_incl,total_products,total_shipping_tax_excl,total_discounts_tax_excl,date_add,date_upd]',
@@ -558,8 +560,10 @@ function tresorcean_supplier_orders(PDO $pdo, array $period, float $purchaseTaxR
 
     $orders = [];
     foreach ($statement->fetchAll() as $row) {
-        $totalHt = (float) ($row['total_tax_excl'] ?? 0);
-        $tax = $totalHt * ($purchaseTaxRate / 100);
+        $totalTtc = (float) ($row['total_tax_excl'] ?? 0);
+        $rateMultiplier = 1 + ($purchaseTaxRate / 100);
+        $totalHt = $rateMultiplier > 0 ? $totalTtc / $rateMultiplier : $totalTtc;
+        $tax = max(0, $totalTtc - $totalHt);
         $included = in_array((string) ($row['status'] ?? ''), ['ordered', 'received'], true);
         $orders[] = [
             'id' => (int) $row['id'],
@@ -569,7 +573,7 @@ function tresorcean_supplier_orders(PDO $pdo, array $period, float $purchaseTaxR
             'includedInExpenses' => $included,
             'totalTaxExcl' => $totalHt,
             'taxAmount' => $tax,
-            'totalTaxIncl' => $totalHt + $tax,
+            'totalTaxIncl' => $totalTtc,
             'lineCount' => (int) ($row['line_count'] ?? 0),
             'expectedAt' => (string) ($row['expected_at'] ?? ''),
             'createdAt' => (string) ($row['created_at'] ?? ''),

@@ -483,7 +483,7 @@ function renderPurchaseFormOptions() {
   elements.purchaseSupplier.innerHTML = supplierOptions(null, true);
   if (productList().length === 0) {
     elements.purchaseLines.innerHTML = '<div class="empty-state">Aucun produit synchronise.</div>';
-    elements.purchaseTotal.textContent = "Total achat HT: 0,00 EUR";
+    elements.purchaseTotal.textContent = "Total achat TTC: 0,00 EUR";
     elements.purchaseCreate.disabled = true;
     elements.purchaseAddLine.disabled = true;
     return;
@@ -508,13 +508,13 @@ function renderPurchaseLines() {
         <input data-line-quantity type="number" min="1" value="${Number(line.quantity || 1)}"${disabled}>
       </label>
       <label class="field line-price-field">
-        <span>Prix achat HT</span>
+        <span>Prix achat TTC</span>
         <input data-line-price type="number" step="0.01" min="0" value="${Number(line.unitPriceTaxExcl || 0).toFixed(2)}"${disabled}>
       </label>
       <button class="ghost-button danger-text line-remove-button" data-line-remove type="button"${state.purchaseLines.length <= 1 || !isAdmin() ? " disabled" : ""}>Retirer</button>
     </div>
   `).join("");
-  elements.purchaseTotal.textContent = `Total achat HT: ${money.format(purchaseTotal())}`;
+  elements.purchaseTotal.textContent = `Total achat TTC: ${money.format(purchaseTotal())}`;
 }
 
 function statusLabel(status) {
@@ -744,8 +744,8 @@ function renderOrderHistoryList(orders) {
                 <th>Quantite</th>
                 <th>Recu</th>
                 <th>PrestaShop</th>
-                <th>Prix achat HT</th>
-                <th>Total</th>
+                <th>Prix achat TTC</th>
+                <th>Total TTC</th>
               </tr>
             </thead>
             <tbody>
@@ -1019,7 +1019,7 @@ function installListeners() {
   elements.purchaseLines.addEventListener("input", (event) => {
     if (!event.target.matches("[data-line-quantity], [data-line-price]")) return;
     syncPurchaseLinesFromDom();
-    elements.purchaseTotal.textContent = `Total achat HT: ${money.format(purchaseTotal())}`;
+    elements.purchaseTotal.textContent = `Total achat TTC: ${money.format(purchaseTotal())}`;
   });
   elements.purchaseSupplier.addEventListener("change", () => {
     syncPurchaseLinesFromDom();
