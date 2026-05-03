@@ -59,6 +59,9 @@ const elements = {
   replyBcc: $("reply-bcc"),
   replySubject: $("reply-subject"),
   replyBody: $("reply-body"),
+  replyAttachments: $("reply-attachments"),
+  replyAttachmentsList: $("reply-attachments-list"),
+  replySignaturePreview: $("reply-signature-preview"),
   replySubmitButton: $("reply-submit-button"),
   replyResetButton: $("reply-reset-button"),
   replyCancelButton: $("reply-cancel-button"),
@@ -80,6 +83,7 @@ const elements = {
   accountSmtpEncryption: $("account-smtp-encryption"),
   accountReplyTo: $("account-reply-to"),
   accountSignature: $("account-signature"),
+  accountSignaturePreview: $("account-signature-preview"),
   accountActive: $("account-active"),
   accountShares: $("account-shares"),
   accountResetButton: $("account-reset-button"),
@@ -101,6 +105,7 @@ const state = {
   aiSettings: null,
   replyAll: false,
   composeMode: false,
+  selectedConversationKey: "",
   autoRefreshTimer: null,
 };
 
@@ -151,6 +156,31 @@ function formatBytes(value) {
   return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+function selectedDraftAttachments() {
+  return Array.from(elements.replyAttachments?.files || []);
+}
+
+function renderDraftAttachments() {
+  if (!elements.replyAttachmentsList) return;
+  const files = selectedDraftAttachments();
+  if (files.length === 0) {
+    elements.replyAttachmentsList.innerHTML = "";
+    return;
+  }
+
+  elements.replyAttachmentsList.innerHTML = files.map((file) => `
+    <span class="draft-attachment-chip">
+      <strong>${escapeHtml(file.name || "piece-jointe")}</strong>
+      <small>${escapeHtml(formatBytes(file.size))}</small>
+    </span>
+  `).join("");
+}
+
+function clearDraftAttachments() {
+  if (elements.replyAttachments) elements.replyAttachments.value = "";
+  renderDraftAttachments();
+}
+
 function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
 }
@@ -197,10 +227,11 @@ function redirectToOceanOS() {
 }
 
 async function apiRequest(url, options = {}) {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(url, {
     credentials: "same-origin",
     headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -224,6 +255,61 @@ async function fetchAuth() {
 
 function selectedAccount() {
   return state.accounts.find((account) => Number(account.id) === Number(state.selectedAccountId)) || null;
+}
+
+function currentAccountSignature() {
+  return String(selectedAccount()?.signature || "");
+}
+
+function cleanSignaturePreviewHtml(value) {
+  return String(value || "")
+    .replace(/<\s*(script|iframe|object|embed)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .trim();
+}
+
+function signatureFrameDocument(signatureHtml) {
+  const baseHref = escapeAttribute(window.location.href);
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <base href="${baseHref}" target="_blank">
+  <style>
+    html, body { margin: 0; padding: 0; background: #ffffff; color: #111827; }
+    body { overflow-wrap: anywhere; font: 14px Arial, sans-serif; }
+    img { max-width: 100%; height: auto; }
+    table { max-width: 100%; }
+  </style>
+</head>
+<body>${signatureHtml}</body>
+</html>`;
+}
+
+function renderSignaturePreview(container, signature) {
+  if (!container) return;
+  const frameHost = container.querySelector("[data-signature-frame]");
+  const signatureHtml = cleanSignaturePreviewHtml(signature);
+  container.classList.toggle("hidden", signatureHtml === "");
+  if (!frameHost) return;
+  frameHost.innerHTML = "";
+  if (signatureHtml === "") return;
+
+  const frame = document.createElement("iframe");
+  frame.className = "signature-preview-frame";
+  frame.title = "Signature";
+  frame.setAttribute("sandbox", "allow-same-origin allow-popups");
+  frame.addEventListener("load", () => {
+    resizeMailFrame(frame);
+    window.setTimeout(() => resizeMailFrame(frame), 250);
+  });
+  frame.srcdoc = signatureFrameDocument(signatureHtml);
+  frameHost.appendChild(frame);
+}
+
+function updateSignaturePreviews() {
+  renderSignaturePreview(elements.replySignaturePreview, currentAccountSignature());
+  renderSignaturePreview(elements.accountSignaturePreview, elements.accountSignature?.value || "");
 }
 
 function selectedMessageId() {
@@ -252,6 +338,7 @@ async function loadMessage(messageId, activate = true) {
   state.conversation = payload.conversation || null;
   state.replyAll = false;
   state.composeMode = false;
+  state.selectedConversationKey = "";
   renderDetail();
   renderReply();
   if (activate) setActiveView("detail");
@@ -299,6 +386,7 @@ function render() {
   renderAccountCards();
   renderDetail();
   renderReply();
+  updateSignaturePreviews();
   renderAccounts();
   renderShares();
   setActiveView(state.currentView);
@@ -445,16 +533,50 @@ function renderAttachments(mail) {
   `;
 }
 
+function renderOutgoingAttachments(item) {
+  const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+  if (attachments.length === 0) return "";
+
+  return `
+    <section class="attachments-panel">
+      <div class="section-heading">
+        <strong>Pieces jointes envoyees</strong>
+        <span>${attachments.length}</span>
+      </div>
+      <div class="attachments-list">
+        ${attachments.map((attachment) => `
+          <div class="attachment-card">
+            <span class="attachment-icon">PJ</span>
+            <span>
+              <strong>${escapeHtml(attachment.filename || "piece-jointe")}</strong>
+              <small>${escapeHtml(attachment.contentType || "fichier")} - ${escapeHtml(formatBytes(attachment.size))}</small>
+            </span>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function compactText(value, maxLength = 220) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
 }
 
+function conversationItemKey(item) {
+  const type = item.type || "incoming";
+  const id = item.replyId || item.sentId || item.messageId || item.id || 0;
+  return `${type}:${id}`;
+}
+
 function renderConversationItem(item) {
   const type = item.type || "incoming";
   const isIncoming = type === "incoming";
   const isReply = type === "reply";
+  const itemKey = conversationItemKey(item);
+  const selectedKey = state.selectedConversationKey || conversationItemKey((state.conversation?.items || []).find((candidate) => candidate.isCurrent) || {});
+  const isSelected = itemKey === selectedKey;
   const title = isIncoming
     ? [item.fromName, item.fromEmail ? `<${item.fromEmail}>` : ""].filter(Boolean).join(" ") || "Expediteur"
     : `A ${item.toEmail || "destinataire"}`;
@@ -468,18 +590,20 @@ function renderConversationItem(item) {
     ? `<button class="ghost-button tiny-button" type="button" data-history-mail-open="${escapeAttribute(item.messageId)}">Ouvrir</button>`
     : "";
   const label = isIncoming ? (item.isCurrent ? "Mail ouvert" : "Recu") : (isReply ? "Reponse envoyee" : "Mail envoye");
+  const attachmentCount = Array.isArray(item.attachments) ? item.attachments.length : 0;
 
   return `
-    <article class="conversation-item ${escapeAttribute(type)}${item.isCurrent ? " is-current" : ""}">
+    <article class="conversation-item ${escapeAttribute(type)}${item.isCurrent ? " is-current" : ""}${isSelected ? " is-selected" : ""}">
       <span class="conversation-marker">${escapeHtml(label)}</span>
       <div class="conversation-content">
         <div class="conversation-head">
-          <strong>${escapeHtml(title)}</strong>
+          <button class="conversation-title-button" type="button" data-history-item-open="${escapeAttribute(itemKey)}">${escapeHtml(title)}</button>
           <span>${escapeHtml(formatDateTime(item.date))}</span>
         </div>
         <small>${escapeHtml(subtitleParts.join(" - "))}</small>
         ${preview ? `<p>${escapeHtml(compactText(preview, isIncoming ? 180 : 260))}</p>` : ""}
         <div class="conversation-actions">
+          ${attachmentCount > 0 ? badge(`${attachmentCount} PJ`, "attachment") : ""}
           ${item.status ? badge(labels.status[item.status] || item.status, item.status) : ""}
           ${item.errorMessage ? badge("Erreur", "danger") : ""}
           ${action}
@@ -512,6 +636,48 @@ function renderConversation() {
       </div>
     </section>
   `;
+}
+
+function currentConversationItem(mail) {
+  const messageId = Number(mail?.id || 0);
+  const items = Array.isArray(state.conversation?.items) ? state.conversation.items : [];
+  const selectedKey = state.selectedConversationKey || "";
+  if (selectedKey !== "") {
+    const selected = items.find((item) => conversationItemKey(item) === selectedKey);
+    if (selected) return selected;
+  }
+  return items.find((item) => item.type === "incoming" && Number(item.messageId || 0) === messageId) || null;
+}
+
+function selectedConversationItem(mail) {
+  const item = currentConversationItem(mail);
+  return item?.type === "incoming" ? item : null;
+}
+
+function mailFallbackText(mail) {
+  const item = currentConversationItem(mail);
+  if (item && item.type !== "incoming") {
+    return String(item.bodyText || "").trim();
+  }
+
+  return [mail?.bodyText, mail?.preview, item?.preview, mail?.aiSummary]
+    .map((value) => String(value || "").trim())
+    .find((value) => value !== "") || "";
+}
+
+function renderMailBodyMarkup(mail, bodyHtml) {
+  const fallbackText = mailFallbackText(mail);
+  if (bodyHtml) {
+    return `
+      <iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>
+      ${fallbackText ? `<pre class="mail-text-body mail-text-fallback">${escapeHtml(fallbackText)}</pre>` : ""}
+    `;
+  }
+  if (fallbackText) {
+    return `<pre class="mail-text-body">${escapeHtml(fallbackText)}</pre>`;
+  }
+
+  return '<div class="mail-text-body mail-text-empty">Aucun contenu lisible pour ce mail.</div>';
 }
 
 function mailFrameDocument(bodyHtml) {
@@ -604,11 +770,11 @@ function renderDetail() {
   elements.mailDetail.classList.remove("hidden");
   elements.mailTriagePanel.classList.remove("hidden");
   const senderLine = [mail.senderName, mail.senderEmail ? `<${mail.senderEmail}>` : ""].filter(Boolean).join(" ");
-  const bodyHtml = String(mail.bodyHtml || "").trim();
+  const activeConversationItem = currentConversationItem(mail);
+  const activeIsIncoming = !activeConversationItem || activeConversationItem.type === "incoming";
+  const bodyHtml = activeIsIncoming ? String(mail.bodyHtml || "").trim() : "";
   const conversationHtml = renderConversation();
-  const bodyMarkup = bodyHtml
-    ? '<iframe class="mail-html-frame" data-mail-html-frame sandbox="allow-same-origin allow-popups" title="Apercu du mail"></iframe>'
-    : `<pre class="mail-text-body">${escapeHtml(mail.bodyText || mail.preview || "")}</pre>`;
+  const bodyMarkup = renderMailBodyMarkup(mail, bodyHtml);
   elements.mailDetail.innerHTML = `
     <div class="detail-title">
       <div>
@@ -630,7 +796,7 @@ function renderDetail() {
       ${renderHeaderRow("Boite", mail.accountLabel || mail.accountEmail)}
       ${renderHeaderRow("Dossier", mail.mailbox)}
     </section>
-    ${renderAttachments(mail)}
+    ${activeIsIncoming ? renderAttachments(mail) : renderOutgoingAttachments(activeConversationItem)}
     ${mail.aiSummary || mail.aiActions ? `
       <section class="ai-summary">
         ${mail.aiSummary ? `<strong>Synthese IA</strong><span>${escapeHtml(mail.aiSummary)}</span>` : ""}
@@ -681,6 +847,7 @@ function clearReplyForm() {
   elements.replyBcc.value = "";
   elements.replySubject.value = "";
   elements.replyBody.value = "";
+  clearDraftAttachments();
 }
 
 function renderReply() {
@@ -694,6 +861,7 @@ function renderReply() {
   if (elements.replyAllButton) elements.replyAllButton.classList.toggle("hidden", state.composeMode);
   if (elements.generateReplyButton) elements.generateReplyButton.classList.toggle("hidden", state.composeMode);
   if (elements.replyTone) elements.replyTone.disabled = state.composeMode;
+  updateSignaturePreviews();
   if (!showPanel) return;
   if (state.composeMode) {
     return;
@@ -753,6 +921,7 @@ function resetAccountForm() {
   elements.accountActive.checked = true;
   elements.accountDeactivateButton.classList.add("hidden");
   renderShares([state.user?.id].filter(Boolean));
+  updateSignaturePreviews();
 }
 
 function populateAccountForm(account) {
@@ -775,6 +944,7 @@ function populateAccountForm(account) {
   elements.accountActive.checked = Boolean(account.isActive);
   elements.accountDeactivateButton.classList.toggle("hidden", !account.id);
   renderShares(account.sharedUserIds || []);
+  updateSignaturePreviews();
   setActiveView("accounts");
 }
 
@@ -974,21 +1144,37 @@ async function sendReply(event) {
   }
   showMessage(isCompose ? "Envoi du mail en cours..." : "Envoi de la reponse en cours...");
   try {
-    const requestBody = {
-      action: isCompose ? "send_message" : "send_reply",
-      accountId: state.selectedAccountId,
-      toEmail: elements.replyTo.value.trim(),
-      ccEmail: elements.replyCc.value.trim(),
-      bccEmail: elements.replyBcc.value.trim(),
-      subject: elements.replySubject.value.trim(),
-      body: elements.replyBody.value.trim(),
-    };
-    if (!isCompose) requestBody.messageId = messageId;
+    const files = selectedDraftAttachments();
+    let requestBody;
+    if (files.length > 0) {
+      requestBody = new FormData();
+      requestBody.append("action", isCompose ? "send_message" : "send_reply");
+      requestBody.append("accountId", String(state.selectedAccountId));
+      requestBody.append("toEmail", elements.replyTo.value.trim());
+      requestBody.append("ccEmail", elements.replyCc.value.trim());
+      requestBody.append("bccEmail", elements.replyBcc.value.trim());
+      requestBody.append("subject", elements.replySubject.value.trim());
+      requestBody.append("body", elements.replyBody.value.trim());
+      if (!isCompose) requestBody.append("messageId", String(messageId));
+      files.forEach((file) => requestBody.append("attachments[]", file, file.name));
+    } else {
+      requestBody = {
+        action: isCompose ? "send_message" : "send_reply",
+        accountId: state.selectedAccountId,
+        toEmail: elements.replyTo.value.trim(),
+        ccEmail: elements.replyCc.value.trim(),
+        bccEmail: elements.replyBcc.value.trim(),
+        subject: elements.replySubject.value.trim(),
+        body: elements.replyBody.value.trim(),
+      };
+      if (!isCompose) requestBody.messageId = messageId;
+    }
 
     const payload = await apiRequest(API.messages, {
       method: "POST",
-      body: JSON.stringify(requestBody),
+      body: requestBody instanceof FormData ? requestBody : JSON.stringify(requestBody),
     });
+    clearDraftAttachments();
     if (isCompose) {
       applyDashboard(payload.dashboard || payload);
       state.composeMode = false;
@@ -1134,6 +1320,12 @@ function installListeners() {
   });
 
   elements.mailDetail.addEventListener("click", (event) => {
+    const itemButton = event.target.closest("[data-history-item-open]");
+    if (itemButton) {
+      state.selectedConversationKey = itemButton.dataset.historyItemOpen || "";
+      renderDetail();
+      return;
+    }
     const button = event.target.closest("[data-history-mail-open]");
     if (button) {
       void loadMessage(button.dataset.historyMailOpen);
@@ -1148,6 +1340,7 @@ function installListeners() {
   elements.replyAllButton?.addEventListener("click", () => openReply(!state.replyAll));
   elements.generateReplyButton?.addEventListener("click", () => { void generateReply(); });
   elements.replyForm.addEventListener("submit", sendReply);
+  elements.replyAttachments?.addEventListener("change", renderDraftAttachments);
   elements.replyResetButton.addEventListener("click", () => {
     if (state.composeMode) {
       clearReplyForm();
@@ -1169,6 +1362,7 @@ function installListeners() {
 
   elements.newAccountButton.addEventListener("click", resetAccountForm);
   elements.accountForm.addEventListener("submit", saveAccount);
+  elements.accountSignature?.addEventListener("input", updateSignaturePreviews);
   elements.accountResetButton.addEventListener("click", resetAccountForm);
   elements.accountDeactivateButton.addEventListener("click", () => { void deactivateAccount(); });
 

@@ -40,7 +40,7 @@ try {
     }
 
     if ($method === 'POST') {
-        $input = nautimail_read_json_request();
+        $input = nautimail_read_request();
         $action = strtolower(trim((string) ($input['action'] ?? 'save_account')));
 
         if ($action === 'save_account') {

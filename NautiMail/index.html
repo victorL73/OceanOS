@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nautimail.svg?v=20260502">
   <meta name="description" content="NautiMail - Boites mail partagees et tri IA OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260503-nautimail-delete">
+  <link rel="stylesheet" href="assets/style.css?v=20260503-nautimail-attachments">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-nautimail"></script>
 </head>
 <body>
@@ -231,6 +231,15 @@
               <span>Message</span>
               <textarea id="reply-body" rows="14" required></textarea>
             </label>
+            <label class="field">
+              <span>Pieces jointes</span>
+              <input id="reply-attachments" type="file" multiple>
+            </label>
+            <div id="reply-attachments-list" class="draft-attachments-list"></div>
+            <section id="reply-signature-preview" class="signature-preview hidden" aria-label="Signature">
+              <span>Signature</span>
+              <div data-signature-frame></div>
+            </section>
             <div class="form-actions">
               <button id="reply-submit-button" class="primary-button" type="submit">Envoyer</button>
               <button id="reply-reset-button" class="ghost-button" type="button">Vider</button>
@@ -331,6 +340,10 @@
               <span>Signature</span>
               <textarea id="account-signature" rows="4"></textarea>
             </label>
+            <section id="account-signature-preview" class="signature-preview hidden" aria-label="Apercu signature">
+              <span>Apercu signature</span>
+              <div data-signature-frame></div>
+            </section>
             <label class="check-field">
               <input id="account-active" type="checkbox" checked>
               <span>Adresse active</span>
@@ -363,6 +376,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260503-nautimail-delete"></script>
+  <script src="assets/app.js?v=20260503-nautimail-attachments"></script>
 </body>
 </html>
