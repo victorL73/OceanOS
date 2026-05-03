@@ -122,6 +122,25 @@ function formatDate(value) {
   }).format(date);
 }
 
+function todayIso() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function dateWithinPeriod(date, start, end) {
+  if (!date) return false;
+  return (!start || date >= start) && (!end || date <= end);
+}
+
+function defaultEntryDate() {
+  const today = todayIso();
+  const start = elements.periodStart.value || "";
+  const end = elements.periodEnd.value || "";
+  if (dateWithinPeriod(today, start, end)) return today;
+  return end || start || today;
+}
+
 function moduleUrl(path, params = {}) {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -185,11 +204,27 @@ async function fetchAuth() {
   return true;
 }
 
-function periodQuery() {
+function periodQuery(overrides = {}) {
   const params = new URLSearchParams();
-  if (elements.periodStart.value) params.set("start", elements.periodStart.value);
-  if (elements.periodEnd.value) params.set("end", elements.periodEnd.value);
+  const start = overrides.start ?? elements.periodStart.value;
+  const end = overrides.end ?? elements.periodEnd.value;
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
   return params.toString();
+}
+
+function periodForEntryDate(date) {
+  let start = elements.periodStart.value || date;
+  let end = elements.periodEnd.value || date;
+  if (date) {
+    if (!start || date < start) start = date;
+    if (!end || date > end) end = date;
+  }
+
+  return {
+    query: periodQuery({ start, end }),
+    expanded: start !== (elements.periodStart.value || "") || end !== (elements.periodEnd.value || ""),
+  };
 }
 
 async function loadDashboard() {
@@ -208,6 +243,11 @@ function applyDashboard(payload) {
   if (payload.period) {
     elements.periodStart.value = payload.period.start || "";
     elements.periodEnd.value = payload.period.end || "";
+    const editingEntry = Boolean(elements.entryId.value);
+    const hasDraft = Boolean(elements.entryLabel.value.trim() || elements.entryAmountHt.value || elements.entryAmountTtc.value);
+    if (!editingEntry && !hasDraft) {
+      elements.entryDate.value = defaultEntryDate();
+    }
   }
 
   const connected = Boolean(payload.prestashop?.connected);
@@ -672,7 +712,7 @@ function resetEntryForm() {
   elements.entryType.value = "fund";
   elements.entryDirection.value = "in";
   elements.entryTaxScope.value = "neutral";
-  elements.entryDate.value = new Date().toISOString().slice(0, 10);
+  elements.entryDate.value = defaultEntryDate();
   elements.entryLabel.value = "";
   elements.entryCounterparty.value = "";
   elements.entryAmountHt.value = "";
@@ -716,7 +756,7 @@ function fillEntryForm(entry) {
   elements.entryType.value = entry.entryType || "fund";
   elements.entryDirection.value = entry.direction || "in";
   elements.entryTaxScope.value = entry.taxScope || "neutral";
-  elements.entryDate.value = entry.occurredAt || new Date().toISOString().slice(0, 10);
+  elements.entryDate.value = entry.occurredAt || defaultEntryDate();
   elements.entryLabel.value = entry.label || "";
   elements.entryCounterparty.value = entry.counterparty || "";
   elements.entryAmountHt.value = Number(entry.amountTaxExcl || 0).toFixed(2);
@@ -749,6 +789,7 @@ async function saveEntry(event) {
       occurredAt: elements.entryDate.value,
       notes: elements.entryNotes.value.trim(),
     };
+    const entryPeriod = periodForEntryDate(payload.occurredAt);
     const files = Array.from(elements.entryAttachments.files || []);
     const body = files.length > 0
       ? (() => {
@@ -758,13 +799,16 @@ async function saveEntry(event) {
           return formData;
         })()
       : JSON.stringify(payload);
-    const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
+    const response = await apiRequest(`${API.finance}?${entryPeriod.query}`, {
       method: "POST",
       body,
     });
     applyDashboard(response.dashboard);
     resetEntryForm();
-    setMessage(response.message || "Mouvement enregistre.", "success");
+    setMessage(
+      entryPeriod.expanded ? "Mouvement enregistre. Periode ajustee pour l afficher." : response.message || "Mouvement enregistre.",
+      "success"
+    );
   } catch (error) {
     setMessage(error.message || "Enregistrement impossible.", "error");
   } finally {
