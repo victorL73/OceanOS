@@ -85,6 +85,7 @@ const elements = {
   accountSignature: $("account-signature"),
   accountSignaturePreview: $("account-signature-preview"),
   accountActive: $("account-active"),
+  accountPrimary: $("account-primary"),
   accountShares: $("account-shares"),
   accountResetButton: $("account-reset-button"),
   accountDeactivateButton: $("account-deactivate-button"),
@@ -419,7 +420,8 @@ function renderChrome() {
     ? '<option value="">Aucune adresse</option>'
     : state.accounts.map((account) => {
         const selected = String(account.id) === previous ? " selected" : "";
-        return `<option value="${account.id}"${selected}>${escapeHtml(account.label || account.emailAddress)}</option>`;
+        const primaryLabel = account.isPrimaryForUser ? " - principale" : "";
+        return `<option value="${account.id}"${selected}>${escapeHtml((account.label || account.emailAddress) + primaryLabel)}</option>`;
       }).join("");
   elements.accountSelect.value = previous;
   if (elements.composeButton) elements.composeButton.disabled = state.selectedAccountId <= 0;
@@ -504,6 +506,7 @@ function renderAccountCards() {
       <strong>${escapeHtml(account.label || account.emailAddress)}</strong>
       <small>${escapeHtml(account.emailAddress)}${account.lastSyncAt ? ` - releve ${escapeHtml(formatDateTime(account.lastSyncAt))}` : ""}</small>
       <div class="card-tags">
+        ${account.isPrimaryForUser ? badge("Principale", "success") : ""}
         ${badge(account.isActive ? "Active" : "Inactive", account.isActive ? "success" : "danger")}
         ${badge(`${account.sharedUserIds?.length || 0} utilisateur(s)`)}
       </div>
@@ -940,6 +943,7 @@ function resetAccountForm() {
   elements.accountSmtpPort.value = "587";
   elements.accountSmtpEncryption.value = "tls";
   elements.accountActive.checked = true;
+  elements.accountPrimary.checked = false;
   elements.accountDeactivateButton.classList.add("hidden");
   renderShares([state.user?.id].filter(Boolean));
   updateSignaturePreviews();
@@ -963,6 +967,7 @@ function populateAccountForm(account) {
   elements.accountReplyTo.value = account.replyTo || "";
   elements.accountSignature.value = account.signature || "";
   elements.accountActive.checked = Boolean(account.isActive);
+  elements.accountPrimary.checked = Boolean(account.isPrimaryForUser);
   elements.accountDeactivateButton.classList.toggle("hidden", !account.id);
   renderShares(account.sharedUserIds || []);
   updateSignaturePreviews();
@@ -982,15 +987,17 @@ function renderAccounts() {
   }
 
   elements.accountsList.innerHTML = state.accounts.map((account) => `
-    <article class="list-card">
+    <article class="list-card${account.isPrimaryForUser ? " is-primary" : ""}">
       <strong>${escapeHtml(account.label || account.emailAddress)}</strong>
       <small>${escapeHtml(account.emailAddress)} - IMAP ${escapeHtml(account.imapHost)}:${account.imapPort}</small>
       <small>${account.smtpHost ? `SMTP ${escapeHtml(account.smtpHost)}:${account.smtpPort}` : "SMTP non renseigne"}</small>
       <div class="card-tags">
         ${badge(account.hasPassword ? "Secret OK" : "Secret absent", account.hasPassword ? "success" : "danger")}
         ${badge(account.isActive ? "Active" : "Inactive", account.isActive ? "success" : "danger")}
+        ${account.isPrimaryForUser ? badge("Principale", "success") : ""}
       </div>
       <div class="card-actions">
+        ${account.isPrimaryForUser ? "" : `<button class="ghost-button" data-account-primary="${account.id}" type="button">Principale</button>`}
         <button class="ghost-button" data-account-edit="${account.id}" type="button">Editer</button>
         <button class="ghost-button" data-account-use="${account.id}" type="button">Ouvrir</button>
       </div>
@@ -1259,6 +1266,7 @@ async function saveAccount(event) {
         replyTo: elements.accountReplyTo.value.trim(),
         signature: elements.accountSignature.value.trim(),
         isActive: elements.accountActive.checked,
+        isPrimary: elements.accountPrimary.checked,
         sharedUserIds: selectedShareIds(),
       }),
     });
@@ -1268,6 +1276,23 @@ async function saveAccount(event) {
     showMessage(payload.message || "Adresse enregistree.", "success");
   } catch (error) {
     showMessage(error.message || "Enregistrement impossible.", "error");
+  }
+}
+
+async function setPrimaryAccount(accountId) {
+  const numericId = Number(accountId || 0);
+  if (numericId <= 0) return;
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({ action: "set_primary_account", accountId: numericId }),
+    });
+    applyDashboard(payload.dashboard || payload);
+    const saved = payload.account || state.accounts.find((account) => Number(account.id) === numericId);
+    if (saved) populateAccountForm(saved);
+    showMessage(payload.message || "Adresse principale mise a jour.", "success");
+  } catch (error) {
+    showMessage(error.message || "Mise a jour impossible.", "error");
   }
 }
 
@@ -1401,9 +1426,14 @@ function installListeners() {
   elements.accountsList.addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-account-edit]");
     const useButton = event.target.closest("[data-account-use]");
+    const primaryButton = event.target.closest("[data-account-primary]");
     if (editButton) {
       const account = state.accounts.find((item) => Number(item.id) === Number(editButton.dataset.accountEdit));
       if (account) populateAccountForm(account);
+    }
+    if (primaryButton) {
+      void setPrimaryAccount(primaryButton.dataset.accountPrimary || 0);
+      return;
     }
     if (useButton) {
       state.selectedAccountId = Number(useButton.dataset.accountUse || 0);

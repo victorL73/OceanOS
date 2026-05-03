@@ -77,6 +77,17 @@ try {
             ]);
         }
 
+        if ($action === 'set_primary_account') {
+            $account = nautimail_set_primary_account($pdo, $user, (int) ($input['accountId'] ?? 0));
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'message' => 'Adresse principale mise a jour.',
+                'account' => nautimail_public_account($pdo, $account, (int) $account['id']),
+                'dashboard' => nautimail_dashboard($pdo, ['accountId' => (int) $account['id']], $user),
+            ]);
+        }
+
         if ($action === 'sync_account') {
             $summary = nautimail_sync_account($pdo, $user, $input);
             $dashboard = nautimail_dashboard($pdo, ['accountId' => (int) ($input['accountId'] ?? 0)], $user);

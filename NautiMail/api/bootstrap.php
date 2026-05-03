@@ -97,6 +97,17 @@ function nautimail_ensure_schema(PDO $pdo): void
     );
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nautimail_user_preferences (
+            user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            primary_account_id BIGINT UNSIGNED NULL,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_nautimail_preferences_primary (primary_account_id),
+            CONSTRAINT fk_nautimail_preferences_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE,
+            CONSTRAINT fk_nautimail_preferences_primary FOREIGN KEY (primary_account_id) REFERENCES nautimail_accounts(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS nautimail_messages (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             account_id BIGINT UNSIGNED NOT NULL,
@@ -352,6 +363,70 @@ function nautimail_accessible_account_ids(PDO $pdo, array $user): array
     return array_map(static fn(array $row): int => (int) $row['id'], $statement->fetchAll());
 }
 
+function nautimail_primary_account_id(PDO $pdo, array $user, ?array $accessibleAccountIds = null, bool $activeOnly = true): int
+{
+    $accessibleAccountIds ??= nautimail_accessible_account_ids($pdo, $user);
+    if ($accessibleAccountIds === []) {
+        return 0;
+    }
+
+    $statement = $pdo->prepare('SELECT primary_account_id FROM nautimail_user_preferences WHERE user_id = :user_id LIMIT 1');
+    $statement->execute(['user_id' => (int) $user['id']]);
+    $accountId = (int) ($statement->fetchColumn() ?: 0);
+    if ($accountId <= 0 || !in_array($accountId, $accessibleAccountIds, true)) {
+        return 0;
+    }
+
+    if ($activeOnly) {
+        $account = nautimail_account_by_id($pdo, $accountId);
+        if ($account === null || (int) ($account['is_active'] ?? 0) !== 1) {
+            return 0;
+        }
+    }
+
+    return $accountId;
+}
+
+function nautimail_set_primary_account(PDO $pdo, array $user, int $accountId): array
+{
+    $account = nautimail_require_account_access($pdo, $user, $accountId);
+    if ((int) ($account['is_active'] ?? 0) !== 1) {
+        throw new InvalidArgumentException('Une adresse inactive ne peut pas etre principale.');
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO nautimail_user_preferences (user_id, primary_account_id)
+         VALUES (:user_id, :primary_account_id)
+         ON DUPLICATE KEY UPDATE primary_account_id = VALUES(primary_account_id), updated_at = CURRENT_TIMESTAMP'
+    );
+    $statement->execute([
+        'user_id' => (int) $user['id'],
+        'primary_account_id' => $accountId,
+    ]);
+
+    return $account;
+}
+
+function nautimail_clear_primary_account(PDO $pdo, array $user, int $accountId = 0): void
+{
+    if ($accountId > 0) {
+        $statement = $pdo->prepare(
+            'UPDATE nautimail_user_preferences
+             SET primary_account_id = NULL
+             WHERE user_id = :user_id
+               AND primary_account_id = :account_id'
+        );
+        $statement->execute([
+            'user_id' => (int) $user['id'],
+            'account_id' => $accountId,
+        ]);
+        return;
+    }
+
+    $statement = $pdo->prepare('UPDATE nautimail_user_preferences SET primary_account_id = NULL WHERE user_id = :user_id');
+    $statement->execute(['user_id' => (int) $user['id']]);
+}
+
 function nautimail_account_by_id(PDO $pdo, int $accountId): ?array
 {
     $statement = $pdo->prepare('SELECT * FROM nautimail_accounts WHERE id = :id LIMIT 1');
@@ -395,7 +470,7 @@ function nautimail_notification_user_ids(PDO $pdo, int $accountId): array
     return array_values(array_unique(array_filter($ids, static fn(int $id): bool => $id > 0)));
 }
 
-function nautimail_public_account(PDO $pdo, array $account): array
+function nautimail_public_account(PDO $pdo, array $account, int $primaryAccountId = 0): array
 {
     return [
         'id' => (int) $account['id'],
@@ -414,6 +489,7 @@ function nautimail_public_account(PDO $pdo, array $account): array
         'replyTo' => (string) ($account['reply_to'] ?? ''),
         'signature' => (string) ($account['signature'] ?? ''),
         'isActive' => (bool) $account['is_active'],
+        'isPrimaryForUser' => $primaryAccountId > 0 && (int) $account['id'] === $primaryAccountId,
         'createdByUserId' => isset($account['created_by_user_id']) ? (int) $account['created_by_user_id'] : null,
         'lastSyncAt' => $account['last_sync_at'] ? (string) $account['last_sync_at'] : null,
         'sharedUserIds' => nautimail_account_shared_user_ids($pdo, (int) $account['id']),
@@ -506,6 +582,9 @@ function nautimail_save_account(PDO $pdo, array $user, array $input): array
     if ($id <= 0 && $passwordInput === '') {
         throw new InvalidArgumentException('Mot de passe IMAP/SMTP obligatoire pour une nouvelle adresse.');
     }
+    if (!empty($input['isPrimary']) && empty($input['isActive'])) {
+        throw new InvalidArgumentException('Une adresse inactive ne peut pas etre principale.');
+    }
 
     $passwordCipher = $passwordInput !== ''
         ? oceanos_encrypt_secret($passwordInput)
@@ -570,12 +649,20 @@ function nautimail_save_account(PDO $pdo, array $user, array $input): array
     }
 
     nautimail_save_account_shares($pdo, $accountId, $user, $input['sharedUserIds'] ?? []);
+    if (array_key_exists('isPrimary', $input)) {
+        if (!empty($input['isPrimary'])) {
+            nautimail_set_primary_account($pdo, $user, $accountId);
+        } else {
+            nautimail_clear_primary_account($pdo, $user, $accountId);
+        }
+    }
+
     $account = nautimail_account_by_id($pdo, $accountId);
     if ($account === null) {
         throw new RuntimeException('Impossible de relire l adresse mail.');
     }
 
-    return nautimail_public_account($pdo, $account);
+    return nautimail_public_account($pdo, $account, nautimail_primary_account_id($pdo, $user, null, false));
 }
 
 function nautimail_save_account_shares(PDO $pdo, int $accountId, array $user, mixed $sharedUserIds): void
@@ -1118,16 +1205,33 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
 {
     $accountIds = nautimail_accessible_account_ids($pdo, $user);
     $accounts = [];
+    $primaryAccountId = nautimail_primary_account_id($pdo, $user, $accountIds, false);
+    $activeAccountIds = [];
     if ($accountIds !== []) {
         $placeholders = implode(',', array_fill(0, count($accountIds), '?'));
         $statement = $pdo->prepare("SELECT * FROM nautimail_accounts WHERE id IN ({$placeholders}) ORDER BY email_address ASC, id ASC");
         $statement->execute($accountIds);
-        $accounts = array_map(static fn(array $row): array => nautimail_public_account($pdo, $row), $statement->fetchAll());
+        $accountRows = $statement->fetchAll();
+        foreach ($accountRows as $row) {
+            if ((int) ($row['is_active'] ?? 0) === 1) {
+                $activeAccountIds[] = (int) $row['id'];
+            }
+        }
+        if ($primaryAccountId > 0 && !in_array($primaryAccountId, $activeAccountIds, true)) {
+            $primaryAccountId = 0;
+        }
+        $accounts = array_map(static fn(array $row): array => nautimail_public_account($pdo, $row, $primaryAccountId), $accountRows);
+        usort($accounts, static function (array $left, array $right): int {
+            if ((bool) ($left['isPrimaryForUser'] ?? false) !== (bool) ($right['isPrimaryForUser'] ?? false)) {
+                return !empty($left['isPrimaryForUser']) ? -1 : 1;
+            }
+            return strcasecmp((string) ($left['emailAddress'] ?? ''), (string) ($right['emailAddress'] ?? ''));
+        });
     }
 
     $selectedAccountId = (int) ($query['accountId'] ?? 0);
     if ($selectedAccountId <= 0 || !in_array($selectedAccountId, $accountIds, true)) {
-        $selectedAccountId = $accountIds[0] ?? 0;
+        $selectedAccountId = $primaryAccountId ?: ($activeAccountIds[0] ?? ($accountIds[0] ?? 0));
     }
 
     $messages = [];
@@ -3294,11 +3398,12 @@ function nautimail_deactivate_account(PDO $pdo, array $user, array $input): arra
         'id' => $accountId,
         'user_id' => (int) $user['id'],
     ]);
+    nautimail_clear_primary_account($pdo, $user, $accountId);
 
     $account = nautimail_account_by_id($pdo, $accountId);
     if ($account === null) {
         throw new RuntimeException('Impossible de relire l adresse.');
     }
 
-    return nautimail_public_account($pdo, $account);
+    return nautimail_public_account($pdo, $account, nautimail_primary_account_id($pdo, $user, null, false));
 }
