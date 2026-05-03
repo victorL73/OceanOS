@@ -722,7 +722,7 @@ canvas {
   border-left: 1px solid rgba(35, 122, 87, 0.18);
   padding: 0 8px;
   background: rgba(255, 255, 255, 0.72);
-  color: var(--danger);
+  color: var(--red);
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;

@@ -4,6 +4,14 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'MeetOcean' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
+$agendaProjectRoot = dirname(__DIR__, 2);
+foreach (['Commandes', 'SAV'] as $agendaOptionalModule) {
+    $agendaOptionalBootstrap = $agendaProjectRoot . DIRECTORY_SEPARATOR . $agendaOptionalModule . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
+    if (is_file($agendaOptionalBootstrap)) {
+        require_once $agendaOptionalBootstrap;
+    }
+}
+
 const AGENDA_MODULE_ID = 'agenda';
 
 function agenda_pdo(): PDO
@@ -148,6 +156,20 @@ function agenda_settings_catalog(): array
                 'quote' => 'Devis a suivre',
             ],
         ],
+        'Commandes' => [
+            'moduleId' => 'commandes',
+            'label' => 'Commandes',
+            'types' => [
+                'order' => 'Commandes a traiter',
+            ],
+        ],
+        'SAV' => [
+            'moduleId' => 'sav',
+            'label' => 'SAV',
+            'types' => [
+                'support_thread' => 'Demandes SAV ouvertes',
+            ],
+        ],
         'Stockcean' => [
             'moduleId' => 'stockcean',
             'label' => 'Stockcean',
@@ -185,6 +207,31 @@ function agenda_settings_catalog(): array
                 'social_deadline' => 'Echeances sociales',
                 'legal_deadline' => 'Echeances juridiques',
                 'data_review' => 'Revues donnees',
+            ],
+        ],
+        'NautiCRM' => [
+            'moduleId' => 'nauticrm',
+            'label' => 'NautiCRM',
+            'types' => [
+                'client_follow_up' => 'Relances clients',
+                'crm_task' => 'Taches CRM',
+                'interaction_follow_up' => 'Suites interactions',
+                'opportunity' => 'Opportunites',
+            ],
+        ],
+        'NautiMail' => [
+            'moduleId' => 'nautimail',
+            'label' => 'NautiMail',
+            'types' => [
+                'message' => 'Emails a traiter',
+                'reply_draft' => 'Brouillons de reponse',
+            ],
+        ],
+        'Tresorcean' => [
+            'moduleId' => 'tresorcean',
+            'label' => 'Tresorcean',
+            'types' => [
+                'expense_note' => 'Notes de frais a traiter',
             ],
         ],
     ];
@@ -945,6 +992,12 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     if (agenda_user_has_module($user, 'devis') && agenda_settings_module_enabled($settings, 'Devis')) {
         $tasks = array_merge($tasks, agenda_collect_devis_tasks($pdo, $user));
     }
+    if (agenda_user_has_module($user, 'commandes') && agenda_settings_module_enabled($settings, 'Commandes')) {
+        $tasks = array_merge($tasks, agenda_collect_commandes_tasks($pdo));
+    }
+    if (agenda_user_has_module($user, 'sav') && agenda_settings_module_enabled($settings, 'SAV')) {
+        $tasks = array_merge($tasks, agenda_collect_sav_tasks($pdo));
+    }
     if (agenda_user_has_module($user, 'stockcean') && agenda_settings_module_enabled($settings, 'Stockcean')) {
         $tasks = array_merge($tasks, agenda_collect_stockcean_tasks($pdo, $user));
     }
@@ -959,6 +1012,15 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     }
     if (agenda_user_has_module($user, 'naviplan') && agenda_settings_module_enabled($settings, 'Naviplan')) {
         $tasks = array_merge($tasks, agenda_collect_naviplan_tasks($pdo));
+    }
+    if (agenda_user_has_module($user, 'nauticrm') && agenda_settings_module_enabled($settings, 'NautiCRM')) {
+        $tasks = array_merge($tasks, agenda_collect_nauticrm_tasks($pdo, $user));
+    }
+    if (agenda_user_has_module($user, 'nautimail') && agenda_settings_module_enabled($settings, 'NautiMail')) {
+        $tasks = array_merge($tasks, agenda_collect_nautimail_tasks($pdo, $user));
+    }
+    if (agenda_user_has_module($user, 'tresorcean') && agenda_settings_module_enabled($settings, 'Tresorcean')) {
+        $tasks = array_merge($tasks, agenda_collect_tresorcean_tasks($pdo, $user));
     }
 
     $tasks = array_values(array_filter($tasks, static fn(array $task): bool => agenda_settings_allows(
@@ -1201,6 +1263,82 @@ function agenda_collect_devis_tasks(PDO $pdo, array $user): array
     return $tasks;
 }
 
+function agenda_collect_commandes_tasks(PDO $pdo): array
+{
+    if (!function_exists('commandes_fetch_orders')) {
+        return [];
+    }
+
+    try {
+        [$orders] = commandes_fetch_orders($pdo, ['limit' => 40]);
+    } catch (Throwable) {
+        return [];
+    }
+
+    $tasks = [];
+    foreach ($orders as $order) {
+        $state = is_array($order['currentState'] ?? null) ? $order['currentState'] : [];
+        if (!empty($state['deleted']) || !empty($state['shipped']) || !empty($state['delivery'])) {
+            continue;
+        }
+
+        $reference = agenda_clean_text($order['reference'] ?? ('#' . (int) ($order['id'] ?? 0)), 120, true);
+        $customer = is_array($order['customer'] ?? null) ? $order['customer'] : [];
+        $customerName = agenda_clean_text($customer['name'] ?? '', 160, true);
+        $stateName = agenda_clean_text($state['name'] ?? 'Statut a suivre', 120, true);
+        $tasks[] = agenda_external_task(
+            'Commandes',
+            'order:' . (int) ($order['id'] ?? 0),
+            'Traiter commande ' . ($reference !== '' ? $reference : '#' . (int) ($order['id'] ?? 0)),
+            agenda_parse_due_datetime($order['dateUpd'] ?? $order['dateAdd'] ?? ''),
+            trim($customerName . ($stateName !== '' ? ' - ' . $stateName : '')),
+            !empty($state['paid']) || !empty($state['logable']) ? 'high' : 'normal',
+            '/Commandes/',
+            'order'
+        );
+    }
+
+    return array_slice($tasks, 0, 40);
+}
+
+function agenda_collect_sav_tasks(PDO $pdo): array
+{
+    if (!function_exists('sav_fetch_threads')) {
+        return [];
+    }
+
+    try {
+        $threads = sav_fetch_threads($pdo, ['limit' => 50]);
+    } catch (Throwable) {
+        return [];
+    }
+
+    $tasks = [];
+    foreach ($threads as $thread) {
+        $status = strtolower((string) ($thread['status'] ?? ''));
+        if ($status === 'closed') {
+            continue;
+        }
+
+        $customer = is_array($thread['customer'] ?? null) ? $thread['customer'] : [];
+        $customerName = agenda_clean_text($customer['name'] ?? $thread['email'] ?? '', 160, true);
+        $orderReference = agenda_clean_text($thread['orderReference'] ?? '', 100, true);
+        $statusLabel = agenda_clean_text($thread['statusLabel'] ?? $status, 120, true);
+        $tasks[] = agenda_external_task(
+            'SAV',
+            'thread:' . (int) ($thread['id'] ?? 0),
+            ($status === 'pending1' ? 'Suivre SAV #' : 'Traiter SAV #') . (int) ($thread['id'] ?? 0),
+            agenda_parse_due_datetime($thread['dateUpd'] ?? $thread['dateAdd'] ?? ''),
+            trim($customerName . ($orderReference !== '' ? ' - ' . $orderReference : '') . ($statusLabel !== '' ? ' - ' . $statusLabel : '')),
+            in_array($status, ['open', 'pending2'], true) ? 'high' : 'normal',
+            '/SAV/',
+            'support_thread'
+        );
+    }
+
+    return array_slice($tasks, 0, 50);
+}
+
 function agenda_collect_stockcean_tasks(PDO $pdo, array $user): array
 {
     $tasks = [];
@@ -1413,6 +1551,327 @@ function agenda_collect_naviplan_tasks(PDO $pdo): array
         $startsAt = agenda_datetime_from_input($task['startsAt'] ?? '');
         return $startsAt === null || $startsAt >= $today->modify('-30 days');
     }));
+}
+
+function agenda_named_placeholders(array $values, string $prefix): array
+{
+    $placeholders = [];
+    $params = [];
+    foreach (array_values($values) as $index => $value) {
+        $name = $prefix . '_' . $index;
+        $placeholders[] = ':' . $name;
+        $params[$name] = $value;
+    }
+
+    return [$placeholders, $params];
+}
+
+function agenda_collect_nauticrm_tasks(PDO $pdo, array $user): array
+{
+    $tasks = [];
+    $userId = (int) ($user['id'] ?? 0);
+    $isAdmin = agenda_is_admin($user);
+
+    if (oceanos_table_exists($pdo, 'nauticrm_clients')) {
+        $where = "c.next_action_at IS NOT NULL AND c.status NOT IN ('won', 'lost', 'archived')";
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (c.assigned_user_id = :client_assigned_user_id OR c.created_by_user_id = :client_created_user_id OR c.assigned_user_id IS NULL)';
+            $params['client_assigned_user_id'] = $userId;
+            $params['client_created_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT c.id, c.company_name, c.status, c.priority, c.next_action_at, c.notes
+             FROM nauticrm_clients c
+             WHERE {$where}
+             ORDER BY c.next_action_at ASC, FIELD(c.priority, 'high', 'normal', 'low'), c.updated_at DESC
+             LIMIT 50"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $tasks[] = agenda_external_task(
+                'NautiCRM',
+                'client:' . (int) $row['id'],
+                'Relancer ' . agenda_clean_text($row['company_name'] ?? 'client', 150, true),
+                agenda_parse_due_datetime($row['next_action_at'] ?? ''),
+                agenda_clean_text($row['notes'] ?? '', 240, true),
+                agenda_normalize_priority($row['priority'] ?? 'normal'),
+                '/NautiCRM/',
+                'client_follow_up'
+            );
+        }
+    }
+
+    if (oceanos_table_exists($pdo, 'nauticrm_tasks')) {
+        $where = "t.status IN ('todo', 'doing')";
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (t.assigned_user_id = :task_assigned_user_id OR t.created_by_user_id = :task_created_user_id OR t.assigned_user_id IS NULL)';
+            $params['task_assigned_user_id'] = $userId;
+            $params['task_created_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT t.id, t.title, t.priority, t.due_at, t.notes, c.company_name
+             FROM nauticrm_tasks t
+             LEFT JOIN nauticrm_clients c ON c.id = t.client_id
+             WHERE {$where}
+             ORDER BY t.due_at IS NULL, t.due_at ASC, FIELD(t.priority, 'high', 'normal', 'low'), t.updated_at DESC
+             LIMIT 60"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $client = agenda_clean_text($row['company_name'] ?? '', 140, true);
+            $notes = agenda_clean_text($row['notes'] ?? '', 220, true);
+            $tasks[] = agenda_external_task(
+                'NautiCRM',
+                'task:' . (int) $row['id'],
+                agenda_clean_text($row['title'] ?? 'Tache CRM', 190, true),
+                agenda_parse_due_datetime($row['due_at'] ?? ''),
+                trim($client . ($notes !== '' ? ' - ' . $notes : '')),
+                agenda_normalize_priority($row['priority'] ?? 'normal'),
+                '/NautiCRM/',
+                'crm_task'
+            );
+        }
+    }
+
+    if (oceanos_table_exists($pdo, 'nauticrm_interactions')) {
+        $where = 'i.next_action_at IS NOT NULL';
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (i.user_id = :interaction_user_id OR i.user_id IS NULL)';
+            $params['interaction_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT i.id, i.subject, i.body, i.next_action_at, i.interaction_type, c.company_name
+             FROM nauticrm_interactions i
+             INNER JOIN nauticrm_clients c ON c.id = i.client_id
+             WHERE {$where}
+             ORDER BY i.next_action_at ASC, i.occurred_at DESC
+             LIMIT 40"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $company = agenda_clean_text($row['company_name'] ?? '', 140, true);
+            $body = agenda_clean_text($row['body'] ?? '', 220, true);
+            $tasks[] = agenda_external_task(
+                'NautiCRM',
+                'interaction:' . (int) $row['id'],
+                'Suite: ' . agenda_clean_text($row['subject'] ?? 'interaction', 150, true),
+                agenda_parse_due_datetime($row['next_action_at'] ?? ''),
+                trim($company . ($body !== '' ? ' - ' . $body : '')),
+                'normal',
+                '/NautiCRM/',
+                'interaction_follow_up'
+            );
+        }
+    }
+
+    if (oceanos_table_exists($pdo, 'nauticrm_opportunities')) {
+        $where = "o.stage NOT IN ('won', 'lost')";
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (o.created_by_user_id = :opportunity_user_id OR o.created_by_user_id IS NULL)';
+            $params['opportunity_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT o.id, o.title, o.stage, o.amount_tax_excl, o.expected_close_at, o.notes, c.company_name
+             FROM nauticrm_opportunities o
+             INNER JOIN nauticrm_clients c ON c.id = o.client_id
+             WHERE {$where}
+             ORDER BY o.expected_close_at IS NULL, o.expected_close_at ASC, FIELD(o.stage, 'negotiation', 'proposal', 'qualified', 'lead'), o.updated_at DESC
+             LIMIT 50"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $company = agenda_clean_text($row['company_name'] ?? '', 140, true);
+            $stage = agenda_clean_text($row['stage'] ?? '', 80, true);
+            $tasks[] = agenda_external_task(
+                'NautiCRM',
+                'opportunity:' . (int) $row['id'],
+                'Opportunite: ' . agenda_clean_text($row['title'] ?? 'opportunite', 150, true),
+                agenda_parse_due_datetime($row['expected_close_at'] ?? ''),
+                trim($company . ($stage !== '' ? ' - ' . $stage : '')),
+                in_array((string) ($row['stage'] ?? ''), ['proposal', 'negotiation'], true) ? 'high' : 'normal',
+                '/NautiCRM/',
+                'opportunity'
+            );
+        }
+    }
+
+    return array_slice($tasks, 0, 160);
+}
+
+function agenda_nautimail_account_ids(PDO $pdo, array $user): array
+{
+    if (!oceanos_table_exists($pdo, 'nautimail_accounts')) {
+        return [];
+    }
+
+    if (agenda_is_admin($user)) {
+        $rows = $pdo->query('SELECT id FROM nautimail_accounts WHERE is_active = 1 ORDER BY email_address ASC, id ASC')->fetchAll();
+        return array_map(static fn(array $row): int => (int) $row['id'], $rows);
+    }
+
+    if (oceanos_table_exists($pdo, 'nautimail_account_users')) {
+        $statement = $pdo->prepare(
+            'SELECT DISTINCT a.id
+             FROM nautimail_accounts a
+             LEFT JOIN nautimail_account_users au ON au.account_id = a.id
+             WHERE a.is_active = 1
+               AND (a.created_by_user_id = :created_by_user_id OR au.user_id = :shared_user_id)
+             ORDER BY a.email_address ASC, a.id ASC'
+        );
+        $statement->execute([
+            'created_by_user_id' => (int) ($user['id'] ?? 0),
+            'shared_user_id' => (int) ($user['id'] ?? 0),
+        ]);
+        return array_map(static fn(array $row): int => (int) $row['id'], $statement->fetchAll());
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT id
+         FROM nautimail_accounts
+         WHERE is_active = 1 AND created_by_user_id = :user_id
+         ORDER BY email_address ASC, id ASC'
+    );
+    $statement->execute(['user_id' => (int) ($user['id'] ?? 0)]);
+
+    return array_map(static fn(array $row): int => (int) $row['id'], $statement->fetchAll());
+}
+
+function agenda_collect_nautimail_tasks(PDO $pdo, array $user): array
+{
+    if (!oceanos_table_exists($pdo, 'nautimail_messages')) {
+        return [];
+    }
+
+    $accountIds = agenda_nautimail_account_ids($pdo, $user);
+    if ($accountIds === []) {
+        return [];
+    }
+
+    [$accountPlaceholders, $accountParams] = agenda_named_placeholders($accountIds, 'mail_account_id');
+    $accountSql = implode(',', $accountPlaceholders);
+    $tasks = [];
+    $where = [
+        'm.account_id IN (' . $accountSql . ')',
+        "m.status IN ('new', 'triaged', 'read')",
+    ];
+    $params = $accountParams;
+    if (!agenda_is_admin($user)) {
+        $where[] = '(m.assigned_user_id = :mail_user_id OR m.assigned_user_id IS NULL)';
+        $params['mail_user_id'] = (int) ($user['id'] ?? 0);
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT m.id, m.subject, m.sender_name, m.sender_email, m.received_at, m.created_at, m.preview, m.ai_actions, m.priority, m.status,
+                a.label AS account_label, a.email_address AS account_email
+         FROM nautimail_messages m
+         INNER JOIN nautimail_accounts a ON a.id = m.account_id
+         WHERE ' . implode(' AND ', $where) . "
+         ORDER BY FIELD(m.priority, 'urgent', 'high', 'normal', 'low'), COALESCE(m.received_at, m.created_at) DESC, m.id DESC
+         LIMIT 80"
+    );
+    $statement->execute($params);
+    foreach ($statement->fetchAll() as $row) {
+        $subject = agenda_clean_text($row['subject'] ?? '', 160, true);
+        $sender = agenda_clean_text($row['sender_name'] ?? $row['sender_email'] ?? '', 140, true);
+        $preview = agenda_clean_text($row['ai_actions'] ?? $row['preview'] ?? '', 260, true);
+        $tasks[] = agenda_external_task(
+            'NautiMail',
+            'message:' . (int) $row['id'],
+            'Traiter email: ' . ($subject !== '' ? $subject : '(sans objet)'),
+            agenda_parse_due_datetime($row['received_at'] ?? $row['created_at'] ?? ''),
+            trim($sender . ($preview !== '' ? ' - ' . $preview : '')),
+            agenda_normalize_priority($row['priority'] ?? 'normal'),
+            '/NautiMail/',
+            'message'
+        );
+    }
+
+    if (oceanos_table_exists($pdo, 'nautimail_replies')) {
+        [$replyPlaceholders, $replyAccountParams] = agenda_named_placeholders($accountIds, 'reply_account_id');
+        $replyWhere = [
+            'r.account_id IN (' . implode(',', $replyPlaceholders) . ')',
+            "r.status = 'draft'",
+        ];
+        $replyParams = $replyAccountParams;
+        if (!agenda_is_admin($user)) {
+            $replyWhere[] = '(r.user_id = :reply_user_id OR r.user_id IS NULL)';
+            $replyParams['reply_user_id'] = (int) ($user['id'] ?? 0);
+        }
+
+        $replyStatement = $pdo->prepare(
+            'SELECT r.id, r.subject, r.created_at, a.label AS account_label, m.subject AS original_subject
+             FROM nautimail_replies r
+             INNER JOIN nautimail_accounts a ON a.id = r.account_id
+             LEFT JOIN nautimail_messages m ON m.id = r.message_id
+             WHERE ' . implode(' AND ', $replyWhere) . '
+             ORDER BY r.created_at DESC, r.id DESC
+             LIMIT 40'
+        );
+        $replyStatement->execute($replyParams);
+        foreach ($replyStatement->fetchAll() as $row) {
+            $subject = agenda_clean_text($row['subject'] ?? $row['original_subject'] ?? '', 160, true);
+            $tasks[] = agenda_external_task(
+                'NautiMail',
+                'reply:' . (int) $row['id'],
+                'Finaliser brouillon: ' . ($subject !== '' ? $subject : '(sans objet)'),
+                agenda_parse_due_datetime($row['created_at'] ?? ''),
+                agenda_clean_text($row['account_label'] ?? '', 160, true),
+                'normal',
+                '/NautiMail/',
+                'reply_draft'
+            );
+        }
+    }
+
+    return array_slice($tasks, 0, 100);
+}
+
+function agenda_collect_tresorcean_tasks(PDO $pdo, array $user): array
+{
+    if (!oceanos_table_exists($pdo, 'tresorcean_expense_notes')) {
+        return [];
+    }
+
+    $where = "status IN ('received', 'approved') AND reimbursed_at IS NULL";
+    $params = [];
+    if (!agenda_is_admin($user)) {
+        $where .= ' AND (user_id = :expense_user_id OR user_id IS NULL)';
+        $params['expense_user_id'] = (int) ($user['id'] ?? 0);
+    }
+
+    $statement = $pdo->prepare(
+        "SELECT id, employee_name, status, label, merchant, amount_tax_incl, expense_at, notes
+         FROM tresorcean_expense_notes
+         WHERE {$where}
+         ORDER BY FIELD(status, 'received', 'approved'), expense_at ASC, updated_at DESC
+         LIMIT 60"
+    );
+    $statement->execute($params);
+
+    $tasks = [];
+    foreach ($statement->fetchAll() as $row) {
+        $status = (string) ($row['status'] ?? 'received');
+        $label = agenda_clean_text($row['label'] ?? 'note de frais', 150, true);
+        $employee = agenda_clean_text($row['employee_name'] ?? '', 140, true);
+        $merchant = agenda_clean_text($row['merchant'] ?? '', 140, true);
+        $amount = number_format((float) ($row['amount_tax_incl'] ?? 0), 2, '.', ' ');
+        $tasks[] = agenda_external_task(
+            'Tresorcean',
+            'expense:' . (int) $row['id'],
+            ($status === 'approved' ? 'Rembourser note de frais ' : 'Verifier note de frais ') . $label,
+            agenda_parse_due_datetime($row['expense_at'] ?? ''),
+            trim($employee . ($merchant !== '' ? ' - ' . $merchant : '') . ' - ' . $amount . ' EUR'),
+            $status === 'received' ? 'high' : 'normal',
+            '/Tresorcean/',
+            'expense_note'
+        );
+    }
+
+    return $tasks;
 }
 
 function agenda_ascii_key(mixed $value): string

@@ -13,6 +13,9 @@ try {
         if ($action === 'attachment') {
             tresorcean_download_attachment($pdo, $user, (int) ($_GET['id'] ?? 0));
         }
+        if ($action === 'expense_attachment') {
+            tresorcean_download_expense_attachment($pdo, $user, (int) ($_GET['id'] ?? 0));
+        }
 
         tresorcean_json_response(tresorcean_dashboard($pdo, $_GET, $user));
     }
@@ -43,6 +46,25 @@ try {
                 'ok' => true,
                 'message' => 'Mouvement enregistre.',
                 'entry' => $entry,
+                'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
+            ]);
+        }
+
+        if ($action === 'save_expense_note') {
+            $note = tresorcean_save_expense_note($pdo, $user, $input, $_FILES);
+            tresorcean_json_response([
+                'ok' => true,
+                'message' => 'Note de frais enregistree.',
+                'expenseNote' => $note,
+                'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
+            ]);
+        }
+
+        if ($action === 'delete_expense_note') {
+            tresorcean_delete_expense_note($pdo, $user, (int) ($input['id'] ?? 0));
+            tresorcean_json_response([
+                'ok' => true,
+                'message' => 'Note de frais supprimee.',
                 'dashboard' => tresorcean_dashboard($pdo, $_GET, $user),
             ]);
         }

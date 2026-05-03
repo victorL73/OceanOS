@@ -54,6 +54,25 @@ const elements = {
   entrySave: $("entry-save"),
   entryReset: $("entry-reset"),
   entriesList: $("entries-list"),
+  expenseForm: $("expense-form"),
+  expenseId: $("expense-id"),
+  expenseEmployee: $("expense-employee"),
+  expenseStatus: $("expense-status"),
+  expenseDate: $("expense-date"),
+  expenseReimbursedAt: $("expense-reimbursed-at"),
+  expenseLabel: $("expense-label"),
+  expenseMerchant: $("expense-merchant"),
+  expenseTaxScope: $("expense-tax-scope"),
+  expenseTaxRate: $("expense-tax-rate"),
+  expenseAmountHt: $("expense-amount-ht"),
+  expenseTaxAmount: $("expense-tax-amount"),
+  expenseAmountTtc: $("expense-amount-ttc"),
+  expenseReceipt: $("expense-receipt"),
+  expenseNotes: $("expense-notes"),
+  expenseSave: $("expense-save"),
+  expenseReset: $("expense-reset"),
+  expenseCount: $("expense-count"),
+  expenseList: $("expense-list"),
   ordersCount: $("orders-count"),
   ordersList: $("orders-list"),
   supplierCount: $("supplier-count"),
@@ -248,6 +267,11 @@ function applyDashboard(payload) {
     if (!editingEntry && !hasDraft) {
       elements.entryDate.value = defaultEntryDate();
     }
+    const editingExpense = Boolean(elements.expenseId.value);
+    const hasExpenseDraft = Boolean(elements.expenseEmployee.value.trim() || elements.expenseLabel.value.trim() || elements.expenseAmountTtc.value);
+    if (!editingExpense && !hasExpenseDraft) {
+      elements.expenseDate.value = defaultEntryDate();
+    }
   }
 
   const connected = Boolean(payload.prestashop?.connected);
@@ -270,6 +294,7 @@ function applyDashboard(payload) {
   renderSummary();
   renderWarnings();
   renderEntries();
+  renderExpenses();
   renderOrders();
   renderSupplierOrders();
   renderConvertedQuotes();
@@ -313,11 +338,13 @@ function renderSummary() {
     ["Sorties TTC", summary.cashOut],
     ["CA PrestaShop HT", summary.prestashopRevenueTaxExcl],
     ["Devis Invocean HT", summary.invoceanQuotesTaxExcl],
+    ["Notes de frais remboursees", summary.expenseNotesTaxExcl],
     ["Marge brute HT", summary.grossMarginTaxExcl],
     ["Couts produits estimes", summary.estimatedCostOfGoodsTaxExcl],
     ["Commandes incluses", summary.includedOrders, "number"],
     ["Devis convertis", summary.convertedQuotes, "number"],
     ["Mouvements manuels", summary.manualEntries, "number"],
+    ["Notes de frais", summary.expenseNotes, "number"],
   ];
 
   elements.summaryList.innerHTML = items.map(([label, value, type]) => `
@@ -346,6 +373,7 @@ function renderSettings() {
   elements.settingPurchaseRate.value = Number(settings.defaultPurchaseTaxRate ?? 20);
   elements.settingOrderLimit.value = Number(settings.prestashopOrderLimit ?? 80);
   elements.entryTaxRate.value ||= Number(settings.defaultSalesTaxRate ?? 20);
+  elements.expenseTaxRate.value ||= Number(settings.defaultPurchaseTaxRate ?? 20);
 }
 
 function orderStatusClass(order) {
@@ -472,6 +500,24 @@ function taxScopeLabel(scope) {
   }[scope] || scope;
 }
 
+function expenseStatusLabel(status) {
+  return {
+    received: "Recu",
+    approved: "Valide",
+    reimbursed: "Rembourse",
+    rejected: "Refuse",
+  }[status] || status || "Statut";
+}
+
+function expenseStatusClass(status) {
+  return {
+    received: "muted",
+    approved: "success",
+    reimbursed: "success",
+    rejected: "danger",
+  }[status] || "muted";
+}
+
 function renderEntryAttachments(entry) {
   const attachments = entry.attachments || [];
   if (attachments.length === 0) return "";
@@ -492,27 +538,98 @@ function renderEntryAttachments(entry) {
 }
 
 function renderEntries() {
-  const entries = state.dashboard?.entries || [];
-  if (entries.length === 0) {
-    elements.entriesList.innerHTML = '<div class="empty-state">Aucun mouvement manuel sur la periode.</div>';
+  const entries = (state.dashboard?.entries || []).map((entry) => ({ kind: "entry", date: entry.occurredAt || "", item: entry }));
+  const expenseEntries = (state.dashboard?.expenseNotes || [])
+    .filter((note) => note.includedInMovements)
+    .map((note) => ({ kind: "expense", date: note.accountingAt || note.reimbursedAt || note.expenseAt || "", item: note }));
+  const rows = [...entries, ...expenseEntries].sort((a, b) => String(b.date).localeCompare(String(a.date)) || Number(b.item.id || 0) - Number(a.item.id || 0));
+  if (rows.length === 0) {
+    elements.entriesList.innerHTML = '<div class="empty-state">Aucun mouvement sur la periode.</div>';
     return;
   }
 
-  elements.entriesList.innerHTML = entries.map((entry) => `
-    <article class="entry-row" data-entry-id="${entry.id}">
+  elements.entriesList.innerHTML = rows.map(({ kind, item }) => {
+    if (kind === "expense") {
+      return `
+        <article class="entry-row" data-expense-note-id="${item.id}">
+          <div>
+            <span class="entry-type out">Note de frais</span>
+            <strong>${escapeHtml(item.label)}</strong>
+            <small>${formatDate(item.accountingAt)} - ${escapeHtml(item.employeeName)}${item.merchant ? ` - ${escapeHtml(item.merchant)}` : ""}</small>
+            ${renderExpenseAttachment(item)}
+          </div>
+          <div class="entry-money">
+            <strong>-${formatMoney(item.amountTaxIncl)}</strong>
+            <small>${escapeHtml(taxScopeLabel(item.taxScope))} ${item.taxAmount ? `- ${formatMoney(item.taxAmount)}` : ""}</small>
+          </div>
+          <div class="row-actions">
+            <button class="ghost-button" data-expense-edit="${item.id}" type="button">Voir</button>
+          </div>
+        </article>
+      `;
+    }
+
+    const entry = item;
+    return `
+      <article class="entry-row" data-entry-id="${entry.id}">
+        <div>
+          <span class="entry-type ${entry.direction === "out" ? "out" : "in"}">${escapeHtml(entryTypeLabel(entry.entryType))}</span>
+          <strong>${escapeHtml(entry.label)}</strong>
+          <small>${formatDate(entry.occurredAt)}${entry.counterparty ? ` - ${escapeHtml(entry.counterparty)}` : ""}</small>
+          ${renderEntryAttachments(entry)}
+        </div>
+        <div class="entry-money">
+          <strong>${entry.direction === "out" ? "-" : "+"}${formatMoney(entry.amountTaxIncl)}</strong>
+          <small>${escapeHtml(taxScopeLabel(entry.taxScope))} ${entry.taxAmount ? `- ${formatMoney(entry.taxAmount)}` : ""}</small>
+        </div>
+        <div class="row-actions">
+          <button class="ghost-button" data-entry-edit="${entry.id}" type="button">Modifier</button>
+          <button class="ghost-button danger-text" data-entry-delete="${entry.id}" type="button">Supprimer</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderExpenseAttachment(note) {
+  if (!note.attachment) return "";
+  const attachment = note.attachment;
+  return `
+    <div class="attachment-list">
+      <span class="attachment-chip">
+        <a href="${escapeHtml(attachment.downloadUrl)}" target="_blank" rel="noopener">
+          <span class="attachment-name">${escapeHtml(attachment.name)}</span>
+          <small>${formatFileSize(attachment.fileSize)}</small>
+        </a>
+      </span>
+    </div>
+  `;
+}
+
+function renderExpenses() {
+  const notes = state.dashboard?.expenseNotes || [];
+  elements.expenseCount.textContent = `${notes.length} note${notes.length > 1 ? "s" : ""}`;
+
+  if (notes.length === 0) {
+    elements.expenseList.innerHTML = '<div class="empty-state">Aucune note de frais sur la periode.</div>';
+    return;
+  }
+
+  elements.expenseList.innerHTML = notes.map((note) => `
+    <article class="entry-row expense-note-row" data-expense-note-id="${note.id}">
       <div>
-        <span class="entry-type ${entry.direction === "out" ? "out" : "in"}">${escapeHtml(entryTypeLabel(entry.entryType))}</span>
-        <strong>${escapeHtml(entry.label)}</strong>
-        <small>${formatDate(entry.occurredAt)}${entry.counterparty ? ` - ${escapeHtml(entry.counterparty)}` : ""}</small>
-        ${renderEntryAttachments(entry)}
+        <span class="entry-type ${note.status === "reimbursed" ? "out" : ""}">${escapeHtml(expenseStatusLabel(note.status))}</span>
+        <strong>${escapeHtml(note.label)}</strong>
+        <small>${escapeHtml(note.employeeName)} - ${formatDate(note.expenseAt)}${note.merchant ? ` - ${escapeHtml(note.merchant)}` : ""}</small>
+        ${renderExpenseAttachment(note)}
       </div>
       <div class="entry-money">
-        <strong>${entry.direction === "out" ? "-" : "+"}${formatMoney(entry.amountTaxIncl)}</strong>
-        <small>${escapeHtml(taxScopeLabel(entry.taxScope))} ${entry.taxAmount ? `- ${formatMoney(entry.taxAmount)}` : ""}</small>
+        <strong>${formatMoney(note.amountTaxIncl)}</strong>
+        <small>${note.includedInMovements ? `Mouvement le ${formatDate(note.accountingAt)}` : "Hors mouvements"}</small>
       </div>
       <div class="row-actions">
-        <button class="ghost-button" data-entry-edit="${entry.id}" type="button">Modifier</button>
-        <button class="ghost-button danger-text" data-entry-delete="${entry.id}" type="button">Supprimer</button>
+        <button class="ghost-button" data-expense-edit="${note.id}" type="button">Modifier</button>
+        <button class="ghost-button danger-text" data-expense-delete="${note.id}" type="button">Supprimer</button>
       </div>
     </article>
   `).join("");
@@ -523,7 +640,7 @@ function renderVatCards() {
   const due = Number(vat.due || 0);
   const cards = [
     ["TVA collectee", vat.collected?.total, `PrestaShop ${formatMoney(vat.collected?.prestashop)} - Invocean ${formatMoney(vat.collected?.invocean)} - manuel ${formatMoney(vat.collected?.manual)}`],
-    ["TVA deductible", vat.deductible?.total, `Fournisseurs ${formatMoney(vat.deductible?.supplierOrders)} - manuel ${formatMoney(vat.deductible?.manual)}`],
+    ["TVA deductible", vat.deductible?.total, `Fournisseurs ${formatMoney(vat.deductible?.supplierOrders)} - notes ${formatMoney(vat.deductible?.expenseNotes)} - manuel ${formatMoney(vat.deductible?.manual)}`],
     [due >= 0 ? "A reverser" : "Credit TVA", due, due >= 0 ? "Montant estime pour l Etat" : "Credit estime a reporter"],
   ];
 
@@ -769,6 +886,58 @@ function fillEntryForm(entry) {
   elements.entryLabel.focus();
 }
 
+function resetExpenseForm() {
+  elements.expenseId.value = "";
+  elements.expenseEmployee.value = "";
+  elements.expenseStatus.value = "received";
+  elements.expenseDate.value = defaultEntryDate();
+  elements.expenseReimbursedAt.value = "";
+  elements.expenseLabel.value = "";
+  elements.expenseMerchant.value = "";
+  elements.expenseTaxScope.value = "deductible";
+  elements.expenseTaxRate.value = Number(state.dashboard?.settings?.defaultPurchaseTaxRate ?? 20);
+  elements.expenseAmountHt.value = "";
+  elements.expenseTaxAmount.value = "";
+  elements.expenseAmountTtc.value = "";
+  elements.expenseReceipt.value = "";
+  elements.expenseNotes.value = "";
+}
+
+function syncExpenseAmounts() {
+  const ht = parseNumber(elements.expenseAmountHt.value);
+  if (ht <= 0) return;
+  const scope = elements.expenseTaxScope.value;
+  const rate = parseNumber(elements.expenseTaxRate.value);
+  const tax = scope === "neutral" ? 0 : ht * (rate / 100);
+  elements.expenseTaxAmount.value = tax.toFixed(2);
+  elements.expenseAmountTtc.value = (ht + tax).toFixed(2);
+}
+
+function syncExpenseStatusDate() {
+  if (elements.expenseStatus.value === "reimbursed" && !elements.expenseReimbursedAt.value) {
+    elements.expenseReimbursedAt.value = elements.expenseDate.value || defaultEntryDate();
+  }
+}
+
+function fillExpenseForm(note) {
+  elements.expenseId.value = note.id;
+  elements.expenseEmployee.value = note.employeeName || "";
+  elements.expenseStatus.value = note.status || "received";
+  elements.expenseDate.value = note.expenseAt || defaultEntryDate();
+  elements.expenseReimbursedAt.value = note.reimbursedAt || "";
+  elements.expenseLabel.value = note.label || "";
+  elements.expenseMerchant.value = note.merchant || "";
+  elements.expenseTaxScope.value = note.taxScope || "deductible";
+  elements.expenseTaxRate.value = Number(note.taxRate || 0);
+  elements.expenseAmountHt.value = Number(note.amountTaxExcl || 0).toFixed(2);
+  elements.expenseTaxAmount.value = Number(note.taxAmount || 0).toFixed(2);
+  elements.expenseAmountTtc.value = Number(note.amountTaxIncl || 0).toFixed(2);
+  elements.expenseReceipt.value = "";
+  elements.expenseNotes.value = note.notes || "";
+  setActiveView("expenses");
+  elements.expenseEmployee.focus();
+}
+
 async function saveEntry(event) {
   event.preventDefault();
   elements.entrySave.disabled = true;
@@ -846,6 +1015,68 @@ async function deleteAttachment(id) {
   }
 }
 
+async function saveExpense(event) {
+  event.preventDefault();
+  elements.expenseSave.disabled = true;
+  setMessage("");
+  try {
+    syncExpenseStatusDate();
+    const payload = {
+      action: "save_expense_note",
+      id: elements.expenseId.value ? Number(elements.expenseId.value) : 0,
+      employeeName: elements.expenseEmployee.value.trim(),
+      status: elements.expenseStatus.value,
+      expenseAt: elements.expenseDate.value,
+      reimbursedAt: elements.expenseReimbursedAt.value,
+      label: elements.expenseLabel.value.trim(),
+      merchant: elements.expenseMerchant.value.trim(),
+      taxScope: elements.expenseTaxScope.value,
+      taxRate: elements.expenseTaxRate.value,
+      amountTaxExcl: elements.expenseAmountHt.value,
+      taxAmount: elements.expenseTaxAmount.value,
+      amountTaxIncl: elements.expenseAmountTtc.value,
+      notes: elements.expenseNotes.value.trim(),
+    };
+    const accountingDate = payload.status === "reimbursed" ? payload.reimbursedAt || payload.expenseAt : payload.expenseAt;
+    const expensePeriod = periodForEntryDate(accountingDate);
+    const formData = new FormData();
+    Object.entries(payload).forEach(([key, value]) => formData.append(key, value ?? ""));
+    const file = elements.expenseReceipt.files?.[0];
+    if (file) {
+      formData.append("receipt", file);
+    }
+    const response = await apiRequest(`${API.finance}?${expensePeriod.query}`, {
+      method: "POST",
+      body: formData,
+    });
+    applyDashboard(response.dashboard);
+    resetExpenseForm();
+    setMessage(
+      expensePeriod.expanded ? "Note de frais enregistree. Periode ajustee pour l afficher." : response.message || "Note de frais enregistree.",
+      "success"
+    );
+  } catch (error) {
+    setMessage(error.message || "Enregistrement impossible.", "error");
+  } finally {
+    elements.expenseSave.disabled = false;
+  }
+}
+
+async function deleteExpense(id) {
+  if (!window.confirm("Supprimer cette note de frais ?")) return;
+  setMessage("");
+  try {
+    const response = await apiRequest(`${API.finance}?${periodQuery()}`, {
+      method: "POST",
+      body: JSON.stringify({ action: "delete_expense_note", id }),
+    });
+    applyDashboard(response.dashboard);
+    setMessage(response.message || "Note de frais supprimee.", "success");
+  } catch (error) {
+    setMessage(error.message || "Suppression impossible.", "error");
+  }
+}
+
 async function saveSettings(event) {
   event.preventDefault();
   elements.settingsSave.disabled = true;
@@ -894,6 +1125,12 @@ function bindEvents() {
   elements.entryTaxScope.addEventListener("change", syncEntryAmounts);
   elements.entryTaxRate.addEventListener("input", syncEntryAmounts);
   elements.entryAmountHt.addEventListener("input", syncEntryAmounts);
+  elements.expenseForm.addEventListener("submit", saveExpense);
+  elements.expenseReset.addEventListener("click", resetExpenseForm);
+  elements.expenseStatus.addEventListener("change", syncExpenseStatusDate);
+  elements.expenseTaxScope.addEventListener("change", syncExpenseAmounts);
+  elements.expenseTaxRate.addEventListener("input", syncExpenseAmounts);
+  elements.expenseAmountHt.addEventListener("input", syncExpenseAmounts);
   elements.entriesList.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : event.target?.parentElement;
     if (!target) return;
@@ -901,6 +1138,13 @@ function bindEvents() {
     if (attachmentDelete) {
       event.preventDefault();
       void deleteAttachment(Number(attachmentDelete.dataset.attachmentDelete));
+      return;
+    }
+    const expenseEdit = target.closest("[data-expense-edit]");
+    if (expenseEdit) {
+      const id = Number(expenseEdit.dataset.expenseEdit);
+      const note = (state.dashboard?.expenseNotes || []).find((item) => Number(item.id) === id);
+      if (note) fillExpenseForm(note);
       return;
     }
     const edit = target.closest("[data-entry-edit]");
@@ -915,6 +1159,21 @@ function bindEvents() {
       void deleteEntry(Number(del.dataset.entryDelete));
     }
   });
+  elements.expenseList.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (!target) return;
+    const edit = target.closest("[data-expense-edit]");
+    if (edit) {
+      const id = Number(edit.dataset.expenseEdit);
+      const note = (state.dashboard?.expenseNotes || []).find((item) => Number(item.id) === id);
+      if (note) fillExpenseForm(note);
+      return;
+    }
+    const del = target.closest("[data-expense-delete]");
+    if (del) {
+      void deleteExpense(Number(del.dataset.expenseDelete));
+    }
+  });
   elements.settingsForm.addEventListener("submit", saveSettings);
 
   let resizeTimer = null;
@@ -927,6 +1186,7 @@ function bindEvents() {
 async function init() {
   bindEvents();
   resetEntryForm();
+  resetExpenseForm();
   setView("loading");
   try {
     const ok = await fetchAuth();

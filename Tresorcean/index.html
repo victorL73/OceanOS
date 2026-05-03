@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/tresorcean.svg?v=20260502">
   <meta name="description" content="Tresorcean - finance, tresorerie, benefices et TVA dans OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260503-attachments">
+  <link rel="stylesheet" href="assets/style.css?v=20260503-expense-notes">
   <script defer src="/OceanOS/assets/guard.js?v=20260502-tresorcean"></script>
 </head>
 <body>
@@ -101,6 +101,7 @@
       <nav class="view-tabs" aria-label="Navigation Tresorcean">
         <button class="view-tab is-active" data-view="dashboard" type="button">Tableau de bord</button>
         <button class="view-tab" data-view="entries" type="button">Mouvements</button>
+        <button class="view-tab" data-view="expenses" type="button">Note de frais</button>
         <button class="view-tab" data-view="orders" type="button">Commandes</button>
         <button class="view-tab" data-view="vat" type="button">TVA</button>
       </nav>
@@ -238,6 +239,96 @@
         </section>
       </section>
 
+      <section class="view-section hidden entries-layout" data-view-section="expenses">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Equipe</p>
+              <h2>Ajouter une note de frais</h2>
+            </div>
+            <button id="expense-reset" class="ghost-button" type="button">Nouveau</button>
+          </div>
+
+          <form id="expense-form" class="entry-form">
+            <input id="expense-id" type="hidden">
+            <label class="field">
+              <span>Nom</span>
+              <input id="expense-employee" type="text" required>
+            </label>
+            <label class="field">
+              <span>Statut</span>
+              <select id="expense-status">
+                <option value="received">Recu</option>
+                <option value="approved">Valide</option>
+                <option value="reimbursed">Rembourse</option>
+                <option value="rejected">Refuse</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Date depense</span>
+              <input id="expense-date" type="date" required>
+            </label>
+            <label class="field">
+              <span>Date remboursement</span>
+              <input id="expense-reimbursed-at" type="date">
+            </label>
+            <label class="field full">
+              <span>Libelle</span>
+              <input id="expense-label" type="text" required>
+            </label>
+            <label class="field full">
+              <span>Fournisseur</span>
+              <input id="expense-merchant" type="text">
+            </label>
+            <label class="field">
+              <span>TVA</span>
+              <select id="expense-tax-scope">
+                <option value="deductible">Deductible</option>
+                <option value="neutral">Sans TVA</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Taux TVA</span>
+              <input id="expense-tax-rate" type="number" min="0" max="100" step="0.1" value="20">
+            </label>
+            <label class="field">
+              <span>Montant HT</span>
+              <input id="expense-amount-ht" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>TVA</span>
+              <input id="expense-tax-amount" type="number" min="0" step="0.01">
+            </label>
+            <label class="field">
+              <span>Montant TTC</span>
+              <input id="expense-amount-ttc" type="number" min="0" step="0.01" required>
+            </label>
+            <label class="field full">
+              <span>Facture ou ticket</span>
+              <input id="expense-receipt" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.doc,.docx,.xls,.xlsx,.odt,.ods,.zip">
+            </label>
+            <label class="field full">
+              <span>Notes</span>
+              <textarea id="expense-notes" rows="3"></textarea>
+            </label>
+            <div class="form-actions full">
+              <button id="expense-save" class="primary-button" type="submit">Enregistrer</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Journal</p>
+              <h2>Notes de frais</h2>
+            </div>
+            <span id="expense-count" class="status-pill">0 note</span>
+          </div>
+          <div id="expense-list" class="table-list"></div>
+        </section>
+      </section>
+
       <section class="view-section hidden orders-layout" data-view-section="orders">
         <section class="panel orders-primary">
           <div class="panel-header">
@@ -311,6 +402,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260503-entry-period"></script>
+  <script src="assets/app.js?v=20260503-expense-notes"></script>
 </body>
 </html>

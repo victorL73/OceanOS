@@ -114,6 +114,37 @@ function tresorcean_ensure_schema(PDO $pdo): void
         $pdo->exec('ALTER TABLE tresorcean_entry_attachments ADD COLUMN file_content LONGBLOB NULL AFTER file_size');
     }
 
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS tresorcean_expense_notes (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NULL,
+            employee_name VARCHAR(190) NOT NULL,
+            status ENUM('received', 'approved', 'reimbursed', 'rejected') NOT NULL DEFAULT 'received',
+            label VARCHAR(190) NOT NULL,
+            merchant VARCHAR(190) NULL,
+            amount_tax_excl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            tax_amount DECIMAL(14,6) NOT NULL DEFAULT 0,
+            amount_tax_incl DECIMAL(14,6) NOT NULL DEFAULT 0,
+            tax_rate DECIMAL(6,3) NOT NULL DEFAULT 0,
+            tax_scope ENUM('neutral', 'deductible') NOT NULL DEFAULT 'deductible',
+            expense_at DATE NOT NULL,
+            reimbursed_at DATE NULL,
+            notes TEXT NULL,
+            attachment_original_name VARCHAR(255) NULL,
+            attachment_stored_name VARCHAR(190) NULL,
+            attachment_storage_mode ENUM('file', 'database') NOT NULL DEFAULT 'file',
+            attachment_mime_type VARCHAR(120) NULL,
+            attachment_file_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+            attachment_file_content LONGBLOB NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_tresorcean_expense_status (status),
+            KEY idx_tresorcean_expense_dates (expense_at, reimbursed_at),
+            KEY idx_tresorcean_expense_user (user_id),
+            CONSTRAINT fk_tresorcean_expense_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
     $pdo->exec('INSERT IGNORE INTO tresorcean_settings (id) VALUES (1)');
 }
 
@@ -284,6 +315,71 @@ function tresorcean_upload_error_label(int $error): string
         UPLOAD_ERR_EXTENSION => 'Envoi bloque par une extension PHP.',
         default => 'Envoi du fichier impossible.',
     };
+}
+
+function tresorcean_store_uploaded_file(array $upload): array
+{
+    $error = (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new InvalidArgumentException(tresorcean_upload_error_label($error));
+    }
+
+    $size = (int) ($upload['size'] ?? 0);
+    if ($size <= 0 || $size > TRESORCEAN_ATTACHMENT_MAX_BYTES) {
+        throw new InvalidArgumentException('Chaque justificatif doit faire entre 1 octet et 10 Mo.');
+    }
+
+    $tmpName = (string) ($upload['tmp_name'] ?? '');
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        throw new InvalidArgumentException('Justificatif invalide.');
+    }
+
+    $originalName = tresorcean_safe_attachment_name((string) ($upload['name'] ?? 'justificatif'));
+    $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+    if (!in_array($extension, TRESORCEAN_ATTACHMENT_EXTENSIONS, true)) {
+        throw new InvalidArgumentException('Type de fichier non autorise.');
+    }
+
+    try {
+        $dir = tresorcean_ensure_attachment_storage();
+    } catch (Throwable) {
+        $dir = null;
+    }
+
+    $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+    $target = $dir ? $dir . DIRECTORY_SEPARATOR . $storedName : null;
+    $storageMode = 'file';
+    $fileContent = null;
+    if ($target === null || !move_uploaded_file($tmpName, $target)) {
+        $fileContent = file_get_contents($tmpName);
+        if ($fileContent === false) {
+            throw new RuntimeException('Impossible d enregistrer le justificatif.');
+        }
+        $storageMode = 'database';
+        $target = null;
+    }
+
+    $mimeType = (string) ($upload['type'] ?? '');
+    if ($storageMode === 'file' && function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detected = finfo_file($finfo, $target);
+            if (is_string($detected) && $detected !== '') {
+                $mimeType = $detected;
+            }
+            finfo_close($finfo);
+        }
+    }
+
+    return [
+        'originalName' => $originalName,
+        'storedName' => $storedName,
+        'storageMode' => $storageMode,
+        'mimeType' => substr($mimeType, 0, 120) ?: null,
+        'fileSize' => $size,
+        'fileContent' => $fileContent,
+        'filePath' => $target,
+    ];
 }
 
 function tresorcean_save_entry_attachments(PDO $pdo, array $user, int $entryId, array $files): array
@@ -1187,6 +1283,336 @@ function tresorcean_delete_entry(PDO $pdo, array $user, int $id): void
     $statement->execute(['id' => $id]);
 }
 
+function tresorcean_expense_status(string $status): string
+{
+    return in_array($status, ['received', 'approved', 'reimbursed', 'rejected'], true) ? $status : 'received';
+}
+
+function tresorcean_public_expense_attachment(array $row): ?array
+{
+    if (trim((string) ($row['attachment_stored_name'] ?? '')) === '') {
+        return null;
+    }
+
+    $id = (int) $row['id'];
+    return [
+        'id' => $id,
+        'name' => (string) ($row['attachment_original_name'] ?? 'justificatif'),
+        'mimeType' => (string) ($row['attachment_mime_type'] ?? ''),
+        'fileSize' => (int) ($row['attachment_file_size'] ?? 0),
+        'downloadUrl' => 'api/finance.php?action=expense_attachment&id=' . $id,
+    ];
+}
+
+function tresorcean_public_expense_note(array $row): array
+{
+    $status = tresorcean_expense_status((string) ($row['status'] ?? 'received'));
+    $expenseAt = (string) ($row['expense_at'] ?? '');
+    $reimbursedAt = (string) ($row['reimbursed_at'] ?? '');
+
+    return [
+        'id' => (int) $row['id'],
+        'userId' => isset($row['user_id']) ? (int) $row['user_id'] : null,
+        'employeeName' => (string) ($row['employee_name'] ?? ''),
+        'status' => $status,
+        'label' => (string) ($row['label'] ?? ''),
+        'merchant' => (string) ($row['merchant'] ?? ''),
+        'amountTaxExcl' => (float) ($row['amount_tax_excl'] ?? 0),
+        'taxAmount' => (float) ($row['tax_amount'] ?? 0),
+        'amountTaxIncl' => (float) ($row['amount_tax_incl'] ?? 0),
+        'taxRate' => (float) ($row['tax_rate'] ?? 0),
+        'taxScope' => (string) ($row['tax_scope'] ?? 'deductible'),
+        'expenseAt' => $expenseAt,
+        'reimbursedAt' => $reimbursedAt,
+        'accountingAt' => $status === 'reimbursed' ? ($reimbursedAt ?: $expenseAt) : '',
+        'includedInMovements' => $status === 'reimbursed',
+        'notes' => (string) ($row['notes'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        'userDisplayName' => (string) ($row['user_display_name'] ?? ''),
+        'attachment' => tresorcean_public_expense_attachment($row),
+    ];
+}
+
+function tresorcean_expense_notes(PDO $pdo, array $period): array
+{
+    $statement = $pdo->prepare(
+        'SELECT n.*, u.display_name AS user_display_name
+         FROM tresorcean_expense_notes n
+         LEFT JOIN oceanos_users u ON u.id = n.user_id
+         WHERE n.expense_at BETWEEN :expense_start AND :expense_end
+            OR n.reimbursed_at BETWEEN :reimbursed_start AND :reimbursed_end
+         ORDER BY COALESCE(n.reimbursed_at, n.expense_at) DESC, n.id DESC
+         LIMIT 240'
+    );
+    $statement->execute([
+        'expense_start' => $period['start'],
+        'expense_end' => $period['end'],
+        'reimbursed_start' => $period['start'],
+        'reimbursed_end' => $period['end'],
+    ]);
+
+    return array_map(static fn(array $row): array => tresorcean_public_expense_note($row), $statement->fetchAll());
+}
+
+function tresorcean_get_expense_note_row(PDO $pdo, int $id): array
+{
+    $statement = $pdo->prepare(
+        'SELECT n.*, u.display_name AS user_display_name
+         FROM tresorcean_expense_notes n
+         LEFT JOIN oceanos_users u ON u.id = n.user_id
+         WHERE n.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $id]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        throw new InvalidArgumentException('Note de frais introuvable.');
+    }
+
+    return $row;
+}
+
+function tresorcean_delete_expense_attachment_file(array $row): void
+{
+    if ((string) ($row['attachment_storage_mode'] ?? 'file') !== 'file') {
+        return;
+    }
+    $storedName = (string) ($row['attachment_stored_name'] ?? '');
+    if ($storedName === '') {
+        return;
+    }
+    $path = tresorcean_attachment_path($storedName);
+    if (is_file($path)) {
+        @unlink($path);
+    }
+}
+
+function tresorcean_expense_upload_from_request(array $files): ?array
+{
+    if (!isset($files['receipt'])) {
+        return null;
+    }
+
+    $uploads = tresorcean_normalize_uploaded_files($files['receipt']);
+    foreach ($uploads as $upload) {
+        if ((int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            return $upload;
+        }
+    }
+
+    return null;
+}
+
+function tresorcean_save_expense_note(PDO $pdo, array $user, array $input, array $files = []): array
+{
+    $id = (int) ($input['id'] ?? 0);
+    $existing = null;
+    if ($id > 0) {
+        $existing = tresorcean_get_expense_note_row($pdo, $id);
+        if (!tresorcean_is_admin($user) && (int) ($existing['user_id'] ?? 0) !== (int) $user['id']) {
+            throw new InvalidArgumentException('Vous ne pouvez modifier que vos notes de frais.');
+        }
+    }
+
+    $employeeName = trim((string) ($input['employeeName'] ?? ''));
+    if ($employeeName === '') {
+        throw new InvalidArgumentException('Nom de l equipe obligatoire.');
+    }
+    $label = trim((string) ($input['label'] ?? ''));
+    if ($label === '') {
+        throw new InvalidArgumentException('Libelle obligatoire.');
+    }
+
+    $expenseAt = trim((string) ($input['expenseAt'] ?? date('Y-m-d')));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $expenseAt)) {
+        throw new InvalidArgumentException('Date de depense invalide.');
+    }
+
+    $status = tresorcean_expense_status((string) ($input['status'] ?? 'received'));
+    $reimbursedAt = trim((string) ($input['reimbursedAt'] ?? ''));
+    if ($status === 'reimbursed') {
+        if ($reimbursedAt === '') {
+            $reimbursedAt = $expenseAt;
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reimbursedAt)) {
+            throw new InvalidArgumentException('Date de remboursement invalide.');
+        }
+    } else {
+        $reimbursedAt = null;
+    }
+
+    $taxScope = in_array((string) ($input['taxScope'] ?? 'deductible'), ['neutral', 'deductible'], true)
+        ? (string) $input['taxScope']
+        : 'deductible';
+    $amounts = tresorcean_normalize_entry_amounts([
+        ...$input,
+        'taxScope' => $taxScope,
+    ]);
+
+    $upload = tresorcean_expense_upload_from_request($files);
+    $stored = null;
+    if ($upload !== null) {
+        $stored = tresorcean_store_uploaded_file($upload);
+    } elseif ($id <= 0) {
+        throw new InvalidArgumentException('Facture ou ticket de caisse obligatoire.');
+    }
+
+    $base = [
+        'user_id' => (int) $user['id'],
+        'employee_name' => $employeeName,
+        'status' => $status,
+        'label' => $label,
+        'merchant' => trim((string) ($input['merchant'] ?? '')) ?: null,
+        'amount_tax_excl' => number_format($amounts['amountTaxExcl'], 6, '.', ''),
+        'tax_amount' => number_format($amounts['taxAmount'], 6, '.', ''),
+        'amount_tax_incl' => number_format($amounts['amountTaxIncl'], 6, '.', ''),
+        'tax_rate' => number_format($amounts['taxRate'], 3, '.', ''),
+        'tax_scope' => $amounts['taxScope'],
+        'expense_at' => $expenseAt,
+        'reimbursed_at' => $reimbursedAt,
+        'notes' => trim((string) ($input['notes'] ?? '')) ?: null,
+    ];
+
+    try {
+        if ($id > 0) {
+            if ($stored !== null) {
+                $statement = $pdo->prepare(
+                    'UPDATE tresorcean_expense_notes
+                     SET user_id = :user_id,
+                         employee_name = :employee_name,
+                         status = :status,
+                         label = :label,
+                         merchant = :merchant,
+                         amount_tax_excl = :amount_tax_excl,
+                         tax_amount = :tax_amount,
+                         amount_tax_incl = :amount_tax_incl,
+                         tax_rate = :tax_rate,
+                         tax_scope = :tax_scope,
+                         expense_at = :expense_at,
+                         reimbursed_at = :reimbursed_at,
+                         notes = :notes,
+                         attachment_original_name = :attachment_original_name,
+                         attachment_stored_name = :attachment_stored_name,
+                         attachment_storage_mode = :attachment_storage_mode,
+                         attachment_mime_type = :attachment_mime_type,
+                         attachment_file_size = :attachment_file_size,
+                         attachment_file_content = :attachment_file_content
+                     WHERE id = :id'
+                );
+                foreach ($base as $key => $value) {
+                    $statement->bindValue(':' . $key, $value, $value === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                }
+                $statement->bindValue(':attachment_original_name', $stored['originalName']);
+                $statement->bindValue(':attachment_stored_name', $stored['storedName']);
+                $statement->bindValue(':attachment_storage_mode', $stored['storageMode']);
+                $statement->bindValue(':attachment_mime_type', $stored['mimeType']);
+                $statement->bindValue(':attachment_file_size', $stored['fileSize'], PDO::PARAM_INT);
+                $statement->bindValue(':attachment_file_content', $stored['fileContent'], $stored['fileContent'] === null ? PDO::PARAM_NULL : PDO::PARAM_LOB);
+                $statement->bindValue(':id', $id, PDO::PARAM_INT);
+                $statement->execute();
+                tresorcean_delete_expense_attachment_file($existing);
+            } else {
+                $base['id'] = $id;
+                $statement = $pdo->prepare(
+                    'UPDATE tresorcean_expense_notes
+                     SET user_id = :user_id,
+                         employee_name = :employee_name,
+                         status = :status,
+                         label = :label,
+                         merchant = :merchant,
+                         amount_tax_excl = :amount_tax_excl,
+                         tax_amount = :tax_amount,
+                         amount_tax_incl = :amount_tax_incl,
+                         tax_rate = :tax_rate,
+                         tax_scope = :tax_scope,
+                         expense_at = :expense_at,
+                         reimbursed_at = :reimbursed_at,
+                         notes = :notes
+                     WHERE id = :id'
+                );
+                $statement->execute($base);
+            }
+        } else {
+            $statement = $pdo->prepare(
+                'INSERT INTO tresorcean_expense_notes
+                    (user_id, employee_name, status, label, merchant, amount_tax_excl, tax_amount, amount_tax_incl, tax_rate, tax_scope, expense_at, reimbursed_at, notes, attachment_original_name, attachment_stored_name, attachment_storage_mode, attachment_mime_type, attachment_file_size, attachment_file_content)
+                 VALUES
+                    (:user_id, :employee_name, :status, :label, :merchant, :amount_tax_excl, :tax_amount, :amount_tax_incl, :tax_rate, :tax_scope, :expense_at, :reimbursed_at, :notes, :attachment_original_name, :attachment_stored_name, :attachment_storage_mode, :attachment_mime_type, :attachment_file_size, :attachment_file_content)'
+            );
+            foreach ($base as $key => $value) {
+                $statement->bindValue(':' . $key, $value, $value === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            }
+            $statement->bindValue(':attachment_original_name', $stored['originalName']);
+            $statement->bindValue(':attachment_stored_name', $stored['storedName']);
+            $statement->bindValue(':attachment_storage_mode', $stored['storageMode']);
+            $statement->bindValue(':attachment_mime_type', $stored['mimeType']);
+            $statement->bindValue(':attachment_file_size', $stored['fileSize'], PDO::PARAM_INT);
+            $statement->bindValue(':attachment_file_content', $stored['fileContent'], $stored['fileContent'] === null ? PDO::PARAM_NULL : PDO::PARAM_LOB);
+            $statement->execute();
+            $id = (int) $pdo->lastInsertId();
+        }
+    } catch (Throwable $exception) {
+        if ($stored !== null && $stored['filePath'] !== null) {
+            @unlink((string) $stored['filePath']);
+        }
+        throw $exception;
+    }
+
+    return tresorcean_public_expense_note(tresorcean_get_expense_note_row($pdo, $id));
+}
+
+function tresorcean_delete_expense_note(PDO $pdo, array $user, int $id): void
+{
+    $row = tresorcean_get_expense_note_row($pdo, $id);
+    if (!tresorcean_is_admin($user) && (int) ($row['user_id'] ?? 0) !== (int) $user['id']) {
+        throw new InvalidArgumentException('Vous ne pouvez supprimer que vos notes de frais.');
+    }
+
+    $statement = $pdo->prepare('DELETE FROM tresorcean_expense_notes WHERE id = :id');
+    $statement->execute(['id' => $id]);
+    tresorcean_delete_expense_attachment_file($row);
+}
+
+function tresorcean_download_expense_attachment(PDO $pdo, array $user, int $id): void
+{
+    $row = tresorcean_get_expense_note_row($pdo, $id);
+    $storedName = (string) ($row['attachment_stored_name'] ?? '');
+    if ($storedName === '') {
+        throw new InvalidArgumentException('Justificatif introuvable.');
+    }
+
+    $name = tresorcean_safe_attachment_name((string) ($row['attachment_original_name'] ?? 'justificatif'));
+    $asciiName = str_replace(['\\', '"'], '_', $name);
+    $mimeType = trim((string) ($row['attachment_mime_type'] ?? '')) ?: 'application/octet-stream';
+    $content = null;
+    $path = null;
+    if ((string) ($row['attachment_storage_mode'] ?? 'file') === 'database') {
+        $content = $row['attachment_file_content'] ?? null;
+        if (!is_string($content)) {
+            throw new InvalidArgumentException('Justificatif introuvable.');
+        }
+    } else {
+        $path = tresorcean_attachment_path($storedName);
+        if (!is_file($path)) {
+            throw new InvalidArgumentException('Justificatif introuvable.');
+        }
+    }
+
+    http_response_code(200);
+    oceanos_send_security_headers();
+    header('Content-Type: ' . $mimeType);
+    header('Content-Length: ' . ($content !== null ? strlen($content) : filesize($path)));
+    header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($name));
+    header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+    if ($content !== null) {
+        echo $content;
+    } else {
+        readfile($path);
+    }
+    exit;
+}
+
 function tresorcean_month_buckets(string $start, string $end): array
 {
     $cursor = (new DateTimeImmutable($start))->modify('first day of this month');
@@ -1224,7 +1650,7 @@ function tresorcean_bucket_key(string $date): string
     return date('Y-m');
 }
 
-function tresorcean_summarize(array $orders, array $supplierOrders, array $convertedQuotes, array $entries, array $settings, array $period): array
+function tresorcean_summarize(array $orders, array $supplierOrders, array $convertedQuotes, array $entries, array $expenseNotes, array $settings, array $period): array
 {
     $summary = [
         'cashIn' => 0.0,
@@ -1249,6 +1675,9 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         'manualExpenseTaxExcl' => 0.0,
         'manualVatCollected' => 0.0,
         'manualVatDeductible' => 0.0,
+        'expenseNotesTaxExcl' => 0.0,
+        'expenseNotesTaxIncl' => 0.0,
+        'expenseNotesVatDeductible' => 0.0,
         'vatCollected' => 0.0,
         'vatDeductible' => 0.0,
         'vatDue' => 0.0,
@@ -1258,6 +1687,8 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         'supplierOrders' => count($supplierOrders),
         'convertedQuotes' => count($convertedQuotes),
         'manualEntries' => count($entries),
+        'expenseNotes' => count($expenseNotes),
+        'reimbursedExpenseNotes' => 0,
         'missingCostLines' => 0,
     ];
     $series = tresorcean_month_buckets($period['start'], $period['end']);
@@ -1361,6 +1792,35 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
         }
     }
 
+    foreach ($expenseNotes as $note) {
+        if (empty($note['includedInMovements'])) {
+            continue;
+        }
+        $key = tresorcean_bucket_key((string) ($note['accountingAt'] ?? $note['expenseAt'] ?? ''));
+        $scope = (string) ($note['taxScope'] ?? 'deductible');
+        $amountHt = (float) ($note['amountTaxExcl'] ?? 0);
+        $tax = (float) ($note['taxAmount'] ?? 0);
+        $amountTtc = (float) ($note['amountTaxIncl'] ?? 0);
+
+        $summary['reimbursedExpenseNotes']++;
+        $summary['expenseNotesTaxExcl'] += $amountHt;
+        $summary['expenseNotesTaxIncl'] += $amountTtc;
+        $summary['manualCashOut'] += $amountTtc;
+        $summary['manualExpenseTaxExcl'] += $amountHt;
+        if ($scope === 'deductible') {
+            $summary['expenseNotesVatDeductible'] += $tax;
+            $summary['manualVatDeductible'] += $tax;
+        }
+
+        if (isset($series[$key])) {
+            $series[$key]['cashOut'] += $amountTtc;
+            $series[$key]['manualExpenseTaxExcl'] += $amountHt;
+            if ($scope === 'deductible') {
+                $series[$key]['vatDeductible'] += $tax;
+            }
+        }
+    }
+
     $summary['cashIn'] = $summary['revenueTaxIncl'] + $summary['manualCashIn'];
     $summary['cashOut'] = $summary['supplierOrdersTaxIncl'] + $summary['manualCashOut'];
     $summary['cashBalance'] = $summary['cashIn'] - $summary['cashOut'];
@@ -1397,6 +1857,7 @@ function tresorcean_summarize(array $orders, array $supplierOrders, array $conve
                 'total' => $summary['vatDeductible'],
                 'supplierOrders' => $summary['supplierVatDeductible'],
                 'manual' => $summary['manualVatDeductible'],
+                'expenseNotes' => $summary['expenseNotesVatDeductible'],
             ],
             'due' => $summary['vatDue'],
             'defaultPurchaseTaxRate' => (float) ($settings['defaultPurchaseTaxRate'] ?? 20),
@@ -1444,7 +1905,8 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
         $warnings[] = 'Lecture Invocean impossible: ' . $exception->getMessage();
     }
     $entries = tresorcean_entries($pdo, $period);
-    $computed = tresorcean_summarize($orders, $supplierOrders, $convertedQuotes, $entries, $settings, $period);
+    $expenseNotes = tresorcean_expense_notes($pdo, $period);
+    $computed = tresorcean_summarize($orders, $supplierOrders, $convertedQuotes, $entries, $expenseNotes, $settings, $period);
 
     return [
         'ok' => true,
@@ -1467,6 +1929,7 @@ function tresorcean_dashboard(PDO $pdo, array $query, array $user): array
         'supplierOrders' => $supplierOrders,
         'convertedQuotes' => $convertedQuotes,
         'entries' => $entries,
+        'expenseNotes' => $expenseNotes,
         'summary' => $computed['summary'],
         'series' => $computed['series'],
         'vat' => $computed['vat'],

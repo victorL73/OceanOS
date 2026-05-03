@@ -441,11 +441,16 @@ textarea:focus {
 .module-agenda { background: var(--accent); }
 .module-flowcean { background: #2f77b5; }
 .module-devis { background: #2c8bb8; }
+.module-commandes { background: #8c6a2b; }
+.module-sav { background: #b74242; }
 .module-stockcean { background: #528b42; }
 .module-invocean { background: #188b86; }
 .module-nautisign { background: #247c89; }
 .module-formcean { background: #8f7e24; }
 .module-naviplan { background: #166a5b; }
+.module-nauticrm { background: #2f6fb3; }
+.module-nautimail { background: #5c6c78; }
+.module-tresorcean { background: #6d7242; }
 
 .priority {
   color: var(--muted);
