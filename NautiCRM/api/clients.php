@@ -49,6 +49,9 @@ try {
         } elseif ($action === 'save_opportunity') {
             $bundle = nauticrm_save_opportunity($pdo, $user, $input);
             $message = 'Opportunite enregistree.';
+        } elseif ($action === 'save_flow') {
+            $bundle = nauticrm_save_flow($pdo, $user, $input);
+            $message = 'Flux client enregistre.';
         } elseif ($action === 'sync_prestashop') {
             $summary = nauticrm_sync_prestashop_customers($pdo, $user, (int) ($input['limit'] ?? 500));
             $dashboard = nauticrm_dashboard($pdo, $_GET, $user);

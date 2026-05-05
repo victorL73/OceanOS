@@ -21,6 +21,7 @@ const elements = {
   metricFollowups: $("metric-followups"),
   metricPipeline: $("metric-pipeline"),
   metricTasks: $("metric-tasks"),
+  metricFlows: $("metric-flows"),
   viewTabs: Array.from(document.querySelectorAll("[data-view]")),
   viewSections: Array.from(document.querySelectorAll("[data-view-section]")),
   filtersForm: $("filters-form"),
@@ -91,6 +92,19 @@ const elements = {
   taskAssigned: $("task-assigned"),
   taskNotes: $("task-notes"),
   clientTasksList: $("client-tasks-list"),
+  flowForm: $("flow-form"),
+  flowId: $("flow-id"),
+  flowTitle: $("flow-title"),
+  flowNeedType: $("flow-need-type"),
+  flowStage: $("flow-stage"),
+  flowPriority: $("flow-priority"),
+  flowAssigned: $("flow-assigned"),
+  flowStart: $("flow-start"),
+  flowDue: $("flow-due"),
+  flowValue: $("flow-value"),
+  flowNotes: $("flow-notes"),
+  flowResetButton: $("flow-reset-button"),
+  clientFlowsList: $("client-flows-list"),
   opportunityForm: $("opportunity-form"),
   opportunityId: $("opportunity-id"),
   opportunityTitle: $("opportunity-title"),
@@ -101,6 +115,8 @@ const elements = {
   opportunityNotes: $("opportunity-notes"),
   clientOpportunitiesList: $("client-opportunities-list"),
   tasksList: $("tasks-list"),
+  flowsBoard: $("flows-board"),
+  flowPrioritySummary: $("flow-priority-summary"),
   opportunitiesList: $("opportunities-list"),
   activityList: $("activity-list"),
 };
@@ -114,6 +130,7 @@ const state = {
   users: [],
   recentInteractions: [],
   tasks: [],
+  flows: [],
   opportunities: [],
   selectedBundle: null,
   currentView: "clients",
@@ -147,6 +164,7 @@ const labels = {
     low: "Basse",
     normal: "Normale",
     high: "Haute",
+    urgent: "Urgente",
   },
   interactionType: {
     call: "Appel",
@@ -171,7 +189,45 @@ const labels = {
     won: "Gagne",
     lost: "Perdu",
   },
+  needType: {
+    information: "Information",
+    quote: "Devis",
+    order: "Commande",
+    support: "Support",
+    maintenance: "Maintenance",
+    project: "Projet",
+    after_sales: "Apres-vente",
+    other: "Autre",
+  },
+  flowStage: {
+    intake: "Reception",
+    qualification: "Qualification",
+    planning: "Planification",
+    in_progress: "En cours",
+    waiting_client: "Attente client",
+    blocked: "Bloque",
+    completed: "Termine",
+  },
 };
+
+const flowStageOrder = [
+  "intake",
+  "qualification",
+  "planning",
+  "in_progress",
+  "waiting_client",
+  "blocked",
+  "completed",
+];
+
+const flowAdvanceOrder = [
+  "intake",
+  "qualification",
+  "planning",
+  "in_progress",
+  "waiting_client",
+  "completed",
+];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -297,6 +353,7 @@ function applyDashboard(payload) {
   state.users = payload.users || [];
   state.recentInteractions = payload.recentInteractions || [];
   state.tasks = payload.tasks || [];
+  state.flows = payload.flows || [];
   state.opportunities = payload.opportunities || [];
   render();
 }
@@ -343,6 +400,7 @@ function render() {
   renderAiPreview();
   renderDetail();
   renderGlobalTasks();
+  renderGlobalFlows();
   renderGlobalOpportunities();
   renderActivity();
   setActiveView(state.currentView);
@@ -370,13 +428,16 @@ function renderMetrics() {
   elements.metricFollowups.textContent = String(stats.dueFollowupCount || 0);
   elements.metricPipeline.textContent = money.format(Number(stats.pipelineAmount || 0));
   elements.metricTasks.textContent = String(stats.openTaskCount || 0);
+  elements.metricFlows.textContent = String(stats.activeFlowCount || 0);
 }
 
 function renderUsersInForms() {
   const selectedClientUser = elements.clientAssigned.value || state.selectedBundle?.client?.assignedUserId || "";
   const selectedTaskUser = elements.taskAssigned.value || state.user?.id || "";
+  const selectedFlowUser = elements.flowAssigned.value || state.user?.id || "";
   elements.clientAssigned.innerHTML = userOptions(selectedClientUser, true);
   elements.taskAssigned.innerHTML = userOptions(selectedTaskUser, true);
+  elements.flowAssigned.innerHTML = userOptions(selectedFlowUser, true);
 }
 
 function badge(value, type = "") {
@@ -406,7 +467,7 @@ function renderClients() {
       </td>
       <td>
         <span>${client.nextActionAt ? escapeHtml(formatDate(client.nextActionAt)) : "-"}</span>
-        <span class="table-meta">${client.openTaskCount} tache(s)</span>
+        <span class="table-meta">${client.openTaskCount} tache(s) - ${client.activeFlowCount || 0} flux</span>
       </td>
       <td>
         <span>${money.format(Number(client.opportunityAmount || 0))}</span>
@@ -702,6 +763,7 @@ function renderDetail() {
   renderContacts();
   renderInteractions();
   renderClientTasks();
+  renderClientFlows();
   renderClientOpportunities();
   elements.interactionContact.innerHTML = contactOptions();
 }
@@ -726,6 +788,7 @@ function renderDetailSummary(client) {
       <span>Contacts<strong>${client.contactCount}</strong></span>
       <span>Interactions<strong>${client.interactionCount}</strong></span>
       <span>Taches ouvertes<strong>${client.openTaskCount}</strong></span>
+      <span>Flux actifs<strong>${client.activeFlowCount || 0}</strong></span>
       <span>CA PrestaShop<strong>${money.format(Number(client.prestashopTotalPaidTaxIncl || 0))}</strong></span>
     </div>
     ${client.notes ? `<p class="detail-meta">${escapeHtml(client.notes)}</p>` : ""}
@@ -943,6 +1006,145 @@ async function completeTask(taskId) {
   }
 }
 
+function resetFlowForm() {
+  elements.flowForm.reset();
+  elements.flowId.value = "";
+  elements.flowNeedType.value = "information";
+  elements.flowStage.value = "intake";
+  elements.flowPriority.value = "normal";
+  elements.flowAssigned.innerHTML = userOptions(state.user?.id || "", true);
+  elements.flowValue.value = "";
+}
+
+function populateFlowForm(flow) {
+  elements.flowId.value = flow.id || "";
+  elements.flowTitle.value = flow.title || "";
+  elements.flowNeedType.value = flow.needType || "other";
+  elements.flowStage.value = flow.stage || "intake";
+  elements.flowPriority.value = flow.priority || "normal";
+  elements.flowAssigned.innerHTML = userOptions(flow.assignedUserId || "", true);
+  elements.flowStart.value = flow.expectedStartAt || "";
+  elements.flowDue.value = flow.dueAt || "";
+  elements.flowValue.value = flow.estimatedValueTaxExcl || "";
+  elements.flowNotes.value = flow.notes || "";
+}
+
+function flowFormPayload(overrides = {}) {
+  const clientId = Number(overrides.clientId || state.selectedBundle?.client?.id || 0);
+  return {
+    action: "save_flow",
+    id: Number((overrides.id ?? elements.flowId.value) || 0),
+    clientId,
+    title: String(overrides.title ?? elements.flowTitle.value).trim(),
+    needType: overrides.needType ?? elements.flowNeedType.value,
+    stage: overrides.stage ?? elements.flowStage.value,
+    priority: overrides.priority ?? elements.flowPriority.value,
+    assignedUserId: Number((overrides.assignedUserId ?? elements.flowAssigned.value) || 0),
+    expectedStartAt: overrides.expectedStartAt ?? elements.flowStart.value,
+    dueAt: overrides.dueAt ?? elements.flowDue.value,
+    estimatedValueTaxExcl: Number((overrides.estimatedValueTaxExcl ?? elements.flowValue.value) || 0),
+    notes: String(overrides.notes ?? elements.flowNotes.value).trim(),
+  };
+}
+
+async function saveFlow(event) {
+  event.preventDefault();
+  const clientId = state.selectedBundle?.client?.id || 0;
+  if (!clientId) return;
+  try {
+    const payload = await apiRequest(API.clients, {
+      method: "POST",
+      body: JSON.stringify(flowFormPayload()),
+    });
+    applySavePayload(payload);
+    resetFlowForm();
+    showMessage(payload.message || "Flux client enregistre.", "success");
+  } catch (error) {
+    showMessage(error.message || "Flux client impossible.", "error");
+  }
+}
+
+function renderClientFlows() {
+  const flows = state.selectedBundle?.flows || [];
+  if (flows.length === 0) {
+    elements.clientFlowsList.innerHTML = '<div class="empty-state">Aucun flux client.</div>';
+    return;
+  }
+  elements.clientFlowsList.innerHTML = flows.map((flow) => flowCard(flow, true)).join("");
+}
+
+function flowCard(flow, editable = false) {
+  const due = flow.dueAt ? ` - Echeance ${formatDate(flow.dueAt)}` : "";
+  const assigned = flow.assignedUserDisplayName ? ` - ${flow.assignedUserDisplayName}` : "";
+  return `
+    <article class="list-card flow-card ${flow.priority === "urgent" ? "is-urgent" : ""}">
+      <strong>${escapeHtml(flow.title)}</strong>
+      <small>${escapeHtml(labels.needType[flow.needType] || flow.needType)} - ${escapeHtml(labels.flowStage[flow.stage] || flow.stage)}${escapeHtml(due)}${escapeHtml(assigned)}</small>
+      <small>${money.format(Number(flow.estimatedValueTaxExcl || 0))}${flow.expectedStartAt ? ` - Debut ${escapeHtml(formatDate(flow.expectedStartAt))}` : ""}</small>
+      ${flow.notes ? `<small>${escapeHtml(flow.notes)}</small>` : ""}
+      <div class="card-tags">
+        ${badge(labels.priority[flow.priority] || flow.priority, flow.priority === "urgent" ? "high-priority" : flow.priority)}
+        ${flow.clientName ? badge(flow.clientName) : ""}
+      </div>
+      <div class="card-actions">
+        ${editable ? `<button class="ghost-button" data-flow-edit="${flow.id}" type="button">Editer</button>` : `<button class="ghost-button" data-client-open="${flow.clientId}" type="button">Client</button>`}
+        ${flow.stage !== "completed" ? `<button class="ghost-button" data-flow-advance="${flow.id}" type="button">Avancer</button>` : ""}
+        ${flow.stage !== "completed" ? `<button class="ghost-button" data-flow-complete="${flow.id}" type="button">Terminer</button>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function findFlow(flowId) {
+  const id = Number(flowId);
+  return [
+    ...(state.selectedBundle?.flows || []),
+    ...state.flows,
+  ].find((flow) => Number(flow.id) === id) || null;
+}
+
+async function saveFlowPatch(flow, overrides = {}) {
+  if (!flow) return;
+  try {
+    const payload = await apiRequest(API.clients, {
+      method: "POST",
+      body: JSON.stringify(flowFormPayload({
+        id: flow.id,
+        clientId: flow.clientId,
+        title: flow.title,
+        needType: flow.needType,
+        stage: flow.stage,
+        priority: flow.priority,
+        assignedUserId: flow.assignedUserId || 0,
+        expectedStartAt: flow.expectedStartAt || "",
+        dueAt: flow.dueAt || "",
+        estimatedValueTaxExcl: flow.estimatedValueTaxExcl || 0,
+        notes: flow.notes || "",
+        ...overrides,
+      })),
+    });
+    applySavePayload(payload);
+    showMessage(payload.message || "Flux client mis a jour.", "success");
+  } catch (error) {
+    showMessage(error.message || "Mise a jour du flux impossible.", "error");
+  }
+}
+
+async function advanceFlow(flowId) {
+  const flow = findFlow(flowId);
+  if (!flow) return;
+  const order = flow.stage === "blocked" ? ["blocked", "in_progress", "waiting_client", "completed"] : flowAdvanceOrder;
+  const currentIndex = order.indexOf(flow.stage);
+  const nextStage = order[Math.min(Math.max(currentIndex, 0) + 1, order.length - 1)];
+  await saveFlowPatch(flow, { stage: nextStage });
+}
+
+async function completeFlow(flowId) {
+  const flow = findFlow(flowId);
+  if (!flow) return;
+  await saveFlowPatch(flow, { stage: "completed" });
+}
+
 function renderClientOpportunities() {
   const opportunities = state.selectedBundle?.opportunities || [];
   if (opportunities.length === 0) {
@@ -1016,6 +1218,33 @@ function renderGlobalTasks() {
     return;
   }
   elements.tasksList.innerHTML = state.tasks.map((task) => taskCard(task, false).replace("list-card", "board-card")).join("");
+}
+
+function renderGlobalFlows() {
+  const stats = state.stats || {};
+  elements.flowPrioritySummary.textContent = `${stats.priorityFlowCount || 0} prioritaire(s) - ${stats.blockedFlowCount || 0} bloque(s)`;
+
+  if (state.flows.length === 0) {
+    elements.flowsBoard.innerHTML = '<div class="empty-state">Aucun flux client actif.</div>';
+    return;
+  }
+
+  elements.flowsBoard.innerHTML = flowStageOrder
+    .filter((stage) => stage !== "completed")
+    .map((stage) => {
+      const items = state.flows.filter((flow) => flow.stage === stage);
+      return `
+        <section class="flow-column">
+          <header>
+            <span>${escapeHtml(labels.flowStage[stage] || stage)}</span>
+            <strong>${items.length}</strong>
+          </header>
+          <div class="flow-column-list">
+            ${items.length ? items.map((flow) => flowCard(flow, false).replace("list-card", "board-card")).join("") : '<div class="empty-state compact-empty">Vide</div>'}
+          </div>
+        </section>
+      `;
+    }).join("");
 }
 
 function renderGlobalOpportunities() {
@@ -1104,6 +1333,8 @@ function installListeners() {
   elements.contactForm.addEventListener("submit", saveContact);
   elements.interactionForm.addEventListener("submit", logInteraction);
   elements.taskForm.addEventListener("submit", saveTask);
+  elements.flowForm.addEventListener("submit", saveFlow);
+  elements.flowResetButton.addEventListener("click", resetFlowForm);
   elements.opportunityForm.addEventListener("submit", saveOpportunity);
 
   elements.clientsBody.addEventListener("click", (event) => {
@@ -1147,6 +1378,22 @@ function installListeners() {
       void completeTask(taskDone.dataset.taskDone);
     }
 
+    const flowEdit = event.target.closest("[data-flow-edit]");
+    if (flowEdit) {
+      const flow = findFlow(flowEdit.dataset.flowEdit);
+      if (flow) populateFlowForm(flow);
+    }
+
+    const flowAdvance = event.target.closest("[data-flow-advance]");
+    if (flowAdvance) {
+      void advanceFlow(flowAdvance.dataset.flowAdvance);
+    }
+
+    const flowComplete = event.target.closest("[data-flow-complete]");
+    if (flowComplete) {
+      void completeFlow(flowComplete.dataset.flowComplete);
+    }
+
     const aiRemove = event.target.closest("[data-ai-remove]");
     if (aiRemove) {
       const index = Number(aiRemove.dataset.aiRemove);
@@ -1171,6 +1418,7 @@ async function init() {
     if (!authenticated) return;
     resetClientForm();
     resetTaskForm();
+    resetFlowForm();
     await loadDashboard();
     setView("app");
   } catch (error) {

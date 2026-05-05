@@ -16,7 +16,7 @@ www/
   SAV/                   Demandes clients PrestaShop et reponses support
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Tresorcean/            Finance, tresorerie, benefices et TVA
-  NautiCRM/              CRM clients, contacts, relances et opportunites
+  NautiCRM/              CRM clients, contacts, relances, flux besoins et opportunites
   Prospection/           Prospects, templates mail, IA et transfert NautiCRM
   NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
   NautiPost/             Campagnes, messages et outils marketing
@@ -235,6 +235,7 @@ nauticrm_contacts
 nauticrm_interactions
 nauticrm_tasks
 nauticrm_opportunities
+nauticrm_client_flows
 nauticrm_sync_runs
 ```
 

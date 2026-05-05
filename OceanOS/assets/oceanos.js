@@ -735,7 +735,7 @@ function renderGitRevision(git = servicesGitState) {
 }
 
 async function loadServices() {
-  if (!canManageServices()) return;
+  if (!canManageServices()) return false;
 
   showServicesStatus("Chargement de l'etat serveur...");
   renderGitRevision();
@@ -753,6 +753,7 @@ async function loadServices() {
       ? " Mise a jour Git disponible, mais le redemarrage des services reste desactive sur cet environnement."
       : "";
     showServicesStatus(`${payload.message || "Etat des services charge."}${gitRevisionText(payload.git)}${updateHint}`, servicesUpdateAvailable ? "success" : "");
+    return true;
   } catch (error) {
     servicesState = [];
     servicesGitState = null;
@@ -761,6 +762,20 @@ async function loadServices() {
     servicesUpdateAvailable = false;
     elements.servicesList.innerHTML = "";
     showServicesStatus(error.message || "Impossible de charger les services.", "error");
+    return false;
+  }
+}
+
+async function refreshServicesPage() {
+  elements.reloadServices.disabled = true;
+  const loaded = await loadServices();
+  if (loaded) {
+    showServicesStatus("Etat des services actualise. Rechargement de la page...", "success");
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 900);
+  } else {
+    elements.reloadServices.disabled = false;
   }
 }
 
@@ -1234,7 +1249,7 @@ elements.reloadUsers.addEventListener("click", () => {
 });
 
 elements.reloadServices.addEventListener("click", () => {
-  void loadServices();
+  void refreshServicesPage();
 });
 
 elements.updateServices.addEventListener("click", () => {

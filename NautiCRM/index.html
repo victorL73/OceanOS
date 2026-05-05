@@ -61,12 +61,17 @@
           <span>Taches</span>
           <strong id="metric-tasks">0</strong>
         </article>
+        <article class="metric-card alert">
+          <span>Flux actifs</span>
+          <strong id="metric-flows">0</strong>
+        </article>
       </section>
 
       <nav class="view-tabs" aria-label="Navigation NautiCRM">
         <button class="view-tab is-active" data-view="clients" type="button">Clients</button>
         <button class="view-tab" data-view="ai-import" type="button">Ajout IA</button>
         <button class="view-tab" data-view="detail" type="button">Fiche client</button>
+        <button class="view-tab" data-view="flows" type="button">Flux besoins</button>
         <button class="view-tab" data-view="tasks" type="button">Taches</button>
         <button class="view-tab" data-view="opportunities" type="button">Opportunites</button>
         <button class="view-tab" data-view="activity" type="button">Activite</button>
@@ -448,6 +453,87 @@
           <section class="panel">
             <div class="panel-header">
               <div>
+                <p class="eyebrow">Flux besoins</p>
+                <h2>Parcours client</h2>
+              </div>
+            </div>
+            <form id="flow-form" class="stack-form compact-form">
+              <input id="flow-id" type="hidden">
+              <label class="field">
+                <span>Besoin client</span>
+                <input id="flow-title" type="text" required>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Type de besoin</span>
+                  <select id="flow-need-type">
+                    <option value="information">Information</option>
+                    <option value="quote">Devis</option>
+                    <option value="order">Commande</option>
+                    <option value="support">Support</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="project">Projet</option>
+                    <option value="after_sales">Apres-vente</option>
+                    <option value="other">Autre</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Etape</span>
+                  <select id="flow-stage">
+                    <option value="intake">Reception</option>
+                    <option value="qualification">Qualification</option>
+                    <option value="planning">Planification</option>
+                    <option value="in_progress">En cours</option>
+                    <option value="waiting_client">Attente client</option>
+                    <option value="blocked">Bloque</option>
+                    <option value="completed">Termine</option>
+                  </select>
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Priorite</span>
+                  <select id="flow-priority">
+                    <option value="normal">Normale</option>
+                    <option value="urgent">Urgente</option>
+                    <option value="high">Haute</option>
+                    <option value="low">Basse</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Assigne a</span>
+                  <select id="flow-assigned"></select>
+                </label>
+              </div>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Debut prevu</span>
+                  <input id="flow-start" type="date">
+                </label>
+                <label class="field">
+                  <span>Echeance</span>
+                  <input id="flow-due" type="date">
+                </label>
+              </div>
+              <label class="field">
+                <span>Valeur estimee HT</span>
+                <input id="flow-value" type="number" min="0" step="0.01">
+              </label>
+              <label class="field">
+                <span>Notes</span>
+                <textarea id="flow-notes" rows="3"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="primary-button" type="submit">Enregistrer flux</button>
+                <button id="flow-reset-button" class="ghost-button" type="button">Nouveau flux</button>
+              </div>
+            </form>
+            <div id="client-flows-list" class="cards-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
                 <p class="eyebrow">Ventes</p>
                 <h2>Opportunites</h2>
               </div>
@@ -496,6 +582,19 @@
         </section>
       </section>
 
+      <section id="view-flows" class="view-section hidden" data-view-section="flows">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Besoins clients</p>
+              <h2>Flux de traitement</h2>
+            </div>
+            <span id="flow-priority-summary" class="status-pill muted-pill">0 prioritaire</span>
+          </div>
+          <div id="flows-board" class="flow-board"></div>
+        </section>
+      </section>
+
       <section id="view-tasks" class="view-section hidden" data-view-section="tasks">
         <section class="panel">
           <div class="panel-header">
@@ -534,6 +633,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260502-nauticrm"></script>
+  <script src="assets/app.js?v=20260505-flux-client"></script>
 </body>
 </html>

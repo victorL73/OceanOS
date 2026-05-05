@@ -19,6 +19,7 @@ NautiCRM utilise la session OceanOS et les droits de modules visibles.
 - relances client avec date de prochaine action
 - taches assignees aux utilisateurs OceanOS
 - opportunites commerciales avec etape, montant HT, probabilite et date de cloture
+- flux clients par besoin avec type de demande, etape de traitement, priorite, echeance, valeur estimee et assignation
 - synchronisation des clients PrestaShop depuis la configuration OceanOS
 - rapprochement par identifiant PrestaShop puis par email pour eviter les doublons
 - ajout par IA depuis texte libre ou CSV, avec recherche web publique, enrichissement et previsualisation avant import
@@ -34,6 +35,7 @@ nauticrm_contacts
 nauticrm_interactions
 nauticrm_tasks
 nauticrm_opportunities
+nauticrm_client_flows
 nauticrm_sync_runs
 ```
 

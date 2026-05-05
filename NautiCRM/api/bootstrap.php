@@ -201,6 +201,35 @@ function nauticrm_ensure_schema(PDO $pdo): void
             CONSTRAINT fk_nauticrm_sync_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nauticrm_client_flows (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            client_id BIGINT UNSIGNED NOT NULL,
+            assigned_user_id BIGINT UNSIGNED NULL,
+            created_by_user_id BIGINT UNSIGNED NULL,
+            updated_by_user_id BIGINT UNSIGNED NULL,
+            title VARCHAR(190) NOT NULL,
+            need_type ENUM('information', 'quote', 'order', 'support', 'maintenance', 'project', 'after_sales', 'other') NOT NULL DEFAULT 'other',
+            stage ENUM('intake', 'qualification', 'planning', 'in_progress', 'waiting_client', 'blocked', 'completed') NOT NULL DEFAULT 'intake',
+            priority ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
+            expected_start_at DATE NULL,
+            due_at DATE NULL,
+            estimated_value_tax_excl DECIMAL(14,2) NOT NULL DEFAULT 0,
+            notes TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_nauticrm_flows_client (client_id),
+            KEY idx_nauticrm_flows_assigned (assigned_user_id),
+            KEY idx_nauticrm_flows_stage_due (stage, due_at),
+            KEY idx_nauticrm_flows_need_type (need_type),
+            KEY idx_nauticrm_flows_priority (priority),
+            CONSTRAINT fk_nauticrm_flows_client FOREIGN KEY (client_id) REFERENCES nauticrm_clients(id) ON DELETE CASCADE,
+            CONSTRAINT fk_nauticrm_flows_assigned FOREIGN KEY (assigned_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_nauticrm_flows_created_by FOREIGN KEY (created_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_nauticrm_flows_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
 }
 
 function nauticrm_require_user(PDO $pdo): array
@@ -913,6 +942,7 @@ function nauticrm_public_client(array $row): array
         'contactCount' => (int) ($row['contact_count'] ?? 0),
         'interactionCount' => (int) ($row['interaction_count'] ?? 0),
         'openTaskCount' => (int) ($row['open_task_count'] ?? 0),
+        'activeFlowCount' => (int) ($row['active_flow_count'] ?? 0),
         'opportunityAmount' => (float) ($row['opportunity_amount'] ?? 0),
         'createdAt' => (string) ($row['created_at'] ?? ''),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
@@ -996,6 +1026,29 @@ function nauticrm_public_opportunity(array $row): array
     ];
 }
 
+function nauticrm_public_flow(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'clientId' => (int) $row['client_id'],
+        'clientName' => (string) ($row['company_name'] ?? ''),
+        'assignedUserId' => $row['assigned_user_id'] !== null ? (int) $row['assigned_user_id'] : null,
+        'assignedUserDisplayName' => (string) ($row['assigned_user_display_name'] ?? ''),
+        'createdByUserId' => $row['created_by_user_id'] !== null ? (int) $row['created_by_user_id'] : null,
+        'updatedByUserId' => $row['updated_by_user_id'] !== null ? (int) $row['updated_by_user_id'] : null,
+        'title' => (string) $row['title'],
+        'needType' => (string) $row['need_type'],
+        'stage' => (string) $row['stage'],
+        'priority' => (string) $row['priority'],
+        'expectedStartAt' => $row['expected_start_at'] !== null ? (string) $row['expected_start_at'] : '',
+        'dueAt' => $row['due_at'] !== null ? (string) $row['due_at'] : '',
+        'estimatedValueTaxExcl' => (float) ($row['estimated_value_tax_excl'] ?? 0),
+        'notes' => (string) ($row['notes'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
 function nauticrm_client_select_sql(): string
 {
     return "SELECT
@@ -1005,6 +1058,7 @@ function nauticrm_client_select_sql(): string
             (SELECT COUNT(*) FROM nauticrm_contacts ct WHERE ct.client_id = c.id) AS contact_count,
             (SELECT COUNT(*) FROM nauticrm_interactions i WHERE i.client_id = c.id) AS interaction_count,
             (SELECT COUNT(*) FROM nauticrm_tasks t WHERE t.client_id = c.id AND t.status IN ('todo', 'doing')) AS open_task_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows f WHERE f.client_id = c.id AND f.stage <> 'completed') AS active_flow_count,
             (SELECT COALESCE(SUM(o.amount_tax_excl), 0) FROM nauticrm_opportunities o WHERE o.client_id = c.id AND o.stage NOT IN ('won', 'lost')) AS opportunity_amount
         FROM nauticrm_clients c
         LEFT JOIN oceanos_users assigned ON assigned.id = c.assigned_user_id";
@@ -1043,6 +1097,9 @@ function nauticrm_stats(PDO $pdo): array
             (SELECT COUNT(*) FROM nauticrm_tasks WHERE status IN ('todo', 'doing')) AS open_task_count,
             (SELECT COUNT(*) FROM nauticrm_clients WHERE next_action_at IS NOT NULL AND next_action_at <= CURRENT_DATE AND status <> 'archived') AS due_followup_count,
             (SELECT COUNT(*) FROM nauticrm_clients WHERE prestashop_customer_id IS NOT NULL) AS prestashop_client_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed') AS active_flow_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed' AND priority IN ('urgent', 'high')) AS priority_flow_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage = 'blocked') AS blocked_flow_count,
             (SELECT COALESCE(SUM(amount_tax_excl), 0) FROM nauticrm_opportunities WHERE stage NOT IN ('won', 'lost')) AS pipeline_amount
         "
     )->fetch();
@@ -1054,6 +1111,9 @@ function nauticrm_stats(PDO $pdo): array
         'openTaskCount' => (int) ($row['open_task_count'] ?? 0),
         'dueFollowupCount' => (int) ($row['due_followup_count'] ?? 0),
         'prestashopClientCount' => (int) ($row['prestashop_client_count'] ?? 0),
+        'activeFlowCount' => (int) ($row['active_flow_count'] ?? 0),
+        'priorityFlowCount' => (int) ($row['priority_flow_count'] ?? 0),
+        'blockedFlowCount' => (int) ($row['blocked_flow_count'] ?? 0),
         'pipelineAmount' => (float) ($row['pipeline_amount'] ?? 0),
     ];
 }
@@ -1141,12 +1201,24 @@ function nauticrm_client_bundle(PDO $pdo, int $clientId): array
     );
     $opportunities->execute(['client_id' => $clientId]);
 
+    $flows = $pdo->prepare(
+        'SELECT f.*, c.company_name, assigned.display_name AS assigned_user_display_name
+         FROM nauticrm_client_flows f
+         INNER JOIN nauticrm_clients c ON c.id = f.client_id
+         LEFT JOIN oceanos_users assigned ON assigned.id = f.assigned_user_id
+         WHERE f.client_id = :client_id
+         ORDER BY FIELD(f.stage, \'intake\', \'qualification\', \'planning\', \'in_progress\', \'waiting_client\', \'blocked\', \'completed\'), FIELD(f.priority, \'urgent\', \'high\', \'normal\', \'low\'), f.due_at IS NULL ASC, f.due_at ASC, f.updated_at DESC
+         LIMIT 120'
+    );
+    $flows->execute(['client_id' => $clientId]);
+
     return [
         'client' => nauticrm_public_client($client),
         'contacts' => array_map(static fn(array $row): array => nauticrm_public_contact($row), $contacts->fetchAll() ?: []),
         'interactions' => array_map(static fn(array $row): array => nauticrm_public_interaction($row), $interactions->fetchAll() ?: []),
         'tasks' => array_map(static fn(array $row): array => nauticrm_public_task($row), $tasks->fetchAll() ?: []),
         'opportunities' => array_map(static fn(array $row): array => nauticrm_public_opportunity($row), $opportunities->fetchAll() ?: []),
+        'flows' => array_map(static fn(array $row): array => nauticrm_public_flow($row), $flows->fetchAll() ?: []),
     ];
 }
 
@@ -1193,6 +1265,21 @@ function nauticrm_list_opportunities(PDO $pdo): array
     return array_map(static fn(array $row): array => nauticrm_public_opportunity($row), $rows ?: []);
 }
 
+function nauticrm_list_flows(PDO $pdo): array
+{
+    $rows = $pdo->query(
+        'SELECT f.*, c.company_name, assigned.display_name AS assigned_user_display_name
+         FROM nauticrm_client_flows f
+         INNER JOIN nauticrm_clients c ON c.id = f.client_id
+         LEFT JOIN oceanos_users assigned ON assigned.id = f.assigned_user_id
+         WHERE c.status <> \'archived\' AND f.stage <> \'completed\'
+         ORDER BY FIELD(f.stage, \'intake\', \'qualification\', \'planning\', \'in_progress\', \'waiting_client\', \'blocked\', \'completed\'), FIELD(f.priority, \'urgent\', \'high\', \'normal\', \'low\'), f.due_at IS NULL ASC, f.due_at ASC, f.updated_at DESC
+         LIMIT 120'
+    )->fetchAll();
+
+    return array_map(static fn(array $row): array => nauticrm_public_flow($row), $rows ?: []);
+}
+
 function nauticrm_dashboard(PDO $pdo, array $query, array $user): array
 {
     return [
@@ -1207,6 +1294,7 @@ function nauticrm_dashboard(PDO $pdo, array $query, array $user): array
         'recentInteractions' => nauticrm_list_recent_interactions($pdo),
         'tasks' => nauticrm_list_open_tasks($pdo),
         'opportunities' => nauticrm_list_opportunities($pdo),
+        'flows' => nauticrm_list_flows($pdo),
     ];
 }
 
@@ -2173,6 +2261,70 @@ function nauticrm_save_opportunity(PDO $pdo, array $user, array $input): array
         $statement = $pdo->prepare(
             'INSERT INTO nauticrm_opportunities (client_id, title, stage, amount_tax_excl, probability, expected_close_at, notes, created_by_user_id)
              VALUES (:client_id, :title, :stage, :amount_tax_excl, :probability, :expected_close_at, :notes, :created_by_user_id)'
+        );
+        $statement->execute($params);
+    }
+
+    return nauticrm_client_bundle($pdo, $clientId);
+}
+
+function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
+{
+    $id = (int) ($input['id'] ?? 0);
+    $clientId = (int) ($input['clientId'] ?? 0);
+    nauticrm_require_client($pdo, $clientId);
+
+    $title = nauticrm_clean_text($input['title'] ?? '', 190, true);
+    if ($title === '') {
+        throw new InvalidArgumentException('Le titre du flux client est obligatoire.');
+    }
+
+    $params = [
+        'client_id' => $clientId,
+        'assigned_user_id' => (int) ($input['assignedUserId'] ?? 0) > 0 ? (int) $input['assignedUserId'] : null,
+        'updated_by_user_id' => (int) $user['id'],
+        'title' => $title,
+        'need_type' => nauticrm_enum($input['needType'] ?? '', ['information', 'quote', 'order', 'support', 'maintenance', 'project', 'after_sales', 'other'], 'other'),
+        'stage' => nauticrm_enum($input['stage'] ?? '', ['intake', 'qualification', 'planning', 'in_progress', 'waiting_client', 'blocked', 'completed'], 'intake'),
+        'priority' => nauticrm_enum($input['priority'] ?? '', ['low', 'normal', 'high', 'urgent'], 'normal'),
+        'expected_start_at' => nauticrm_date($input['expectedStartAt'] ?? ''),
+        'due_at' => nauticrm_date($input['dueAt'] ?? ''),
+        'estimated_value_tax_excl' => nauticrm_money($input['estimatedValueTaxExcl'] ?? '0'),
+        'notes' => nauticrm_nullable_text($input['notes'] ?? '', 8000, false),
+    ];
+
+    if ($id > 0) {
+        $check = $pdo->prepare('SELECT client_id FROM nauticrm_client_flows WHERE id = :id LIMIT 1');
+        $check->execute(['id' => $id]);
+        $existingClientId = (int) ($check->fetchColumn() ?: 0);
+        if ($existingClientId <= 0 || $existingClientId !== $clientId) {
+            throw new InvalidArgumentException('Flux client introuvable.');
+        }
+
+        $params['id'] = $id;
+        $statement = $pdo->prepare(
+            'UPDATE nauticrm_client_flows
+             SET client_id = :client_id,
+                 assigned_user_id = :assigned_user_id,
+                 updated_by_user_id = :updated_by_user_id,
+                 title = :title,
+                 need_type = :need_type,
+                 stage = :stage,
+                 priority = :priority,
+                 expected_start_at = :expected_start_at,
+                 due_at = :due_at,
+                 estimated_value_tax_excl = :estimated_value_tax_excl,
+                 notes = :notes
+             WHERE id = :id'
+        );
+        $statement->execute($params);
+    } else {
+        $params['created_by_user_id'] = (int) $user['id'];
+        $statement = $pdo->prepare(
+            'INSERT INTO nauticrm_client_flows
+                (client_id, assigned_user_id, created_by_user_id, updated_by_user_id, title, need_type, stage, priority, expected_start_at, due_at, estimated_value_tax_excl, notes)
+             VALUES
+                (:client_id, :assigned_user_id, :created_by_user_id, :updated_by_user_id, :title, :need_type, :stage, :priority, :expected_start_at, :due_at, :estimated_value_tax_excl, :notes)'
         );
         $statement->execute($params);
     }
