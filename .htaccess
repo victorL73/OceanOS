@@ -1,5 +1,6 @@
 Options -Indexes
 ServerSignature Off
+AddType application/manifest+json .webmanifest
 
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
@@ -19,9 +20,11 @@ ServerSignature Off
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteRule (^|/)\.git(/|$) - [F,L]
+  RewriteRule (^|/)_backups?(/|$) - [F,L]
+  RewriteRule (^|/)OceanOS/config/ - [F,L]
 </IfModule>
 
-<FilesMatch "(^\.env|\.secret$|server\.local\.php$|admin_credentials\.php$|login_attempts\.php$|composer\.(json|lock)$|package(-lock)?\.json$)">
+<FilesMatch "(^\.env|\.secret$|\.invocean_secret$|server\.php$|server\.local\.php$|push\.local\.php$|admin_credentials\.php$|login_attempts\.php$|composer\.(json|lock)$|package(-lock)?\.json$)">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>

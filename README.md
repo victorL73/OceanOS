@@ -16,7 +16,7 @@ www/
   SAV/                   Demandes clients PrestaShop et reponses support
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Tresorcean/            Finance, tresorerie, benefices et TVA
-  NautiCRM/              CRM clients, contacts, relances, flux besoins et opportunites
+  NautiCRM/              CRM clients, contacts, relances, flux besoins recurrents et opportunites
   Prospection/           Prospects, templates mail, IA et transfert NautiCRM
   NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
   NautiPost/             Campagnes, messages et outils marketing
