@@ -1340,6 +1340,25 @@ function nauticrm_ai_normalize_url(string $url): string
             $url = (string) $parts['uddg'];
         }
     }
+    if (str_contains($url, 'bing.com/ck/') && str_contains($url, 'u=')) {
+        $query = parse_url($url, PHP_URL_QUERY) ?: '';
+        parse_str($query, $parts);
+        $encoded = (string) ($parts['u'] ?? '');
+        if (str_starts_with($encoded, 'a1')) {
+            $encoded = substr($encoded, 2);
+        }
+        if ($encoded !== '') {
+            $encoded = strtr($encoded, '-_', '+/');
+            $padding = strlen($encoded) % 4;
+            if ($padding > 0) {
+                $encoded .= str_repeat('=', 4 - $padding);
+            }
+            $decoded = base64_decode($encoded, true);
+            if (is_string($decoded) && str_starts_with($decoded, 'http')) {
+                $url = $decoded;
+            }
+        }
+    }
 
     $url = preg_replace('/#.*$/', '', $url) ?: $url;
     return trim($url);

@@ -623,6 +623,25 @@ td span {
   padding: 16px;
 }
 
+.ai-sources-summary {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(47, 111, 179, 0.24);
+  border-radius: 8px;
+  padding: 13px;
+  background: rgba(47, 111, 179, 0.07);
+}
+
+.ai-sources-summary strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.ai-sources-summary small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .ai-preview-card {
   display: grid;
   gap: 10px;

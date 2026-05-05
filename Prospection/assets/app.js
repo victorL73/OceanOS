@@ -118,6 +118,7 @@ const state = {
   currentView: "prospects",
   aiImport: {
     prospects: [],
+    sources: [],
   },
 };
 
@@ -558,6 +559,7 @@ function urlHost(url) {
 function renderAiPreview() {
   const prospects = filteredAiProspects();
   const total = state.aiImport.prospects.length;
+  const sourcePages = Array.isArray(state.aiImport.sources) ? state.aiImport.sources.filter((source) => source?.url) : [];
   elements.aiCount.textContent = `${total} prospect${total > 1 ? "s" : ""}`;
   elements.aiImportButton.disabled = total === 0;
 
@@ -570,7 +572,19 @@ function renderAiPreview() {
     return;
   }
 
-  elements.aiPreview.innerHTML = prospects.map((prospect) => {
+  const sourceSummary = sourcePages.length ? `
+    <section class="ai-sources-summary">
+      <div>
+        <strong>${sourcePages.length} source${sourcePages.length > 1 ? "s" : ""} web analysee${sourcePages.length > 1 ? "s" : ""}</strong>
+        <small>Les fiches ci-dessous reprennent les informations publiques qui correspondent au nom et au lieu.</small>
+      </div>
+      <div class="ai-source-list">
+        ${sourcePages.slice(0, 10).map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title || urlHost(source.url))}</a>`).join("")}
+      </div>
+    </section>
+  ` : "";
+
+  elements.aiPreview.innerHTML = sourceSummary + prospects.map((prospect) => {
     const originalIndex = state.aiImport.prospects.indexOf(prospect);
     const name = prospect.companyName || [prospect.firstName, prospect.lastName].filter(Boolean).join(" ") || prospect.email || "Prospect IA";
     const contact = [prospect.firstName, prospect.lastName].filter(Boolean).join(" ");
@@ -619,6 +633,7 @@ async function cleanAiImport() {
       }),
     });
     state.aiImport.prospects = payload.prospects || [];
+    state.aiImport.sources = payload.sources || [];
     renderAiPreview();
     showMessage(payload.message || `${state.aiImport.prospects.length} prospect(s) prepare(s).`, "success");
   } catch (error) {
@@ -643,6 +658,7 @@ async function handleAiCsvFile() {
   try {
     elements.aiRaw.value = await readAiCsvFile(file);
     state.aiImport.prospects = [];
+    state.aiImport.sources = [];
     renderAiPreview();
     showMessage("CSV charge. Lancez le nettoyage IA pour preparer les prospects.", "success");
   } catch (error) {
@@ -669,6 +685,7 @@ async function importAiProspects() {
       }),
     });
     state.aiImport.prospects = [];
+    state.aiImport.sources = [];
     elements.aiRaw.value = "";
     applyDashboard(payload.dashboard || payload);
     renderAiPreview();
@@ -683,6 +700,7 @@ async function importAiProspects() {
 
 function clearAiImport() {
   state.aiImport.prospects = [];
+  state.aiImport.sources = [];
   elements.aiRaw.value = "";
   renderAiPreview();
 }
