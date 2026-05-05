@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nauticrm.svg?v=20260502">
   <meta name="description" content="NautiCRM - CRM client connecte a OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/style.css?v=20260505-interactions">
   <script defer src="/OceanOS/assets/guard.js?v=20260503-nautimail-notification-link"></script>
 </head>
 <body>
@@ -350,7 +350,7 @@
             <div id="contacts-list" class="cards-list"></div>
           </section>
 
-          <section class="panel">
+          <section class="panel" id="interaction-panel">
             <div class="panel-header">
               <div>
                 <p class="eyebrow">Suivi</p>
@@ -519,6 +519,29 @@
                 <span>Valeur estimee HT</span>
                 <input id="flow-value" type="number" min="0" step="0.01">
               </label>
+              <label class="check-field">
+                <input id="flow-recurring" type="checkbox">
+                <span>Flux recurrent avec notification OceanOS</span>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Frequence</span>
+                  <select id="flow-frequency">
+                    <option value="daily">Chaque jour</option>
+                    <option value="weekly">Chaque semaine</option>
+                    <option value="monthly">Chaque mois</option>
+                    <option value="quarterly">Chaque trimestre</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Intervalle</span>
+                  <input id="flow-interval" type="number" min="1" max="52" value="1">
+                </label>
+              </div>
+              <label class="field">
+                <span>Prochaine notification</span>
+                <input id="flow-next-notification" type="datetime-local">
+              </label>
               <label class="field">
                 <span>Notes</span>
                 <textarea id="flow-notes" rows="3"></textarea>
@@ -633,6 +656,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260505-flux-client"></script>
+  <script src="assets/app.js?v=20260505-interactions"></script>
 </body>
 </html>

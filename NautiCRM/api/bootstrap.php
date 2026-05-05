@@ -216,6 +216,12 @@ function nauticrm_ensure_schema(PDO $pdo): void
             expected_start_at DATE NULL,
             due_at DATE NULL,
             estimated_value_tax_excl DECIMAL(14,2) NOT NULL DEFAULT 0,
+            is_recurring TINYINT(1) NOT NULL DEFAULT 0,
+            recurrence_frequency ENUM('daily', 'weekly', 'monthly', 'quarterly') NULL,
+            recurrence_interval SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+            next_notification_at DATETIME NULL,
+            last_notification_at DATETIME NULL,
+            notification_count INT UNSIGNED NOT NULL DEFAULT 0,
             notes TEXT NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -224,12 +230,32 @@ function nauticrm_ensure_schema(PDO $pdo): void
             KEY idx_nauticrm_flows_stage_due (stage, due_at),
             KEY idx_nauticrm_flows_need_type (need_type),
             KEY idx_nauticrm_flows_priority (priority),
+            KEY idx_nauticrm_flows_next_notification (is_recurring, next_notification_at),
             CONSTRAINT fk_nauticrm_flows_client FOREIGN KEY (client_id) REFERENCES nauticrm_clients(id) ON DELETE CASCADE,
             CONSTRAINT fk_nauticrm_flows_assigned FOREIGN KEY (assigned_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL,
             CONSTRAINT fk_nauticrm_flows_created_by FOREIGN KEY (created_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL,
             CONSTRAINT fk_nauticrm_flows_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
+
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'is_recurring')) {
+        $pdo->exec('ALTER TABLE nauticrm_client_flows ADD COLUMN is_recurring TINYINT(1) NOT NULL DEFAULT 0 AFTER estimated_value_tax_excl');
+    }
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'recurrence_frequency')) {
+        $pdo->exec("ALTER TABLE nauticrm_client_flows ADD COLUMN recurrence_frequency ENUM('daily', 'weekly', 'monthly', 'quarterly') NULL AFTER is_recurring");
+    }
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'recurrence_interval')) {
+        $pdo->exec('ALTER TABLE nauticrm_client_flows ADD COLUMN recurrence_interval SMALLINT UNSIGNED NOT NULL DEFAULT 1 AFTER recurrence_frequency');
+    }
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'next_notification_at')) {
+        $pdo->exec('ALTER TABLE nauticrm_client_flows ADD COLUMN next_notification_at DATETIME NULL AFTER recurrence_interval');
+    }
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'last_notification_at')) {
+        $pdo->exec('ALTER TABLE nauticrm_client_flows ADD COLUMN last_notification_at DATETIME NULL AFTER next_notification_at');
+    }
+    if (!oceanos_column_exists($pdo, 'nauticrm_client_flows', 'notification_count')) {
+        $pdo->exec('ALTER TABLE nauticrm_client_flows ADD COLUMN notification_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER last_notification_at');
+    }
 }
 
 function nauticrm_require_user(PDO $pdo): array
@@ -327,6 +353,16 @@ function nauticrm_datetime(mixed $value): string
     }
 
     return $date;
+}
+
+function nauticrm_nullable_datetime(mixed $value): ?string
+{
+    $date = trim((string) $value);
+    if ($date === '') {
+        return null;
+    }
+
+    return nauticrm_datetime($date);
 }
 
 function nauticrm_mysql_datetime_or_null(mixed $value): ?string
@@ -1043,6 +1079,12 @@ function nauticrm_public_flow(array $row): array
         'expectedStartAt' => $row['expected_start_at'] !== null ? (string) $row['expected_start_at'] : '',
         'dueAt' => $row['due_at'] !== null ? (string) $row['due_at'] : '',
         'estimatedValueTaxExcl' => (float) ($row['estimated_value_tax_excl'] ?? 0),
+        'isRecurring' => (bool) ($row['is_recurring'] ?? false),
+        'recurrenceFrequency' => (string) ($row['recurrence_frequency'] ?? ''),
+        'recurrenceInterval' => (int) ($row['recurrence_interval'] ?? 1),
+        'nextNotificationAt' => $row['next_notification_at'] !== null ? (string) $row['next_notification_at'] : '',
+        'lastNotificationAt' => $row['last_notification_at'] !== null ? (string) $row['last_notification_at'] : '',
+        'notificationCount' => (int) ($row['notification_count'] ?? 0),
         'notes' => (string) ($row['notes'] ?? ''),
         'createdAt' => (string) ($row['created_at'] ?? ''),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
@@ -1100,6 +1142,8 @@ function nauticrm_stats(PDO $pdo): array
             (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed') AS active_flow_count,
             (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed' AND priority IN ('urgent', 'high')) AS priority_flow_count,
             (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage = 'blocked') AS blocked_flow_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed' AND is_recurring = 1) AS recurring_flow_count,
+            (SELECT COUNT(*) FROM nauticrm_client_flows WHERE stage <> 'completed' AND is_recurring = 1 AND next_notification_at IS NOT NULL AND next_notification_at <= NOW()) AS due_flow_notification_count,
             (SELECT COALESCE(SUM(amount_tax_excl), 0) FROM nauticrm_opportunities WHERE stage NOT IN ('won', 'lost')) AS pipeline_amount
         "
     )->fetch();
@@ -1114,6 +1158,8 @@ function nauticrm_stats(PDO $pdo): array
         'activeFlowCount' => (int) ($row['active_flow_count'] ?? 0),
         'priorityFlowCount' => (int) ($row['priority_flow_count'] ?? 0),
         'blockedFlowCount' => (int) ($row['blocked_flow_count'] ?? 0),
+        'recurringFlowCount' => (int) ($row['recurring_flow_count'] ?? 0),
+        'dueFlowNotificationCount' => (int) ($row['due_flow_notification_count'] ?? 0),
         'pipelineAmount' => (float) ($row['pipeline_amount'] ?? 0),
     ];
 }
@@ -2268,6 +2314,40 @@ function nauticrm_save_opportunity(PDO $pdo, array $user, array $input): array
     return nauticrm_client_bundle($pdo, $clientId);
 }
 
+function nauticrm_default_next_notification(?string $nextNotificationAt, ?string $dueAt): ?string
+{
+    if ($nextNotificationAt !== null) {
+        return $nextNotificationAt;
+    }
+    if ($dueAt !== null) {
+        return $dueAt . ' 09:00:00';
+    }
+
+    return (new DateTimeImmutable('tomorrow 09:00'))->format('Y-m-d H:i:s');
+}
+
+function nauticrm_next_recurring_notification(string $from, string $frequency, int $interval): string
+{
+    $date = new DateTimeImmutable($from);
+    $now = new DateTimeImmutable('now');
+    $interval = max(1, min(52, $interval));
+    $frequency = nauticrm_enum($frequency, ['daily', 'weekly', 'monthly', 'quarterly'], 'weekly');
+
+    do {
+        if ($frequency === 'daily') {
+            $date = $date->add(new DateInterval('P' . $interval . 'D'));
+        } elseif ($frequency === 'weekly') {
+            $date = $date->add(new DateInterval('P' . $interval . 'W'));
+        } elseif ($frequency === 'monthly') {
+            $date = $date->add(new DateInterval('P' . $interval . 'M'));
+        } else {
+            $date = $date->add(new DateInterval('P' . ($interval * 3) . 'M'));
+        }
+    } while ($date <= $now);
+
+    return $date->format('Y-m-d H:i:s');
+}
+
 function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
 {
     $id = (int) ($input['id'] ?? 0);
@@ -2279,6 +2359,14 @@ function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
         throw new InvalidArgumentException('Le titre du flux client est obligatoire.');
     }
 
+    $isRecurring = !empty($input['isRecurring']);
+    $dueAt = nauticrm_date($input['dueAt'] ?? '');
+    $nextNotificationAt = nauticrm_nullable_datetime($input['nextNotificationAt'] ?? '');
+    $recurrenceFrequency = $isRecurring
+        ? nauticrm_enum($input['recurrenceFrequency'] ?? '', ['daily', 'weekly', 'monthly', 'quarterly'], 'weekly')
+        : null;
+    $recurrenceInterval = $isRecurring ? max(1, min(52, (int) ($input['recurrenceInterval'] ?? 1))) : 1;
+
     $params = [
         'client_id' => $clientId,
         'assigned_user_id' => (int) ($input['assignedUserId'] ?? 0) > 0 ? (int) $input['assignedUserId'] : null,
@@ -2288,8 +2376,12 @@ function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
         'stage' => nauticrm_enum($input['stage'] ?? '', ['intake', 'qualification', 'planning', 'in_progress', 'waiting_client', 'blocked', 'completed'], 'intake'),
         'priority' => nauticrm_enum($input['priority'] ?? '', ['low', 'normal', 'high', 'urgent'], 'normal'),
         'expected_start_at' => nauticrm_date($input['expectedStartAt'] ?? ''),
-        'due_at' => nauticrm_date($input['dueAt'] ?? ''),
+        'due_at' => $dueAt,
         'estimated_value_tax_excl' => nauticrm_money($input['estimatedValueTaxExcl'] ?? '0'),
+        'is_recurring' => $isRecurring ? 1 : 0,
+        'recurrence_frequency' => $recurrenceFrequency,
+        'recurrence_interval' => $recurrenceInterval,
+        'next_notification_at' => $isRecurring ? nauticrm_default_next_notification($nextNotificationAt, $dueAt) : null,
         'notes' => nauticrm_nullable_text($input['notes'] ?? '', 8000, false),
     ];
 
@@ -2314,6 +2406,10 @@ function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
                  expected_start_at = :expected_start_at,
                  due_at = :due_at,
                  estimated_value_tax_excl = :estimated_value_tax_excl,
+                 is_recurring = :is_recurring,
+                 recurrence_frequency = :recurrence_frequency,
+                 recurrence_interval = :recurrence_interval,
+                 next_notification_at = :next_notification_at,
                  notes = :notes
              WHERE id = :id'
         );
@@ -2322,14 +2418,88 @@ function nauticrm_save_flow(PDO $pdo, array $user, array $input): array
         $params['created_by_user_id'] = (int) $user['id'];
         $statement = $pdo->prepare(
             'INSERT INTO nauticrm_client_flows
-                (client_id, assigned_user_id, created_by_user_id, updated_by_user_id, title, need_type, stage, priority, expected_start_at, due_at, estimated_value_tax_excl, notes)
+                (client_id, assigned_user_id, created_by_user_id, updated_by_user_id, title, need_type, stage, priority, expected_start_at, due_at, estimated_value_tax_excl, is_recurring, recurrence_frequency, recurrence_interval, next_notification_at, notes)
              VALUES
-                (:client_id, :assigned_user_id, :created_by_user_id, :updated_by_user_id, :title, :need_type, :stage, :priority, :expected_start_at, :due_at, :estimated_value_tax_excl, :notes)'
+                (:client_id, :assigned_user_id, :created_by_user_id, :updated_by_user_id, :title, :need_type, :stage, :priority, :expected_start_at, :due_at, :estimated_value_tax_excl, :is_recurring, :recurrence_frequency, :recurrence_interval, :next_notification_at, :notes)'
         );
         $statement->execute($params);
     }
 
     return nauticrm_client_bundle($pdo, $clientId);
+}
+
+function nauticrm_dispatch_due_flow_notifications(PDO $pdo, int $userId): void
+{
+    if ($userId <= 0 || !function_exists('oceanos_create_notification')) {
+        return;
+    }
+
+    nauticrm_ensure_schema($pdo);
+    $statement = $pdo->prepare(
+        'SELECT f.*, c.company_name
+         FROM nauticrm_client_flows f
+         INNER JOIN nauticrm_clients c ON c.id = f.client_id
+         WHERE f.is_recurring = 1
+           AND f.stage <> \'completed\'
+           AND f.next_notification_at IS NOT NULL
+           AND f.next_notification_at <= NOW()
+           AND COALESCE(f.assigned_user_id, f.created_by_user_id) = :user_id
+         ORDER BY f.next_notification_at ASC, FIELD(f.priority, \'urgent\', \'high\', \'normal\', \'low\')
+         LIMIT 25'
+    );
+    $statement->execute(['user_id' => $userId]);
+    $rows = $statement->fetchAll() ?: [];
+
+    foreach ($rows as $row) {
+        $flowId = (int) $row['id'];
+        $clientId = (int) $row['client_id'];
+        $notificationAt = (string) $row['next_notification_at'];
+        $priority = (string) ($row['priority'] ?? 'normal');
+        $severity = $priority === 'urgent' ? 'danger' : (in_array($priority, ['high'], true) ? 'warning' : 'info');
+        $title = 'Flux recurrent: ' . (string) $row['title'];
+        $body = sprintf(
+            'Client: %s. Etape: %s. Besoin: %s.',
+            (string) $row['company_name'],
+            (string) $row['stage'],
+            (string) $row['need_type']
+        );
+        $dedupeKey = 'nauticrm-flow-recurring-' . $flowId . '-' . preg_replace('/[^0-9]/', '', $notificationAt);
+
+        oceanos_create_notification(
+            $pdo,
+            $userId,
+            null,
+            'NautiCRM',
+            'nauticrm_flow_recurrence',
+            $severity,
+            $title,
+            $body,
+            '/NautiCRM/?client=' . $clientId . '&view=detail',
+            [
+                'flowId' => $flowId,
+                'clientId' => $clientId,
+                'nextNotificationAt' => $notificationAt,
+            ],
+            $dedupeKey
+        );
+
+        $next = nauticrm_next_recurring_notification(
+            $notificationAt,
+            (string) ($row['recurrence_frequency'] ?? 'weekly'),
+            (int) ($row['recurrence_interval'] ?? 1)
+        );
+        $update = $pdo->prepare(
+            'UPDATE nauticrm_client_flows
+             SET last_notification_at = NOW(),
+                 next_notification_at = :next_notification_at,
+                 notification_count = notification_count + 1
+             WHERE id = :id'
+        );
+        $update->execute([
+            'id' => $flowId,
+            'next_notification_at' => $next,
+        ]);
+    }
 }
 
 function nauticrm_archive_client(PDO $pdo, array $user, array $input): array

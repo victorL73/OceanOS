@@ -541,20 +541,54 @@ td span {
   margin-top: 14px;
 }
 
-.detail-kpis span {
+.detail-kpi {
   display: grid;
   gap: 3px;
   padding: 10px;
+  border: 0;
   border-radius: 8px;
   background: var(--surface-soft);
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 850;
+  text-align: left;
+}
+
+.detail-kpi-action {
+  cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.detail-kpi-action:hover,
+.detail-kpi-action:focus-visible {
+  box-shadow: 0 0 0 3px rgba(8, 125, 121, 0.14);
+  color: var(--teal);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .detail-kpis strong {
   color: var(--text);
   font-size: 1.05rem;
+}
+
+.panel-focus {
+  animation: panel-focus-pulse 1.6s ease;
+}
+
+@keyframes panel-focus-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(8, 125, 121, 0.24), var(--shadow);
+    border-color: rgba(8, 125, 121, 0.42);
+  }
+  55% {
+    box-shadow: 0 0 0 7px rgba(8, 125, 121, 0.08), var(--shadow);
+    border-color: rgba(8, 125, 121, 0.42);
+  }
+  100% {
+    box-shadow: var(--shadow);
+    border-color: var(--line);
+  }
 }
 
 .empty-state {

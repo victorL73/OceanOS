@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/oceanos.svg?v=20260427">
+  <link rel="manifest" href="/OceanOS/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/OceanOS/assets/favicons/oceanos-180.png">
+  <meta name="theme-color" content="#071018">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="OceanOS">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="description" content="OceanOS - Portail ERP central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
   <link rel="stylesheet" href="assets/guard.css">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260503-git-revision-pill">
@@ -358,7 +364,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260503-nautimail-notification-link"></script>
+  <script defer src="assets/guard.js?v=20260505-pwa-push"></script>
   <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
 </body>
 </html>

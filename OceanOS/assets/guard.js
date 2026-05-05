@@ -2,6 +2,9 @@
   const portalUrl = "/OceanOS/";
   const authUrl = "/OceanOS/api/auth.php";
   const notificationsUrl = "/OceanOS/api/notifications.php";
+  const pushUrl = "/OceanOS/api/push.php";
+  const pwaManifestUrl = "/OceanOS/manifest.webmanifest";
+  const serviceWorkerUrl = "/oceanos-sw.js";
   const path = window.location.pathname;
   const isPortal = path.toLowerCase().startsWith("/oceanos/");
   const isMeetOcean = path.toLowerCase().startsWith("/meetocean/");
@@ -44,8 +47,18 @@
     panel: null,
     list: null,
     status: null,
+    pushPanel: null,
+    pushStatus: null,
+    pushEnableButton: null,
+    pushDisableButton: null,
+    pushAvailable: false,
+    pushSubscribed: false,
+    pushLoading: false,
+    pushPublicKey: "",
+    pushMessage: "",
     refreshListenerInstalled: false,
   };
+  let serviceWorkerRegistrationPromise = null;
 
   function nextUrl() {
     return window.location.pathname + window.location.search + window.location.hash;
@@ -138,6 +151,223 @@
       throw new Error(payload.message || payload.error || "Erreur OceanOS.");
     }
     return payload;
+  }
+
+  function installPwaMetadata() {
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const manifest = document.createElement("link");
+      manifest.rel = "manifest";
+      manifest.href = pwaManifestUrl;
+      document.head.appendChild(manifest);
+    }
+    if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+      const icon = document.createElement("link");
+      icon.rel = "apple-touch-icon";
+      icon.href = "/OceanOS/assets/favicons/oceanos-180.png";
+      document.head.appendChild(icon);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      const theme = document.createElement("meta");
+      theme.name = "theme-color";
+      theme.content = "#071018";
+      document.head.appendChild(theme);
+    }
+    if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+      const capable = document.createElement("meta");
+      capable.name = "apple-mobile-web-app-capable";
+      capable.content = "yes";
+      document.head.appendChild(capable);
+    }
+    if (!document.querySelector('meta[name="apple-mobile-web-app-title"]')) {
+      const title = document.createElement("meta");
+      title.name = "apple-mobile-web-app-title";
+      title.content = "OceanOS";
+      document.head.appendChild(title);
+    }
+  }
+
+  function pushSupported() {
+    return "Notification" in window
+      && "serviceWorker" in navigator
+      && "PushManager" in window;
+  }
+
+  function registerServiceWorker() {
+    if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+      return Promise.resolve(null);
+    }
+    if (!serviceWorkerRegistrationPromise) {
+      serviceWorkerRegistrationPromise = navigator.serviceWorker
+        .register(serviceWorkerUrl, { scope: "/" })
+        .catch((error) => {
+          serviceWorkerRegistrationPromise = null;
+          throw error;
+        });
+    }
+    return serviceWorkerRegistrationPromise;
+  }
+
+  function urlBase64ToUint8Array(value) {
+    const padding = "=".repeat((4 - (value.length % 4)) % 4);
+    const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+    const raw = window.atob(base64);
+    const output = new Uint8Array(raw.length);
+    for (let index = 0; index < raw.length; index += 1) {
+      output[index] = raw.charCodeAt(index);
+    }
+    return output;
+  }
+
+  function renderPushState() {
+    if (!notificationState.pushPanel || !notificationState.pushStatus) return;
+
+    const unsupported = !pushSupported();
+    const insecure = !window.isSecureContext;
+    const denied = pushSupported() && window.Notification.permission === "denied";
+    const active = notificationState.pushSubscribed;
+    notificationState.pushPanel.classList.toggle("is-active", active);
+
+    let message = notificationState.pushMessage;
+    if (!message) {
+      if (unsupported) {
+        message = "Notifications mobiles indisponibles sur ce navigateur.";
+      } else if (insecure) {
+        message = "HTTPS requis pour les notifications mobiles.";
+      } else if (denied) {
+        message = "Autorisation bloquee dans le navigateur.";
+      } else if (active) {
+        message = "Notifications mobiles actives sur cet appareil.";
+      } else {
+        message = "Notifications mobiles inactives sur cet appareil.";
+      }
+    }
+
+    notificationState.pushStatus.textContent = message;
+    if (notificationState.pushEnableButton) {
+      notificationState.pushEnableButton.hidden = active;
+      notificationState.pushEnableButton.disabled = notificationState.pushLoading || unsupported || insecure || denied;
+      notificationState.pushEnableButton.textContent = notificationState.pushLoading ? "..." : "Activer";
+    }
+    if (notificationState.pushDisableButton) {
+      notificationState.pushDisableButton.hidden = !active;
+      notificationState.pushDisableButton.disabled = notificationState.pushLoading;
+    }
+  }
+
+  async function refreshPushState() {
+    if (!notificationState.pushPanel) return;
+    notificationState.pushLoading = true;
+    notificationState.pushMessage = "";
+    renderPushState();
+
+    try {
+      const payload = await fetchJson(pushUrl);
+      const push = payload.push && typeof payload.push === "object" ? payload.push : {};
+      notificationState.pushAvailable = Boolean(push.available);
+      notificationState.pushPublicKey = String(push.publicKey || "");
+
+      if (!pushSupported() || !window.isSecureContext || !notificationState.pushAvailable) {
+        notificationState.pushSubscribed = false;
+        if (!notificationState.pushAvailable && pushSupported() && window.isSecureContext) {
+          notificationState.pushMessage = "Configuration push indisponible sur le serveur.";
+        }
+        return;
+      }
+
+      const registration = await registerServiceWorker();
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      notificationState.pushSubscribed = Boolean(subscription);
+      if (subscription && !push.subscribed) {
+        await fetchJson(pushUrl, {
+          method: "POST",
+          body: JSON.stringify({ subscription: subscription.toJSON() }),
+        });
+      }
+    } catch (error) {
+      notificationState.pushMessage = "Etat mobile indisponible.";
+    } finally {
+      notificationState.pushLoading = false;
+      renderPushState();
+    }
+  }
+
+  async function activatePushNotifications() {
+    notificationState.pushLoading = true;
+    notificationState.pushMessage = "";
+    renderPushState();
+
+    try {
+      if (!pushSupported()) {
+        throw new Error("Notifications mobiles indisponibles sur ce navigateur.");
+      }
+      if (!window.isSecureContext) {
+        throw new Error("HTTPS requis pour les notifications mobiles.");
+      }
+
+      const payload = await fetchJson(pushUrl);
+      const push = payload.push && typeof payload.push === "object" ? payload.push : {};
+      const publicKey = String(push.publicKey || "");
+      if (!push.available || !publicKey) {
+        throw new Error("Configuration push indisponible sur le serveur.");
+      }
+
+      const permission = await window.Notification.requestPermission();
+      if (permission !== "granted") {
+        throw new Error("Autorisation non accordee.");
+      }
+
+      const registration = await registerServiceWorker();
+      if (!registration) {
+        throw new Error("Service worker indisponible.");
+      }
+
+      const existing = await registration.pushManager.getSubscription();
+      const subscription = existing || await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+
+      await fetchJson(pushUrl, {
+        method: "POST",
+        body: JSON.stringify({ subscription: subscription.toJSON() }),
+      });
+      notificationState.pushAvailable = true;
+      notificationState.pushPublicKey = publicKey;
+      notificationState.pushSubscribed = true;
+      notificationState.pushMessage = "Notifications mobiles activees.";
+    } catch (error) {
+      notificationState.pushSubscribed = false;
+      notificationState.pushMessage = error.message || "Activation impossible.";
+    } finally {
+      notificationState.pushLoading = false;
+      renderPushState();
+    }
+  }
+
+  async function deactivatePushNotifications() {
+    notificationState.pushLoading = true;
+    notificationState.pushMessage = "";
+    renderPushState();
+
+    try {
+      const registration = await registerServiceWorker();
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      const endpoint = subscription ? subscription.endpoint : "";
+      if (subscription) {
+        await subscription.unsubscribe();
+      }
+      await fetchJson(pushUrl, {
+        method: "DELETE",
+        body: JSON.stringify({ endpoint }),
+      });
+      notificationState.pushSubscribed = false;
+      notificationState.pushMessage = "Notifications mobiles desactivees.";
+    } catch (error) {
+      notificationState.pushMessage = "Desactivation impossible.";
+    } finally {
+      notificationState.pushLoading = false;
+      renderPushState();
+    }
   }
 
   function formatNotificationDate(value) {
@@ -321,9 +551,25 @@
     status.className = "oceanos-notification-status";
     status.hidden = true;
 
+    const pushPanel = document.createElement("div");
+    pushPanel.className = "oceanos-push-panel";
+    const pushStatus = document.createElement("p");
+    pushStatus.className = "oceanos-push-status";
+    const pushActions = document.createElement("div");
+    pushActions.className = "oceanos-push-actions";
+    const pushEnableButton = document.createElement("button");
+    pushEnableButton.type = "button";
+    pushEnableButton.textContent = "Activer";
+    const pushDisableButton = document.createElement("button");
+    pushDisableButton.type = "button";
+    pushDisableButton.textContent = "Desactiver";
+    pushDisableButton.hidden = true;
+    pushActions.append(pushEnableButton, pushDisableButton);
+    pushPanel.append(pushStatus, pushActions);
+
     const list = document.createElement("div");
     list.className = "oceanos-notification-list";
-    panel.append(header, status, list);
+    panel.append(header, pushPanel, status, list);
     root.append(button, panel);
     document.body.appendChild(root);
 
@@ -333,6 +579,19 @@
     notificationState.panel = panel;
     notificationState.list = list;
     notificationState.status = status;
+    notificationState.pushPanel = pushPanel;
+    notificationState.pushStatus = pushStatus;
+    notificationState.pushEnableButton = pushEnableButton;
+    notificationState.pushDisableButton = pushDisableButton;
+
+    pushEnableButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void activatePushNotifications();
+    });
+    pushDisableButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void deactivatePushNotifications();
+    });
 
     button.addEventListener("click", () => {
       notificationState.open = !notificationState.open;
@@ -340,6 +599,7 @@
       button.setAttribute("aria-expanded", notificationState.open ? "true" : "false");
       if (notificationState.open) {
         void refreshNotifications().catch(() => setNotificationStatus("Notifications indisponibles."));
+        void refreshPushState();
       }
     });
 
@@ -359,6 +619,7 @@
       notificationState.refreshListenerInstalled = true;
     }
     void refreshNotifications().catch(() => setNotificationStatus("Notifications indisponibles."));
+    void refreshPushState();
     if (!notificationState.timer) {
       notificationState.timer = window.setInterval(() => {
         void refreshNotifications().catch(() => {});
@@ -383,6 +644,8 @@
     if (isMeetOceanInvite) return;
 
     onReady(() => {
+      installPwaMetadata();
+      void registerServiceWorker().catch(() => {});
       installButton();
       installLogoutBridge();
     });

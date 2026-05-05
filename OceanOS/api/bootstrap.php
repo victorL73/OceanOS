@@ -196,6 +196,27 @@ function oceanos_ensure_schema(PDO $pdo): void
     );
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS oceanos_push_subscriptions (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NOT NULL,
+            endpoint_hash CHAR(64) NOT NULL,
+            endpoint TEXT NOT NULL,
+            p256dh VARCHAR(255) NOT NULL,
+            auth VARCHAR(255) NOT NULL,
+            user_agent VARCHAR(500) NULL,
+            failure_count INT UNSIGNED NOT NULL DEFAULT 0,
+            last_success_at DATETIME NULL,
+            failed_at DATETIME NULL,
+            last_error VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_oceanos_push_endpoint_hash (endpoint_hash),
+            KEY idx_oceanos_push_user (user_id),
+            CONSTRAINT fk_oceanos_push_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS nautipost_history (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id BIGINT UNSIGNED NOT NULL,
@@ -830,8 +851,39 @@ function oceanos_create_notification(
 
     $module = mb_substr(trim($module) !== '' ? trim($module) : 'OceanOS', 0, 80);
     $type = mb_substr(trim($type) !== '' ? trim($type) : 'info', 0, 80);
+    $severity = oceanos_normalize_notification_severity($severity);
     $title = mb_substr(trim($title) !== '' ? trim($title) : 'Notification', 0, 190);
+    $body = $body !== null && trim($body) !== '' ? trim($body) : null;
+    $actionUrl = $actionUrl !== null && trim($actionUrl) !== '' ? mb_substr(trim($actionUrl), 0, 500) : null;
     $dedupeKey = $dedupeKey !== null && trim($dedupeKey) !== '' ? mb_substr(trim($dedupeKey), 0, 190) : null;
+    $payloadJson = $payload !== [] ? json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+    $fingerprint = oceanos_notification_fingerprint($module, $type, $severity, $title, $body, $actionUrl, $payloadJson);
+    $shouldPush = true;
+
+    if ($dedupeKey !== null) {
+        $existingStatement = $pdo->prepare(
+            'SELECT module, type, severity, title, body, action_url, payload_json
+             FROM oceanos_notifications
+             WHERE user_id = :user_id AND dedupe_key = :dedupe_key
+             LIMIT 1'
+        );
+        $existingStatement->execute([
+            'user_id' => $userId,
+            'dedupe_key' => $dedupeKey,
+        ]);
+        $existing = $existingStatement->fetch();
+        if (is_array($existing)) {
+            $shouldPush = $fingerprint !== oceanos_notification_fingerprint(
+                (string) ($existing['module'] ?? 'OceanOS'),
+                (string) ($existing['type'] ?? 'info'),
+                oceanos_normalize_notification_severity((string) ($existing['severity'] ?? 'info')),
+                (string) ($existing['title'] ?? 'Notification'),
+                $existing['body'] !== null ? (string) $existing['body'] : null,
+                $existing['action_url'] !== null ? (string) $existing['action_url'] : null,
+                $existing['payload_json'] !== null ? (string) $existing['payload_json'] : null
+            );
+        }
+    }
 
     $statement = $pdo->prepare(
         'INSERT INTO oceanos_notifications
@@ -839,6 +891,7 @@ function oceanos_create_notification(
          VALUES
             (:user_id, :actor_user_id, :module, :type, :severity, :title, :body, :action_url, :dedupe_key, :payload_json)
          ON DUPLICATE KEY UPDATE
+            id = LAST_INSERT_ID(id),
             actor_user_id = VALUES(actor_user_id),
             module = VALUES(module),
             type = VALUES(type),
@@ -855,15 +908,32 @@ function oceanos_create_notification(
         'actor_user_id' => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
         'module' => $module,
         'type' => $type,
-        'severity' => oceanos_normalize_notification_severity($severity),
+        'severity' => $severity,
         'title' => $title,
-        'body' => $body !== null && trim($body) !== '' ? trim($body) : null,
-        'action_url' => $actionUrl !== null && trim($actionUrl) !== '' ? mb_substr(trim($actionUrl), 0, 500) : null,
+        'body' => $body,
+        'action_url' => $actionUrl,
         'dedupe_key' => $dedupeKey,
-        'payload_json' => $payload !== [] ? json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+        'payload_json' => $payloadJson,
     ]);
 
     $notificationId = (int) $pdo->lastInsertId();
+    if ($shouldPush) {
+        try {
+            oceanos_dispatch_push_notification($pdo, $userId, [
+                'id' => $notificationId,
+                'module' => $module,
+                'type' => $type,
+                'severity' => $severity,
+                'title' => $title,
+                'body' => $body,
+                'action_url' => $actionUrl,
+                'payload' => $payload,
+            ]);
+        } catch (Throwable) {
+            // Une erreur push ne doit jamais bloquer la notification OceanOS.
+        }
+    }
+
     return $notificationId > 0 ? $notificationId : null;
 }
 
@@ -941,6 +1011,610 @@ function oceanos_mark_all_notifications_read(PDO $pdo, int $userId): void
          WHERE user_id = :user_id AND read_at IS NULL'
     );
     $statement->execute(['user_id' => $userId]);
+}
+
+function oceanos_notification_fingerprint(
+    string $module,
+    string $type,
+    string $severity,
+    string $title,
+    ?string $body,
+    ?string $actionUrl,
+    ?string $payloadJson
+): string {
+    return hash('sha256', json_encode([
+        'module' => $module,
+        'type' => $type,
+        'severity' => $severity,
+        'title' => $title,
+        'body' => $body,
+        'actionUrl' => $actionUrl,
+        'payload' => $payloadJson,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
+function oceanos_base64url_encode(string $data): string
+{
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+
+function oceanos_base64url_decode(string $data): string
+{
+    $data = strtr(trim($data), '-_', '+/');
+    $padding = strlen($data) % 4;
+    if ($padding > 0) {
+        $data .= str_repeat('=', 4 - $padding);
+    }
+
+    $decoded = base64_decode($data, true);
+    return $decoded === false ? '' : $decoded;
+}
+
+function oceanos_push_is_available(): bool
+{
+    $ciphers = function_exists('openssl_get_cipher_methods')
+        ? array_map('strtolower', openssl_get_cipher_methods(true))
+        : [];
+
+    return function_exists('curl_init')
+        && function_exists('openssl_pkey_new')
+        && function_exists('openssl_pkey_derive')
+        && function_exists('openssl_sign')
+        && function_exists('openssl_encrypt')
+        && in_array('aes-128-gcm', $ciphers, true);
+}
+
+function oceanos_push_config_file(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'push.local.php';
+}
+
+function oceanos_push_default_subject(): string
+{
+    $subject = trim((string) (getenv('OCEANOS_VAPID_SUBJECT') ?: ''));
+    if ($subject !== '') {
+        return $subject;
+    }
+
+    $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? 'localhost')));
+    $host = preg_replace('/:\d+$/', '', $host) ?: 'localhost';
+    if (preg_match('/^[a-z0-9.-]+$/', $host) === 1 && $host !== 'localhost') {
+        return 'mailto:admin@' . $host;
+    }
+
+    return 'mailto:admin@localhost';
+}
+
+function oceanos_push_normalize_config(array $config): array
+{
+    $publicKey = trim((string) ($config['publicKey'] ?? $config['public_key'] ?? ''));
+    $privateKey = trim((string) ($config['privateKey'] ?? $config['private_key'] ?? ''));
+    $subject = trim((string) ($config['subject'] ?? ''));
+
+    if ($privateKey !== '') {
+        $privateKey = str_replace('\\n', "\n", $privateKey);
+        $decodedPrivateKey = base64_decode($privateKey, true);
+        if (is_string($decodedPrivateKey) && str_contains($decodedPrivateKey, 'BEGIN')) {
+            $privateKey = $decodedPrivateKey;
+        }
+    }
+
+    if ($subject === '') {
+        $subject = oceanos_push_default_subject();
+    }
+    if ($publicKey === '' || $privateKey === '' || strlen(oceanos_base64url_decode($publicKey)) !== 65) {
+        return [];
+    }
+
+    return [
+        'publicKey' => $publicKey,
+        'privateKey' => $privateKey,
+        'subject' => $subject,
+    ];
+}
+
+function oceanos_openssl_config_path(): string
+{
+    $candidates = array_filter([
+        (string) (getenv('OPENSSL_CONF') ?: ''),
+        dirname(PHP_BINARY) . DIRECTORY_SEPARATOR . 'extras' . DIRECTORY_SEPARATOR . 'ssl' . DIRECTORY_SEPARATOR . 'openssl.cnf',
+    ]);
+
+    foreach (glob(str_replace('\\', '/', dirname(PHP_BINARY, 3)) . '/apache/*/conf/openssl.cnf') ?: [] as $path) {
+        $candidates[] = $path;
+    }
+
+    foreach ($candidates as $candidate) {
+        if ($candidate !== '' && is_file($candidate) && is_readable($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return '';
+}
+
+function oceanos_openssl_options(array $options): array
+{
+    $configPath = oceanos_openssl_config_path();
+    if ($configPath !== '') {
+        $options['config'] = $configPath;
+    }
+
+    return $options;
+}
+
+function oceanos_push_generate_vapid_config(): array
+{
+    if (!oceanos_push_is_available()) {
+        return [];
+    }
+
+    $key = openssl_pkey_new(oceanos_openssl_options([
+        'private_key_type' => OPENSSL_KEYTYPE_EC,
+        'curve_name' => 'prime256v1',
+    ]));
+    if ($key === false) {
+        return [];
+    }
+
+    $privateKey = '';
+    if (!openssl_pkey_export($key, $privateKey, null, oceanos_openssl_options([]))) {
+        return [];
+    }
+
+    $details = openssl_pkey_get_details($key);
+    $x = is_array($details) ? (string) ($details['ec']['x'] ?? '') : '';
+    $y = is_array($details) ? (string) ($details['ec']['y'] ?? '') : '';
+    if (strlen($x) !== 32 || strlen($y) !== 32) {
+        return [];
+    }
+
+    return [
+        'publicKey' => oceanos_base64url_encode("\x04" . $x . $y),
+        'privateKey' => $privateKey,
+        'subject' => oceanos_push_default_subject(),
+    ];
+}
+
+function oceanos_push_vapid_config(bool $allowGenerate = true): array
+{
+    static $config = null;
+    if ($config !== null) {
+        return $config;
+    }
+
+    $envConfig = oceanos_push_normalize_config([
+        'publicKey' => getenv('OCEANOS_VAPID_PUBLIC_KEY') ?: '',
+        'privateKey' => getenv('OCEANOS_VAPID_PRIVATE_KEY') ?: '',
+        'subject' => getenv('OCEANOS_VAPID_SUBJECT') ?: '',
+    ]);
+    if ($envConfig !== []) {
+        $config = $envConfig;
+        return $config;
+    }
+
+    $file = oceanos_push_config_file();
+    if (is_file($file)) {
+        $loaded = require $file;
+        $fileConfig = is_array($loaded) ? oceanos_push_normalize_config($loaded) : [];
+        if ($fileConfig !== []) {
+            $config = $fileConfig;
+            return $config;
+        }
+    }
+
+    if ($allowGenerate && is_dir(dirname($file)) && is_writable(dirname($file))) {
+        $generated = oceanos_push_generate_vapid_config();
+        if ($generated !== []) {
+            $export = "<?php\nreturn " . var_export($generated, true) . ";\n";
+            @file_put_contents($file, $export, LOCK_EX);
+            $config = $generated;
+            return $config;
+        }
+    }
+
+    $config = [];
+    return $config;
+}
+
+function oceanos_push_public_status(PDO $pdo, int $userId): array
+{
+    $config = oceanos_push_vapid_config();
+    $available = oceanos_push_is_available() && $config !== [];
+    $statement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM oceanos_push_subscriptions
+         WHERE user_id = :user_id AND failure_count < 5'
+    );
+    $statement->execute(['user_id' => $userId]);
+
+    return [
+        'available' => $available,
+        'publicKey' => $available ? $config['publicKey'] : '',
+        'subscribed' => (int) $statement->fetchColumn() > 0,
+        'secureRequest' => oceanos_is_https_request(),
+    ];
+}
+
+function oceanos_store_push_subscription(PDO $pdo, int $userId, array $subscription): array
+{
+    $endpoint = trim((string) ($subscription['endpoint'] ?? ''));
+    $keys = is_array($subscription['keys'] ?? null) ? $subscription['keys'] : [];
+    $p256dh = trim((string) ($keys['p256dh'] ?? ''));
+    $auth = trim((string) ($keys['auth'] ?? ''));
+
+    if ($userId <= 0 || $endpoint === '' || filter_var($endpoint, FILTER_VALIDATE_URL) === false || !str_starts_with($endpoint, 'https://')) {
+        throw new InvalidArgumentException('Abonnement push invalide.');
+    }
+    if (strlen(oceanos_base64url_decode($p256dh)) !== 65 || strlen(oceanos_base64url_decode($auth)) < 16) {
+        throw new InvalidArgumentException('Cles push invalides.');
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO oceanos_push_subscriptions
+            (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent)
+         VALUES
+            (:user_id, :endpoint_hash, :endpoint, :p256dh, :auth, :user_agent)
+         ON DUPLICATE KEY UPDATE
+            user_id = VALUES(user_id),
+            endpoint = VALUES(endpoint),
+            p256dh = VALUES(p256dh),
+            auth = VALUES(auth),
+            user_agent = VALUES(user_agent),
+            failure_count = 0,
+            failed_at = NULL,
+            last_error = NULL,
+            updated_at = CURRENT_TIMESTAMP'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+        'endpoint_hash' => hash('sha256', $endpoint),
+        'endpoint' => $endpoint,
+        'p256dh' => $p256dh,
+        'auth' => $auth,
+        'user_agent' => mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500),
+    ]);
+
+    return oceanos_push_public_status($pdo, $userId);
+}
+
+function oceanos_delete_push_subscription(PDO $pdo, int $userId, string $endpoint = ''): array
+{
+    if (trim($endpoint) === '') {
+        $statement = $pdo->prepare('DELETE FROM oceanos_push_subscriptions WHERE user_id = :user_id');
+        $statement->execute(['user_id' => $userId]);
+        return oceanos_push_public_status($pdo, $userId);
+    }
+
+    $statement = $pdo->prepare(
+        'DELETE FROM oceanos_push_subscriptions
+         WHERE user_id = :user_id AND endpoint_hash = :endpoint_hash'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+        'endpoint_hash' => hash('sha256', trim($endpoint)),
+    ]);
+
+    return oceanos_push_public_status($pdo, $userId);
+}
+
+function oceanos_push_subscription_rows(PDO $pdo, int $userId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT *
+         FROM oceanos_push_subscriptions
+         WHERE user_id = :user_id AND failure_count < 5
+         ORDER BY updated_at DESC'
+    );
+    $statement->execute(['user_id' => $userId]);
+
+    return $statement->fetchAll() ?: [];
+}
+
+function oceanos_push_target_url(array $notification): string
+{
+    $payload = is_array($notification['payload'] ?? null) ? $notification['payload'] : [];
+    $messageId = (int) ($payload['messageId'] ?? 0);
+    $module = (string) ($notification['module'] ?? 'OceanOS');
+    $type = (string) ($notification['type'] ?? 'info');
+    if (($module === 'NautiMail' || $type === 'new_mail') && $messageId > 0) {
+        return '/NautiMail/?messageId=' . rawurlencode((string) $messageId);
+    }
+
+    $actionUrl = trim((string) ($notification['action_url'] ?? ''));
+    return $actionUrl !== '' ? $actionUrl : '/OceanOS/';
+}
+
+function oceanos_dispatch_push_notification(PDO $pdo, int $userId, array $notification): void
+{
+    $config = oceanos_push_vapid_config();
+    if ($userId <= 0 || !oceanos_push_is_available() || $config === []) {
+        return;
+    }
+
+    $notificationId = (int) ($notification['id'] ?? 0);
+    $payload = [
+        'title' => mb_substr((string) ($notification['title'] ?? 'OceanOS'), 0, 120),
+        'body' => mb_substr((string) ($notification['body'] ?? ''), 0, 240),
+        'module' => (string) ($notification['module'] ?? 'OceanOS'),
+        'severity' => oceanos_normalize_notification_severity((string) ($notification['severity'] ?? 'info')),
+        'url' => oceanos_push_target_url($notification),
+        'notificationId' => $notificationId,
+        'tag' => $notificationId > 0 ? 'oceanos-' . $notificationId : 'oceanos-' . hash('sha256', serialize($notification)),
+        'icon' => '/OceanOS/assets/favicons/oceanos-192.png',
+        'badge' => '/OceanOS/assets/favicons/oceanos-192.png',
+    ];
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json) || $json === '') {
+        return;
+    }
+
+    foreach (oceanos_push_subscription_rows($pdo, $userId) as $subscription) {
+        oceanos_send_push_payload($pdo, $subscription, $config, $json);
+    }
+}
+
+function oceanos_push_public_key_pem(string $rawPublicKey): string
+{
+    $prefix = hex2bin('3059301306072A8648CE3D020106082A8648CE3D030107034200');
+    $der = ($prefix === false ? '' : $prefix) . $rawPublicKey;
+
+    return "-----BEGIN PUBLIC KEY-----\n"
+        . chunk_split(base64_encode($der), 64, "\n")
+        . "-----END PUBLIC KEY-----\n";
+}
+
+function oceanos_hkdf_sha256(string $ikm, int $length, string $info, string $salt): string
+{
+    if ($salt === '') {
+        $salt = str_repeat("\x00", 32);
+    }
+
+    $prk = hash_hmac('sha256', $ikm, $salt, true);
+    $okm = '';
+    $previous = '';
+    $counter = 1;
+    while (strlen($okm) < $length) {
+        $previous = hash_hmac('sha256', $previous . $info . chr($counter), $prk, true);
+        $okm .= $previous;
+        $counter++;
+    }
+
+    return substr($okm, 0, $length);
+}
+
+function oceanos_encrypt_push_payload(string $payloadJson, string $p256dh, string $auth): ?string
+{
+    $userPublicKey = oceanos_base64url_decode($p256dh);
+    $authSecret = oceanos_base64url_decode($auth);
+    if (strlen($userPublicKey) !== 65 || strlen($authSecret) < 16) {
+        return null;
+    }
+
+    $userKey = openssl_pkey_get_public(oceanos_push_public_key_pem($userPublicKey));
+    if ($userKey === false) {
+        return null;
+    }
+
+    $ephemeralKey = openssl_pkey_new(oceanos_openssl_options([
+        'private_key_type' => OPENSSL_KEYTYPE_EC,
+        'curve_name' => 'prime256v1',
+    ]));
+    if ($ephemeralKey === false) {
+        return null;
+    }
+
+    $details = openssl_pkey_get_details($ephemeralKey);
+    $x = is_array($details) ? (string) ($details['ec']['x'] ?? '') : '';
+    $y = is_array($details) ? (string) ($details['ec']['y'] ?? '') : '';
+    if (strlen($x) !== 32 || strlen($y) !== 32) {
+        return null;
+    }
+
+    $ephemeralPublicKey = "\x04" . $x . $y;
+    $sharedSecret = openssl_pkey_derive($userKey, $ephemeralKey, 32);
+    if (!is_string($sharedSecret) || strlen($sharedSecret) === 0) {
+        return null;
+    }
+
+    $salt = random_bytes(16);
+    $keyInfo = "WebPush: info\x00" . $userPublicKey . $ephemeralPublicKey;
+    $ikm = oceanos_hkdf_sha256($sharedSecret, 32, $keyInfo, $authSecret);
+    $cek = oceanos_hkdf_sha256($ikm, 16, "Content-Encoding: aes128gcm\x00", $salt);
+    $nonce = oceanos_hkdf_sha256($ikm, 12, "Content-Encoding: nonce\x00", $salt);
+    $tag = '';
+    $ciphertext = openssl_encrypt($payloadJson . "\x02", 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, $tag, '', 16);
+    if (!is_string($ciphertext) || strlen($tag) !== 16) {
+        return null;
+    }
+
+    return $salt . pack('N', 4096) . chr(strlen($ephemeralPublicKey)) . $ephemeralPublicKey . $ciphertext . $tag;
+}
+
+function oceanos_der_read_length(string $der, int &$offset): int
+{
+    if ($offset >= strlen($der)) {
+        return 0;
+    }
+
+    $length = ord($der[$offset]);
+    $offset++;
+    if (($length & 0x80) === 0) {
+        return $length;
+    }
+
+    $bytes = $length & 0x7f;
+    $value = 0;
+    for ($i = 0; $i < $bytes && $offset < strlen($der); $i++) {
+        $value = ($value << 8) + ord($der[$offset]);
+        $offset++;
+    }
+
+    return $value;
+}
+
+function oceanos_ecdsa_part_to_32(string $value): string
+{
+    $value = ltrim($value, "\x00");
+    if (strlen($value) > 32) {
+        $value = substr($value, -32);
+    }
+
+    return str_pad($value, 32, "\x00", STR_PAD_LEFT);
+}
+
+function oceanos_ecdsa_der_to_jose(string $der): string
+{
+    $offset = 0;
+    if ($der === '' || ord($der[$offset]) !== 0x30) {
+        return '';
+    }
+    $offset++;
+    oceanos_der_read_length($der, $offset);
+    if ($offset >= strlen($der) || ord($der[$offset]) !== 0x02) {
+        return '';
+    }
+    $offset++;
+    $rLength = oceanos_der_read_length($der, $offset);
+    $r = substr($der, $offset, $rLength);
+    $offset += $rLength;
+    if ($offset >= strlen($der) || ord($der[$offset]) !== 0x02) {
+        return '';
+    }
+    $offset++;
+    $sLength = oceanos_der_read_length($der, $offset);
+    $s = substr($der, $offset, $sLength);
+
+    return oceanos_ecdsa_part_to_32($r) . oceanos_ecdsa_part_to_32($s);
+}
+
+function oceanos_push_endpoint_origin(string $endpoint): string
+{
+    $parts = parse_url($endpoint);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+        return '';
+    }
+
+    $origin = strtolower((string) $parts['scheme']) . '://' . strtolower((string) $parts['host']);
+    if (!empty($parts['port'])) {
+        $origin .= ':' . (int) $parts['port'];
+    }
+
+    return $origin;
+}
+
+function oceanos_vapid_jwt(string $audience, array $config): string
+{
+    $headerJson = json_encode(['typ' => 'JWT', 'alg' => 'ES256'], JSON_UNESCAPED_SLASHES);
+    $claimsJson = json_encode([
+        'aud' => $audience,
+        'exp' => time() + 43200,
+        'sub' => (string) $config['subject'],
+    ], JSON_UNESCAPED_SLASHES);
+    if (!is_string($headerJson) || !is_string($claimsJson)) {
+        return '';
+    }
+
+    $header = oceanos_base64url_encode($headerJson);
+    $claims = oceanos_base64url_encode($claimsJson);
+    $input = $header . '.' . $claims;
+    $signature = '';
+    $privateKey = openssl_pkey_get_private((string) $config['privateKey']);
+    if ($privateKey === false || !openssl_sign($input, $signature, $privateKey, OPENSSL_ALGO_SHA256)) {
+        return '';
+    }
+
+    $joseSignature = oceanos_ecdsa_der_to_jose($signature);
+    return $joseSignature !== '' ? $input . '.' . oceanos_base64url_encode($joseSignature) : '';
+}
+
+function oceanos_push_mark_success(PDO $pdo, int $subscriptionId): void
+{
+    $statement = $pdo->prepare(
+        'UPDATE oceanos_push_subscriptions
+         SET failure_count = 0, last_success_at = NOW(), failed_at = NULL, last_error = NULL
+         WHERE id = :id'
+    );
+    $statement->execute(['id' => $subscriptionId]);
+}
+
+function oceanos_push_mark_failure(PDO $pdo, int $subscriptionId, string $message): void
+{
+    $statement = $pdo->prepare(
+        'UPDATE oceanos_push_subscriptions
+         SET failure_count = failure_count + 1, failed_at = NOW(), last_error = :last_error
+         WHERE id = :id'
+    );
+    $statement->execute([
+        'id' => $subscriptionId,
+        'last_error' => mb_substr($message, 0, 255),
+    ]);
+}
+
+function oceanos_push_delete_row(PDO $pdo, int $subscriptionId): void
+{
+    $statement = $pdo->prepare('DELETE FROM oceanos_push_subscriptions WHERE id = :id');
+    $statement->execute(['id' => $subscriptionId]);
+}
+
+function oceanos_send_push_payload(PDO $pdo, array $subscription, array $config, string $payloadJson): void
+{
+    $subscriptionId = (int) ($subscription['id'] ?? 0);
+    $endpoint = (string) ($subscription['endpoint'] ?? '');
+    $audience = oceanos_push_endpoint_origin($endpoint);
+    $jwt = $audience !== '' ? oceanos_vapid_jwt($audience, $config) : '';
+    $body = oceanos_encrypt_push_payload(
+        $payloadJson,
+        (string) ($subscription['p256dh'] ?? ''),
+        (string) ($subscription['auth'] ?? '')
+    );
+    if ($subscriptionId <= 0 || $endpoint === '' || $jwt === '' || $body === null) {
+        if ($subscriptionId > 0) {
+            oceanos_push_mark_failure($pdo, $subscriptionId, 'Push payload invalide.');
+        }
+        return;
+    }
+
+    $headers = [
+        'Authorization: vapid t=' . $jwt . ', k=' . $config['publicKey'],
+        'Content-Encoding: aes128gcm',
+        'Content-Type: application/octet-stream',
+        'Content-Length: ' . strlen($body),
+        'TTL: 86400',
+        'Urgency: normal',
+    ];
+
+    $curl = curl_init($endpoint);
+    $options = [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 15,
+    ];
+    $caBundle = oceanos_ca_bundle_path();
+    if ($caBundle !== '') {
+        $options[CURLOPT_CAINFO] = $caBundle;
+    }
+    curl_setopt_array($curl, $options);
+
+    $responseBody = curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $error = curl_error($curl);
+    curl_close($curl);
+
+    if ($responseBody !== false && in_array($status, [200, 201, 202, 204], true)) {
+        oceanos_push_mark_success($pdo, $subscriptionId);
+        return;
+    }
+    if (in_array($status, [404, 410], true)) {
+        oceanos_push_delete_row($pdo, $subscriptionId);
+        return;
+    }
+
+    $message = $error !== '' ? $error : ('HTTP ' . $status . ' ' . trim((string) $responseBody));
+    oceanos_push_mark_failure($pdo, $subscriptionId, $message);
 }
 
 function oceanos_secret_key(): string

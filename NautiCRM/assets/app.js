@@ -82,6 +82,7 @@ const elements = {
   interactionDate: $("interaction-date"),
   interactionNextAction: $("interaction-next-action"),
   interactionBody: $("interaction-body"),
+  interactionPanel: $("interaction-panel"),
   interactionsList: $("interactions-list"),
   taskForm: $("task-form"),
   taskId: $("task-id"),
@@ -102,6 +103,10 @@ const elements = {
   flowStart: $("flow-start"),
   flowDue: $("flow-due"),
   flowValue: $("flow-value"),
+  flowRecurring: $("flow-recurring"),
+  flowFrequency: $("flow-frequency"),
+  flowInterval: $("flow-interval"),
+  flowNextNotification: $("flow-next-notification"),
   flowNotes: $("flow-notes"),
   flowResetButton: $("flow-reset-button"),
   clientFlowsList: $("client-flows-list"),
@@ -208,6 +213,12 @@ const labels = {
     blocked: "Bloque",
     completed: "Termine",
   },
+  recurrenceFrequency: {
+    daily: "jour",
+    weekly: "semaine",
+    monthly: "mois",
+    quarterly: "trimestre",
+  },
 };
 
 const flowStageOrder = [
@@ -260,6 +271,11 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function toDatetimeLocal(value) {
+  if (!value) return "";
+  return String(value).replace(" ", "T").slice(0, 16);
 }
 
 function showMessage(message = "", type = "") {
@@ -785,14 +801,30 @@ function renderDetailSummary(client) {
       ${client.prestashopCustomerId ? badge(`PrestaShop #${client.prestashopCustomerId}`, "client") : ""}
     </div>
     <div class="detail-kpis">
-      <span>Contacts<strong>${client.contactCount}</strong></span>
-      <span>Interactions<strong>${client.interactionCount}</strong></span>
-      <span>Taches ouvertes<strong>${client.openTaskCount}</strong></span>
-      <span>Flux actifs<strong>${client.activeFlowCount || 0}</strong></span>
-      <span>CA PrestaShop<strong>${money.format(Number(client.prestashopTotalPaidTaxIncl || 0))}</strong></span>
+      <span class="detail-kpi">Contacts<strong>${client.contactCount}</strong></span>
+      <button class="detail-kpi detail-kpi-action" data-detail-jump="interactions" type="button" title="Voir les interactions">Interactions<strong>${client.interactionCount}</strong></button>
+      <span class="detail-kpi">Taches ouvertes<strong>${client.openTaskCount}</strong></span>
+      <span class="detail-kpi">Flux actifs<strong>${client.activeFlowCount || 0}</strong></span>
+      <span class="detail-kpi">CA PrestaShop<strong>${money.format(Number(client.prestashopTotalPaidTaxIncl || 0))}</strong></span>
     </div>
     ${client.notes ? `<p class="detail-meta">${escapeHtml(client.notes)}</p>` : ""}
   `;
+}
+
+function focusDetailPanel(target) {
+  const panel = target === "interactions" ? elements.interactionPanel : null;
+  if (!panel) return;
+  setActiveView("detail");
+  panel.classList.remove("panel-focus");
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => {
+    panel.classList.add("panel-focus");
+    const firstInteraction = elements.interactionsList.querySelector(".list-card");
+    if (firstInteraction) {
+      firstInteraction.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, 180);
+  window.setTimeout(() => panel.classList.remove("panel-focus"), 1800);
 }
 
 function renderContacts() {
@@ -1014,6 +1046,10 @@ function resetFlowForm() {
   elements.flowPriority.value = "normal";
   elements.flowAssigned.innerHTML = userOptions(state.user?.id || "", true);
   elements.flowValue.value = "";
+  elements.flowRecurring.checked = false;
+  elements.flowFrequency.value = "weekly";
+  elements.flowInterval.value = "1";
+  elements.flowNextNotification.value = "";
 }
 
 function populateFlowForm(flow) {
@@ -1026,6 +1062,10 @@ function populateFlowForm(flow) {
   elements.flowStart.value = flow.expectedStartAt || "";
   elements.flowDue.value = flow.dueAt || "";
   elements.flowValue.value = flow.estimatedValueTaxExcl || "";
+  elements.flowRecurring.checked = Boolean(flow.isRecurring);
+  elements.flowFrequency.value = flow.recurrenceFrequency || "weekly";
+  elements.flowInterval.value = flow.recurrenceInterval || 1;
+  elements.flowNextNotification.value = toDatetimeLocal(flow.nextNotificationAt || "");
   elements.flowNotes.value = flow.notes || "";
 }
 
@@ -1043,6 +1083,10 @@ function flowFormPayload(overrides = {}) {
     expectedStartAt: overrides.expectedStartAt ?? elements.flowStart.value,
     dueAt: overrides.dueAt ?? elements.flowDue.value,
     estimatedValueTaxExcl: Number((overrides.estimatedValueTaxExcl ?? elements.flowValue.value) || 0),
+    isRecurring: Boolean(overrides.isRecurring ?? elements.flowRecurring.checked),
+    recurrenceFrequency: overrides.recurrenceFrequency ?? elements.flowFrequency.value,
+    recurrenceInterval: Number((overrides.recurrenceInterval ?? elements.flowInterval.value) || 1),
+    nextNotificationAt: overrides.nextNotificationAt ?? elements.flowNextNotification.value,
     notes: String(overrides.notes ?? elements.flowNotes.value).trim(),
   };
 }
@@ -1076,14 +1120,19 @@ function renderClientFlows() {
 function flowCard(flow, editable = false) {
   const due = flow.dueAt ? ` - Echeance ${formatDate(flow.dueAt)}` : "";
   const assigned = flow.assignedUserDisplayName ? ` - ${flow.assignedUserDisplayName}` : "";
+  const recurrence = flow.isRecurring
+    ? `Notification ${flow.nextNotificationAt ? formatDateTime(flow.nextNotificationAt) : "a planifier"} - tous les ${flow.recurrenceInterval || 1} ${labels.recurrenceFrequency[flow.recurrenceFrequency] || "cycle"}`
+    : "";
   return `
     <article class="list-card flow-card ${flow.priority === "urgent" ? "is-urgent" : ""}">
       <strong>${escapeHtml(flow.title)}</strong>
       <small>${escapeHtml(labels.needType[flow.needType] || flow.needType)} - ${escapeHtml(labels.flowStage[flow.stage] || flow.stage)}${escapeHtml(due)}${escapeHtml(assigned)}</small>
       <small>${money.format(Number(flow.estimatedValueTaxExcl || 0))}${flow.expectedStartAt ? ` - Debut ${escapeHtml(formatDate(flow.expectedStartAt))}` : ""}</small>
+      ${recurrence ? `<small>${escapeHtml(recurrence)}</small>` : ""}
       ${flow.notes ? `<small>${escapeHtml(flow.notes)}</small>` : ""}
       <div class="card-tags">
         ${badge(labels.priority[flow.priority] || flow.priority, flow.priority === "urgent" ? "high-priority" : flow.priority)}
+        ${flow.isRecurring ? badge("Recurrent", "follow_up") : ""}
         ${flow.clientName ? badge(flow.clientName) : ""}
       </div>
       <div class="card-actions">
@@ -1119,6 +1168,10 @@ async function saveFlowPatch(flow, overrides = {}) {
         expectedStartAt: flow.expectedStartAt || "",
         dueAt: flow.dueAt || "",
         estimatedValueTaxExcl: flow.estimatedValueTaxExcl || 0,
+        isRecurring: Boolean(flow.isRecurring),
+        recurrenceFrequency: flow.recurrenceFrequency || "weekly",
+        recurrenceInterval: flow.recurrenceInterval || 1,
+        nextNotificationAt: toDatetimeLocal(flow.nextNotificationAt || ""),
         notes: flow.notes || "",
         ...overrides,
       })),
@@ -1222,7 +1275,7 @@ function renderGlobalTasks() {
 
 function renderGlobalFlows() {
   const stats = state.stats || {};
-  elements.flowPrioritySummary.textContent = `${stats.priorityFlowCount || 0} prioritaire(s) - ${stats.blockedFlowCount || 0} bloque(s)`;
+  elements.flowPrioritySummary.textContent = `${stats.priorityFlowCount || 0} prioritaire(s) - ${stats.dueFlowNotificationCount || 0} notif. due(s)`;
 
   if (state.flows.length === 0) {
     elements.flowsBoard.innerHTML = '<div class="empty-state">Aucun flux client actif.</div>';
@@ -1356,6 +1409,11 @@ function installListeners() {
       setActiveView("clients");
     }
 
+    const detailJump = event.target.closest("[data-detail-jump]");
+    if (detailJump) {
+      focusDetailPanel(detailJump.dataset.detailJump || "");
+    }
+
     const clientOpen = event.target.closest("[data-client-open]");
     if (clientOpen && clientOpen.dataset.clientOpen) {
       void loadClient(clientOpen.dataset.clientOpen);
@@ -1420,6 +1478,13 @@ async function init() {
     resetTaskForm();
     resetFlowForm();
     await loadDashboard();
+    const initialParams = new URLSearchParams(window.location.search);
+    const initialClientId = Number(initialParams.get("client") || 0);
+    if (initialClientId > 0) {
+      await loadClient(initialClientId, true);
+    } else if (initialParams.get("view")) {
+      setActiveView(initialParams.get("view"));
+    }
     setView("app");
   } catch (error) {
     showMessage(error.message || "NautiCRM est indisponible.", "error");

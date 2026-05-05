@@ -1,0 +1,83 @@
+{
+  "id": "/OceanOS/",
+  "name": "OceanOS",
+  "short_name": "OceanOS",
+  "description": "Portail ERP OceanOS et notifications mobiles.",
+  "lang": "fr",
+  "start_url": "/OceanOS/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071018",
+  "theme_color": "#071018",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/OceanOS/assets/favicons/oceanos-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/OceanOS/assets/favicons/oceanos-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/OceanOS/assets/favicons/oceanos.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "OceanOS",
+      "short_name": "Portail",
+      "url": "/OceanOS/",
+      "icons": [
+        {
+          "src": "/OceanOS/assets/favicons/oceanos.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "NautiMail",
+      "short_name": "Mail",
+      "url": "/NautiMail/",
+      "icons": [
+        {
+          "src": "/OceanOS/assets/favicons/nautimail.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "url": "/Agenda/",
+      "icons": [
+        {
+          "src": "/OceanOS/assets/favicons/agenda.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "NautiCRM",
+      "short_name": "CRM",
+      "url": "/NautiCRM/",
+      "icons": [
+        {
+          "src": "/OceanOS/assets/favicons/nauticrm.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}

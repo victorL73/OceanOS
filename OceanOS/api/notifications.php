@@ -24,6 +24,12 @@ function oceanos_dispatch_module_notifications(PDO $pdo, int $userId): void
             'dispatch' => 'sav_dispatch_new_message_notifications',
             'with_user' => false,
         ],
+        [
+            'path' => dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'NautiCRM' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php',
+            'ensure' => 'nauticrm_ensure_schema',
+            'dispatch' => 'nauticrm_dispatch_due_flow_notifications',
+            'with_user' => true,
+        ],
     ];
 
     foreach ($modules as $module) {

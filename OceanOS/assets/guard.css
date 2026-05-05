@@ -136,7 +136,7 @@
 }
 
 .oceanos-notification-list {
-  max-height: calc(min(480px, 100vh - 140px) - 54px);
+  max-height: calc(min(480px, 100vh - 140px) - 126px);
   overflow: auto;
   padding: 8px;
 }
@@ -152,6 +152,56 @@
 .oceanos-notification-status {
   padding: 10px 14px 0;
   color: #fbbf24;
+}
+
+.oceanos-push-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(198, 221, 230, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.oceanos-push-status {
+  min-width: 0;
+  margin: 0;
+  color: rgba(237, 247, 249, 0.72);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.oceanos-push-panel.is-active .oceanos-push-status {
+  color: #86efac;
+}
+
+.oceanos-push-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.oceanos-push-actions button {
+  min-height: 30px;
+  border: 1px solid rgba(198, 221, 230, 0.2);
+  border-radius: 999px;
+  background: rgba(56, 163, 255, 0.16);
+  color: #edf7f9;
+  padding: 6px 10px;
+  font: 800 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.oceanos-push-actions button:hover,
+.oceanos-push-actions button:focus-visible {
+  border-color: rgba(56, 163, 255, 0.72);
+  outline: none;
+}
+
+.oceanos-push-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .oceanos-notification-item {
@@ -239,5 +289,14 @@
 
   .oceanos-notification-button strong {
     display: none;
+  }
+
+  .oceanos-push-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .oceanos-push-actions button {
+    flex: 1 1 0;
   }
 }
