@@ -1,4 +1,4 @@
-const CACHE_NAME = "oceanos-pwa-20260505-badge";
+const CACHE_NAME = "oceanos-pwa-20260505-mobile-keyboard";
 const CORE_ASSETS = [
   "/OceanOS/",
   "/OceanOS/manifest.webmanifest",
@@ -48,17 +48,15 @@ self.addEventListener("fetch", (event) => {
   if (!cacheKey && !url.pathname.startsWith("/OceanOS/assets/favicons/")) return;
 
   event.respondWith(
-    caches.match(cacheKey || request).then((cached) => {
-      if (cached) return cached;
-
-      return fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response && response.ok) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(cacheKey || request))
   );
 });
 

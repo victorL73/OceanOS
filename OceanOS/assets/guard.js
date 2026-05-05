@@ -207,6 +207,53 @@
     return serviceWorkerRegistrationPromise;
   }
 
+  function editableTextTargetFromEvent(event) {
+    const rawTarget = event.composedPath && event.composedPath()[0] ? event.composedPath()[0] : event.target;
+    const eventTarget = rawTarget && rawTarget.nodeType === 1 ? rawTarget : rawTarget?.parentElement;
+    if (!eventTarget || !eventTarget.closest) return null;
+
+    let target = eventTarget.closest('input, textarea, [contenteditable]:not([contenteditable="false"])');
+    if (!target) {
+      const label = eventTarget.closest("label");
+      if (label) {
+        target = label.control || (label.getAttribute("for") ? document.getElementById(label.getAttribute("for")) : null);
+      }
+    }
+    if (!target || !target.focus || target.disabled || target.readOnly) return null;
+    if (target.matches && target.matches('[contenteditable]:not([contenteditable="false"])')) return target;
+    if (target.tagName === "TEXTAREA") return target;
+    if (target.tagName !== "INPUT") return null;
+
+    const type = String(target.type || "text").toLowerCase();
+    const textTypes = new Set(["text", "search", "email", "password", "tel", "url", "number", "date", "datetime-local", "month", "time", "week"]);
+    return textTypes.has(type) ? target : null;
+  }
+
+  function focusEditableTextTarget(event) {
+    const target = editableTextTargetFromEvent(event);
+    if (!target || document.activeElement === target) return;
+
+    try {
+      target.focus({ preventScroll: true });
+    } catch (error) {
+      target.focus();
+    }
+  }
+
+  function installMobileTextInputBridge() {
+    const hasTouch = "ontouchstart" in window || Number(navigator.maxTouchPoints || 0) > 0;
+    if (!hasTouch || installMobileTextInputBridge.installed) return;
+    installMobileTextInputBridge.installed = true;
+
+    document.addEventListener("touchstart", focusEditableTextTarget, { capture: true, passive: true });
+    document.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "touch") {
+        focusEditableTextTarget(event);
+      }
+    }, { capture: true });
+    document.addEventListener("click", focusEditableTextTarget, true);
+  }
+
   async function updateAppBadge(count) {
     if (!window.isSecureContext || !("setAppBadge" in navigator)) return;
 
@@ -663,6 +710,7 @@
 
     onReady(() => {
       installPwaMetadata();
+      installMobileTextInputBridge();
       void registerServiceWorker().catch(() => {});
       installButton();
       installLogoutBridge();

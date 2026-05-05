@@ -18,6 +18,14 @@
   backdrop-filter: blur(14px);
 }
 
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
 .oceanos-return-button:hover,
 .oceanos-return-button:focus-visible {
   border-color: rgba(56, 163, 255, 0.7);
