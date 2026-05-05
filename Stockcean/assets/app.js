@@ -38,6 +38,13 @@ const elements = {
   supplierNotes: $("supplier-notes"),
   supplierSave: $("supplier-save"),
   suppliersList: $("suppliers-list"),
+  stockMovementForm: $("stock-movement-form"),
+  stockMovementProduct: $("stock-movement-product"),
+  stockMovementType: $("stock-movement-type"),
+  stockMovementQuantity: $("stock-movement-quantity"),
+  stockMovementComment: $("stock-movement-comment"),
+  stockMovementCreate: $("stock-movement-create"),
+  stockMovementsList: $("stock-movements-list"),
   purchaseForm: $("purchase-form"),
   purchaseSupplier: $("purchase-supplier"),
   purchaseLines: $("purchase-lines"),
@@ -65,6 +72,7 @@ const state = {
   products: [],
   catalogProducts: [],
   suppliers: [],
+  stockMovements: [],
   purchaseOrders: [],
   runs: [],
   currentView: "stock",
@@ -264,6 +272,7 @@ function applyDashboard(payload) {
   state.products = payload.products || [];
   state.catalogProducts = payload.catalogProducts || state.products;
   state.suppliers = payload.suppliers || [];
+  state.stockMovements = payload.stockMovements || [];
   state.purchaseOrders = payload.purchaseOrders || [];
   state.runs = payload.runs || [];
   render();
@@ -274,6 +283,8 @@ function render() {
   renderMetrics();
   renderProducts();
   renderSuppliers();
+  renderStockMovementFormOptions();
+  renderStockMovements();
   renderPurchaseFormOptions();
   renderSupplierCatalog();
   renderOrders();
@@ -293,6 +304,7 @@ function renderChrome() {
 
   [
     elements.supplierSave,
+    elements.stockMovementCreate,
     elements.purchaseAddLine,
     elements.purchaseCreate,
   ].forEach((button) => {
@@ -400,6 +412,19 @@ function productOptions(selectedId = null) {
   }).join("");
 }
 
+function stockProductOptions(selectedId = null) {
+  const products = productsByReference(productList());
+  if (products.length === 0) {
+    return '<option value="">Aucun produit synchronise</option>';
+  }
+
+  return products.map((product) => {
+    const selected = Number(selectedId || 0) === Number(product.id) ? " selected" : "";
+    const label = product.reference ? `${product.reference} - ${product.name}` : product.name;
+    return `<option value="${product.id}"${selected}>${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
 function createPurchaseLine(productId = null) {
   const product = productById(productId) || productsByReference(productList())[0] || null;
   const id = state.nextPurchaseLineId++;
@@ -477,6 +502,53 @@ function renderSuppliers() {
       </div>
     </article>
   `).join("");
+}
+
+function movementTypeLabel(type) {
+  return type === "remove" ? "Retrait" : "Ajout";
+}
+
+function renderStockMovementFormOptions() {
+  const selected = elements.stockMovementProduct.value;
+  if (productList().length === 0) {
+    elements.stockMovementProduct.innerHTML = '<option value="">Aucun produit synchronise</option>';
+    elements.stockMovementCreate.disabled = true;
+    return;
+  }
+
+  elements.stockMovementProduct.innerHTML = stockProductOptions(selected);
+  if (selected && productById(selected)) {
+    elements.stockMovementProduct.value = selected;
+  }
+  elements.stockMovementCreate.disabled = !isAdmin();
+}
+
+function renderStockMovements() {
+  if (state.stockMovements.length === 0) {
+    elements.stockMovementsList.innerHTML = '<div class="empty-state">Aucun mouvement de stock.</div>';
+    return;
+  }
+
+  elements.stockMovementsList.innerHTML = state.stockMovements.map((movement) => {
+    const delta = Number(movement.quantityDelta || 0);
+    const directionClass = delta < 0 ? "danger-text" : "success-text";
+    const reference = movement.productReference ? `${movement.productReference} - ` : "";
+    const author = movement.userDisplayName || movement.userEmail || "Utilisateur";
+    return `
+      <article class="list-card stock-movement-card">
+        <div class="stock-movement-head">
+          <strong>${escapeHtml(reference + (movement.productName || "Produit"))}</strong>
+          <span class="${directionClass}">${delta > 0 ? "+" : ""}${delta}</span>
+        </div>
+        <small>${movementTypeLabel(movement.movementType)} - stock ${movement.previousQuantity} -> ${movement.newQuantity}</small>
+        <small>${escapeHtml(formatDateTime(movement.createdAt))} - ${escapeHtml(author)}</small>
+        ${movement.comment ? `<p class="movement-comment">${escapeHtml(movement.comment)}</p>` : ""}
+        <div class="card-actions">
+          <button class="danger-button" data-stock-movement-delete="${movement.id}" type="button"${isAdmin() ? "" : " disabled"}>Supprimer</button>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderPurchaseFormOptions() {
@@ -874,6 +946,53 @@ async function saveProduct(productId) {
   }
 }
 
+async function createStockMovement(event) {
+  event.preventDefault();
+  elements.stockMovementCreate.disabled = true;
+  try {
+    const payload = await apiRequest(API.stock, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "create_stock_movement",
+        productId: Number(elements.stockMovementProduct.value || 0),
+        type: elements.stockMovementType.value,
+        quantity: Number(elements.stockMovementQuantity.value || 0),
+        comment: elements.stockMovementComment.value.trim(),
+      }),
+    });
+    elements.stockMovementQuantity.value = "1";
+    elements.stockMovementComment.value = "";
+    applyDashboard(payload.dashboard || {});
+    showMessage(payload.message || "Mouvement de stock enregistre.", "success");
+  } catch (error) {
+    showMessage(error.message || "Mouvement de stock impossible.", "error");
+  } finally {
+    elements.stockMovementCreate.disabled = !isAdmin();
+  }
+}
+
+async function deleteStockMovement(movementId) {
+  const movement = state.stockMovements.find((item) => Number(item.id) === Number(movementId));
+  const label = movement?.productReference ? `${movement.productReference} - ${movement.productName}` : (movement?.productName || `mouvement #${movementId}`);
+  if (!window.confirm(`Supprimer ce mouvement et inverser le stock pour ${label} ?`)) {
+    return;
+  }
+
+  try {
+    const payload = await apiRequest(API.stock, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_stock_movement",
+        id: Number(movementId),
+      }),
+    });
+    applyDashboard(payload.dashboard || {});
+    showMessage(payload.message || "Mouvement supprime.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression du mouvement impossible.", "error");
+  }
+}
+
 function editSupplier(supplierId) {
   const supplier = state.suppliers.find((item) => Number(item.id) === Number(supplierId));
   if (!supplier) return;
@@ -997,6 +1116,7 @@ function installListeners() {
     void loadDashboard();
   });
   elements.supplierForm.addEventListener("submit", saveSupplier);
+  elements.stockMovementForm.addEventListener("submit", createStockMovement);
   elements.purchaseForm.addEventListener("submit", createPurchaseOrder);
   elements.purchaseAddLine.addEventListener("click", () => {
     syncPurchaseLinesFromDom();
@@ -1072,6 +1192,13 @@ function installListeners() {
       elements.catalogSupplierFilter.value = catalogButton.dataset.supplierCatalog;
       setActiveView("supplier-catalog");
       renderSupplierCatalog();
+    }
+  });
+
+  elements.stockMovementsList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-stock-movement-delete]");
+    if (deleteButton) {
+      void deleteStockMovement(deleteButton.dataset.stockMovementDelete);
     }
   });
 

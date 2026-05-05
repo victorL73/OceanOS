@@ -1839,6 +1839,20 @@ function nautimail_sent_message_by_id(PDO $pdo, int $sentId): ?array
     return is_array($row) ? $row : null;
 }
 
+function nautimail_reply_by_id(PDO $pdo, int $replyId): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT r.*, a.label AS account_label, a.email_address AS account_email
+         FROM nautimail_replies r
+         INNER JOIN nautimail_accounts a ON a.id = r.account_id
+         WHERE r.id = :id
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $replyId]);
+    $row = $statement->fetch();
+    return is_array($row) ? $row : null;
+}
+
 function nautimail_require_sent_message_access(PDO $pdo, array $user, int $sentId): array
 {
     $message = nautimail_sent_message_by_id($pdo, $sentId);
@@ -1848,6 +1862,17 @@ function nautimail_require_sent_message_access(PDO $pdo, array $user, int $sentI
     nautimail_require_account_access($pdo, $user, (int) $message['account_id']);
 
     return $message;
+}
+
+function nautimail_require_reply_access(PDO $pdo, array $user, int $replyId): array
+{
+    $reply = nautimail_reply_by_id($pdo, $replyId);
+    if ($reply === null) {
+        throw new InvalidArgumentException('Reponse envoyee introuvable.');
+    }
+    nautimail_require_account_access($pdo, $user, (int) $reply['account_id']);
+
+    return $reply;
 }
 
 function nautimail_sent_message_conversation(array $sentMessage): array
@@ -3121,6 +3146,63 @@ function nautimail_delete_message(PDO $pdo, array $user, array $input): array
 
     $statement = $pdo->prepare('DELETE FROM nautimail_messages WHERE id = :id');
     $statement->execute(['id' => $messageId]);
+
+    return [
+        'accountId' => (int) $message['account_id'],
+    ];
+}
+
+function nautimail_outgoing_delete_target(array $input): array
+{
+    $rawId = trim((string) ($input['outgoingId'] ?? ''));
+    $typeInput = strtolower(trim((string) ($input['outgoingType'] ?? $input['type'] ?? '')));
+    $type = in_array($typeInput, ['sent', 'reply'], true) ? $typeInput : '';
+
+    if ($rawId === '') {
+        if (isset($input['replyId'])) {
+            $rawId = trim((string) $input['replyId']);
+            $type = $type !== '' ? $type : 'reply';
+        } else {
+            $rawId = trim((string) ($input['sentId'] ?? $input['messageId'] ?? $input['id'] ?? ''));
+            $type = $type !== '' ? $type : 'sent';
+        }
+    }
+
+    if (str_starts_with($rawId, 'reply:')) {
+        $type = 'reply';
+        $rawId = substr($rawId, 6);
+    } elseif (str_starts_with($rawId, 'sent:')) {
+        $type = 'sent';
+        $rawId = substr($rawId, 5);
+    }
+
+    return [
+        'type' => $type !== '' ? $type : 'sent',
+        'id' => (int) $rawId,
+    ];
+}
+
+function nautimail_delete_outgoing_message(PDO $pdo, array $user, array $input): array
+{
+    $target = nautimail_outgoing_delete_target($input);
+    $outgoingId = (int) $target['id'];
+    if ($outgoingId <= 0) {
+        throw new InvalidArgumentException('Mail envoye introuvable.');
+    }
+
+    if ($target['type'] === 'reply') {
+        $reply = nautimail_require_reply_access($pdo, $user, $outgoingId);
+        $statement = $pdo->prepare('DELETE FROM nautimail_replies WHERE id = :id');
+        $statement->execute(['id' => $outgoingId]);
+
+        return [
+            'accountId' => (int) $reply['account_id'],
+        ];
+    }
+
+    $message = nautimail_require_sent_message_access($pdo, $user, $outgoingId);
+    $statement = $pdo->prepare('DELETE FROM nautimail_sent_messages WHERE id = :id');
+    $statement->execute(['id' => $outgoingId]);
 
     return [
         'accountId' => (int) $message['account_id'],

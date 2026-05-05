@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/stockcean.svg?v=20260427">
   <meta name="description" content="Stockcean - stocks, achats et fournisseurs connectes a PrestaShop.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260505-mobile-keyboard">
-  <link rel="stylesheet" href="assets/style.css?v=20260502-order-focus">
+  <link rel="stylesheet" href="assets/style.css?v=20260505-stock-movements">
   <script defer src="/OceanOS/assets/guard.js?v=20260505-mobile-keyboard"></script>
 </head>
 <body>
@@ -146,6 +146,40 @@
           <section class="panel">
             <div class="panel-header">
               <div>
+                <p class="eyebrow">Stocks</p>
+                <h2>Mouvements de stock</h2>
+              </div>
+            </div>
+            <form id="stock-movement-form" class="stack-form">
+              <label class="field">
+                <span>Produit</span>
+                <select id="stock-movement-product"></select>
+              </label>
+              <div class="inline-fields">
+                <label class="field">
+                  <span>Mouvement</span>
+                  <select id="stock-movement-type">
+                    <option value="add">Ajouter</option>
+                    <option value="remove">Retirer</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Quantite</span>
+                  <input id="stock-movement-quantity" type="number" min="1" value="1">
+                </label>
+              </div>
+              <label class="field">
+                <span>Commentaire</span>
+                <textarea id="stock-movement-comment" rows="3"></textarea>
+              </label>
+              <button id="stock-movement-create" class="primary-button" type="submit">Enregistrer le mouvement</button>
+            </form>
+            <div id="stock-movements-list" class="cards-list stock-movements-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
                 <p class="eyebrow">Achats</p>
                 <h2>Commande fournisseur</h2>
               </div>
@@ -230,6 +264,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260503-purchase-ttc"></script>
+  <script src="assets/app.js?v=20260505-stock-movements"></script>
 </body>
 </html>

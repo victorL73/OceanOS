@@ -23,6 +23,7 @@ OceanOS > menu utilisateur > PrestaShop
 - envoi des alertes de stock dans les notifications OceanOS
 - catalogue fournisseur groupe par fournisseur
 - affectation ou creation de fournisseurs internes
+- mouvements de stock manuels avec commentaire, ajout/retrait PrestaShop et suppression par inversion
 - commandes fournisseurs internes multi-produits avec quantites et prix d'achat HT par ligne
 - reception fournisseur avec increment du stock PrestaShop
 - historique detaille des commandes fournisseurs
@@ -49,6 +50,7 @@ Les tables creees dans la base OceanOS sont :
 
 ```text
 stockcean_products
+stockcean_stock_movements
 stockcean_suppliers
 stockcean_purchase_orders
 stockcean_purchase_order_lines

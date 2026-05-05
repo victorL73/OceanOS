@@ -687,6 +687,23 @@ function conversationItemKey(item) {
   return `${type}:${id}`;
 }
 
+function outgoingDeleteKey(item) {
+  if (!item || item.type === "incoming") return "";
+  const type = item.type === "reply" ? "reply" : "sent";
+  const id = Number(item.replyId || item.sentId || item.id || 0);
+  return id > 0 ? `${type}:${id}` : "";
+}
+
+function parseOutgoingDeleteKey(value) {
+  const parts = String(value || "").split(":");
+  const type = parts[0] === "reply" ? "reply" : "sent";
+  const id = Number(parts[1] || parts[0] || 0);
+  return {
+    type,
+    id: Number.isFinite(id) ? id : 0,
+  };
+}
+
 function renderConversationItem(item) {
   const type = item.type || "incoming";
   const isIncoming = type === "incoming";
@@ -703,8 +720,12 @@ function renderConversationItem(item) {
     item.bccEmail ? `Cci ${item.bccEmail}` : "",
   ].filter(Boolean);
   const preview = isIncoming ? item.preview : item.bodyText;
-  const action = isIncoming && !item.isCurrent
+  const openAction = isIncoming && !item.isCurrent
     ? `<button class="ghost-button tiny-button" type="button" data-history-mail-open="${escapeAttribute(item.messageId)}">Ouvrir</button>`
+    : "";
+  const deleteKey = outgoingDeleteKey(item);
+  const deleteAction = deleteKey
+    ? `<button class="ghost-button tiny-button danger-text" type="button" data-delete-outgoing-mail="${escapeAttribute(deleteKey)}">Supprimer</button>`
     : "";
   const label = isIncoming ? (item.isCurrent ? "Mail ouvert" : "Recu") : (isReply ? "Reponse envoyee" : "Mail envoye");
   const attachmentCount = Array.isArray(item.attachments) ? item.attachments.length : 0;
@@ -723,7 +744,8 @@ function renderConversationItem(item) {
           ${attachmentCount > 0 ? badge(`${attachmentCount} PJ`, "attachment") : ""}
           ${item.status ? badge(labels.status[item.status] || item.status, item.status) : ""}
           ${item.errorMessage ? badge("Erreur", "danger") : ""}
-          ${action}
+          ${openAction}
+          ${deleteAction}
         </div>
       </div>
     </article>
@@ -903,6 +925,7 @@ function renderDetail() {
         ${mail.isOutgoing ? "" : badge(labels.category[mail.category] || mail.category, mail.category)}
         ${mail.isOutgoing ? "" : badge(labels.priority[mail.priority] || mail.priority, mail.priority)}
         ${badge(labels.status[mail.status] || mail.status, mail.status)}
+        ${mail.isOutgoing && Number(mail.sentId || 0) > 0 ? `<button class="ghost-button tiny-button danger-text" type="button" data-delete-outgoing-mail="sent:${escapeAttribute(mail.sentId)}">Supprimer</button>` : ""}
       </div>
     </div>
     <section class="message-headers">
@@ -1410,6 +1433,11 @@ async function saveMessageTriage(event) {
 }
 
 async function deleteSelectedMessage() {
+  if (state.selectedMessage?.isOutgoing) {
+    await deleteOutgoingMail(`sent:${Number(state.selectedMessage.sentId || 0)}`);
+    return;
+  }
+
   const messageId = selectedMessageId();
   if (messageId <= 0) return;
   const ok = window.confirm("Supprimer ce mail de NautiMail ? Il ne reviendra pas aux prochains releves.");
@@ -1437,6 +1465,61 @@ async function deleteSelectedMessage() {
     showMessage(error.message || "Suppression impossible.", "error");
   } finally {
     if (elements.deleteMessageButton) elements.deleteMessageButton.disabled = false;
+  }
+}
+
+async function deleteOutgoingMail(deleteKey = "") {
+  const target = parseOutgoingDeleteKey(deleteKey || `sent:${Number(state.selectedMessage?.sentId || 0)}`);
+  if (target.id <= 0) return;
+
+  const ok = window.confirm("Supprimer ce mail envoye de NautiMail ?");
+  if (!ok) return;
+
+  const currentIncomingId = selectedMessageId();
+  const currentOutgoingKey = state.selectedMessage?.isOutgoing
+    ? `sent:${Number(state.selectedMessage.sentId || 0)}`
+    : "";
+  const targetKey = `${target.type}:${target.id}`;
+  const deletingOpenedSentMail = currentOutgoingKey === targetKey;
+  const deleteButtons = Array.from(elements.mailDetail.querySelectorAll("[data-delete-outgoing-mail]"));
+  deleteButtons.forEach((button) => {
+    button.disabled = true;
+  });
+
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_sent_message",
+        outgoingId: targetKey,
+      }),
+    });
+
+    applyDashboard(payload.dashboard || payload);
+    if (deletingOpenedSentMail) {
+      state.selectedMessage = null;
+      state.conversation = null;
+      state.selectedConversationKey = "";
+      state.replyAll = false;
+      state.composeMode = false;
+      renderDetail();
+      renderReply();
+      setActiveView("inbox");
+    } else if (currentIncomingId > 0) {
+      await loadMessage(currentIncomingId, false);
+      setActiveView("detail");
+    } else {
+      renderDetail();
+      renderReply();
+    }
+
+    showMessage(payload.message || "Mail envoye supprime.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression impossible.", "error");
+  } finally {
+    deleteButtons.forEach((button) => {
+      button.disabled = false;
+    });
   }
 }
 
@@ -1693,6 +1776,12 @@ function installListeners() {
   });
 
   elements.mailDetail.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-delete-outgoing-mail]");
+    if (deleteButton) {
+      void deleteOutgoingMail(deleteButton.dataset.deleteOutgoingMail);
+      return;
+    }
+
     const itemButton = event.target.closest("[data-history-item-open]");
     if (itemButton) {
       state.selectedConversationKey = itemButton.dataset.historyItemOpen || "";

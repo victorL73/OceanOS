@@ -143,6 +143,31 @@ function stockcean_ensure_schema(PDO $pdo): void
     }
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS stockcean_stock_movements (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            product_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NULL,
+            deleted_by_user_id BIGINT UNSIGNED NULL,
+            movement_type ENUM('add', 'remove') NOT NULL,
+            quantity_delta INT NOT NULL,
+            previous_quantity INT NOT NULL DEFAULT 0,
+            new_quantity INT NOT NULL DEFAULT 0,
+            comment TEXT NULL,
+            prestashop_stock_delta INT NOT NULL DEFAULT 0,
+            prestashop_synced_at DATETIME NULL,
+            prestashop_error TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            deleted_at DATETIME NULL,
+            KEY idx_stockcean_stock_movement_product (product_id, created_at),
+            KEY idx_stockcean_stock_movement_created (created_at),
+            KEY idx_stockcean_stock_movement_deleted (deleted_at),
+            CONSTRAINT fk_stockcean_stock_movement_product FOREIGN KEY (product_id) REFERENCES stockcean_products(id) ON DELETE CASCADE,
+            CONSTRAINT fk_stockcean_stock_movement_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL,
+            CONSTRAINT fk_stockcean_stock_movement_deleted_user FOREIGN KEY (deleted_by_user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS stockcean_sync_runs (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id BIGINT UNSIGNED NULL,
@@ -326,10 +351,10 @@ function stockcean_stock_available_payload(SimpleXMLElement $stockAvailable): st
     return $xml;
 }
 
-function stockcean_increment_prestashop_stock(string $shopUrl, string $apiKey, int $prestashopProductId, int $quantityDelta): array
+function stockcean_adjust_prestashop_stock(string $shopUrl, string $apiKey, int $prestashopProductId, int $quantityDelta): array
 {
-    if ($quantityDelta <= 0) {
-        return ['previousQuantity' => 0, 'newQuantity' => 0, 'stockAvailableId' => 0];
+    if ($quantityDelta === 0) {
+        return stockcean_prestashop_stock_context($shopUrl, $apiKey, $prestashopProductId);
     }
 
     $stockAvailable = stockcean_select_stock_available_node(
@@ -343,6 +368,9 @@ function stockcean_increment_prestashop_stock(string $shopUrl, string $apiKey, i
 
     $previousQuantity = (int) oceanos_xml_text($stockAvailable, 'quantity');
     $newQuantity = $previousQuantity + $quantityDelta;
+    if ($newQuantity < 0) {
+        throw new RuntimeException('Stock PrestaShop insuffisant: le mouvement ferait passer le produit #' . $prestashopProductId . ' a ' . $newQuantity . '.');
+    }
     $stockAvailable->quantity = (string) $newQuantity;
 
     oceanos_prestashop_put_xml(
@@ -358,6 +386,15 @@ function stockcean_increment_prestashop_stock(string $shopUrl, string $apiKey, i
         'stockAvailableId' => $stockAvailableId,
         'stockAvailable' => $stockAvailable,
     ];
+}
+
+function stockcean_increment_prestashop_stock(string $shopUrl, string $apiKey, int $prestashopProductId, int $quantityDelta): array
+{
+    if ($quantityDelta <= 0) {
+        return ['previousQuantity' => 0, 'newQuantity' => 0, 'stockAvailableId' => 0];
+    }
+
+    return stockcean_adjust_prestashop_stock($shopUrl, $apiKey, $prestashopProductId, $quantityDelta);
 }
 
 function stockcean_prestashop_stock_context(string $shopUrl, string $apiKey, int $prestashopProductId): array
@@ -1247,6 +1284,239 @@ function stockcean_update_product(PDO $pdo, array $input): array
     return stockcean_public_product($row);
 }
 
+function stockcean_public_stock_movement(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'productId' => (int) $row['product_id'],
+        'productName' => (string) ($row['product_name'] ?? ''),
+        'productReference' => (string) ($row['product_reference'] ?? ''),
+        'prestashopProductId' => isset($row['prestashop_product_id']) ? (int) $row['prestashop_product_id'] : null,
+        'movementType' => (string) ($row['movement_type'] ?? 'add'),
+        'quantityDelta' => (int) ($row['quantity_delta'] ?? 0),
+        'previousQuantity' => (int) ($row['previous_quantity'] ?? 0),
+        'newQuantity' => (int) ($row['new_quantity'] ?? 0),
+        'comment' => (string) ($row['comment'] ?? ''),
+        'prestashopStockDelta' => (int) ($row['prestashop_stock_delta'] ?? 0),
+        'prestashopSyncedAt' => array_key_exists('prestashop_synced_at', $row) && $row['prestashop_synced_at'] !== null ? (string) $row['prestashop_synced_at'] : null,
+        'prestashopError' => (string) ($row['prestashop_error'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'userDisplayName' => (string) ($row['user_display_name'] ?? ''),
+        'userEmail' => (string) ($row['user_email'] ?? ''),
+    ];
+}
+
+function stockcean_list_stock_movements(PDO $pdo, int $limit = 50): array
+{
+    $statement = $pdo->prepare(
+        'SELECT
+            m.*,
+            p.name AS product_name,
+            p.reference AS product_reference,
+            p.prestashop_product_id,
+            u.display_name AS user_display_name,
+            u.email AS user_email
+         FROM stockcean_stock_movements m
+         INNER JOIN stockcean_products p ON p.id = m.product_id
+         LEFT JOIN oceanos_users u ON u.id = m.user_id
+         WHERE m.deleted_at IS NULL
+         ORDER BY m.created_at DESC, m.id DESC
+         LIMIT :limit'
+    );
+    $statement->bindValue(':limit', max(1, min(100, $limit)), PDO::PARAM_INT);
+    $statement->execute();
+
+    return array_map(static fn(array $row): array => stockcean_public_stock_movement($row), $statement->fetchAll());
+}
+
+function stockcean_create_stock_movement(PDO $pdo, array $input, array $user): array
+{
+    $productId = (int) ($input['productId'] ?? 0);
+    $type = trim((string) ($input['type'] ?? $input['movementType'] ?? ''));
+    $quantity = max(0, min(999999, (int) ($input['quantity'] ?? 0)));
+    $comment = trim((string) ($input['comment'] ?? ''));
+
+    if ($productId <= 0) {
+        throw new InvalidArgumentException('Produit invalide.');
+    }
+    if (!in_array($type, ['add', 'remove'], true)) {
+        throw new InvalidArgumentException('Type de mouvement invalide.');
+    }
+    if ($quantity <= 0) {
+        throw new InvalidArgumentException('La quantite du mouvement doit etre superieure a 0.');
+    }
+
+    $delta = $type === 'add' ? $quantity : -$quantity;
+    $settings = oceanos_prestashop_private_settings($pdo);
+    [$shopUrl, $apiKey] = oceanos_require_prestashop_settings($settings);
+
+    $pdo->beginTransaction();
+    try {
+        $productStatement = $pdo->prepare('SELECT * FROM stockcean_products WHERE id = :id LIMIT 1 FOR UPDATE');
+        $productStatement->execute(['id' => $productId]);
+        $product = $productStatement->fetch();
+        if (!is_array($product)) {
+            throw new InvalidArgumentException('Produit introuvable.');
+        }
+
+        $prestashopProductId = (int) ($product['prestashop_product_id'] ?? 0);
+        if ($prestashopProductId <= 0) {
+            throw new RuntimeException('Ce produit n est pas lie a PrestaShop.');
+        }
+
+        $localNewQuantity = (int) ($product['quantity'] ?? 0) + $delta;
+        if ($localNewQuantity < 0) {
+            throw new InvalidArgumentException('Stock insuffisant pour retirer ' . $quantity . ' unite(s).');
+        }
+
+        $stockUpdate = stockcean_adjust_prestashop_stock($shopUrl, $apiKey, $prestashopProductId, $delta);
+        $previousQuantity = (int) $stockUpdate['previousQuantity'];
+        $newQuantity = (int) $stockUpdate['newQuantity'];
+
+        $insert = $pdo->prepare(
+            'INSERT INTO stockcean_stock_movements
+                (product_id, user_id, movement_type, quantity_delta, previous_quantity, new_quantity, comment, prestashop_stock_delta, prestashop_synced_at)
+             VALUES
+                (:product_id, :user_id, :movement_type, :quantity_delta, :previous_quantity, :new_quantity, :comment, :prestashop_stock_delta, NOW())'
+        );
+        $insert->execute([
+            'product_id' => $productId,
+            'user_id' => (int) ($user['id'] ?? 0) ?: null,
+            'movement_type' => $type,
+            'quantity_delta' => $delta,
+            'previous_quantity' => $previousQuantity,
+            'new_quantity' => $newQuantity,
+            'comment' => $comment !== '' ? mb_substr($comment, 0, 2000) : null,
+            'prestashop_stock_delta' => $delta,
+        ]);
+        $movementId = (int) $pdo->lastInsertId();
+
+        $updateProduct = $pdo->prepare(
+            'UPDATE stockcean_products
+             SET quantity = :quantity,
+                 synced_at = NOW(),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id'
+        );
+        $updateProduct->execute([
+            'id' => $productId,
+            'quantity' => $newQuantity,
+        ]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        $pdo->rollBack();
+        throw $exception;
+    }
+
+    if ($delta < 0) {
+        stockcean_notify_stock_alerts($pdo, (int) ($user['id'] ?? 0));
+    }
+
+    $movement = stockcean_get_stock_movement($pdo, $movementId);
+    if ($movement === null) {
+        throw new RuntimeException('Mouvement introuvable apres creation.');
+    }
+
+    return $movement;
+}
+
+function stockcean_get_stock_movement(PDO $pdo, int $movementId): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT
+            m.*,
+            p.name AS product_name,
+            p.reference AS product_reference,
+            p.prestashop_product_id,
+            u.display_name AS user_display_name,
+            u.email AS user_email
+         FROM stockcean_stock_movements m
+         INNER JOIN stockcean_products p ON p.id = m.product_id
+         LEFT JOIN oceanos_users u ON u.id = m.user_id
+         WHERE m.id = :id AND m.deleted_at IS NULL
+         LIMIT 1'
+    );
+    $statement->execute(['id' => $movementId]);
+    $row = $statement->fetch();
+
+    return is_array($row) ? stockcean_public_stock_movement($row) : null;
+}
+
+function stockcean_delete_stock_movement(PDO $pdo, int $movementId, array $user): void
+{
+    if ($movementId <= 0) {
+        throw new InvalidArgumentException('Mouvement invalide.');
+    }
+
+    $settings = oceanos_prestashop_private_settings($pdo);
+    [$shopUrl, $apiKey] = oceanos_require_prestashop_settings($settings);
+
+    $pdo->beginTransaction();
+    try {
+        $statement = $pdo->prepare(
+            'SELECT
+                m.*,
+                p.prestashop_product_id,
+                p.quantity AS product_quantity
+             FROM stockcean_stock_movements m
+             INNER JOIN stockcean_products p ON p.id = m.product_id
+             WHERE m.id = :id AND m.deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE'
+        );
+        $statement->execute(['id' => $movementId]);
+        $movement = $statement->fetch();
+        if (!is_array($movement)) {
+            throw new InvalidArgumentException('Mouvement introuvable.');
+        }
+
+        $reverseDelta = -((int) ($movement['quantity_delta'] ?? 0));
+        if ($reverseDelta === 0) {
+            throw new RuntimeException('Mouvement impossible a annuler.');
+        }
+
+        $stockUpdate = stockcean_adjust_prestashop_stock(
+            $shopUrl,
+            $apiKey,
+            (int) $movement['prestashop_product_id'],
+            $reverseDelta
+        );
+
+        $updateProduct = $pdo->prepare(
+            'UPDATE stockcean_products
+             SET quantity = :quantity,
+                 synced_at = NOW(),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id'
+        );
+        $updateProduct->execute([
+            'id' => (int) $movement['product_id'],
+            'quantity' => (int) $stockUpdate['newQuantity'],
+        ]);
+
+        $delete = $pdo->prepare(
+            'UPDATE stockcean_stock_movements
+             SET deleted_at = NOW(),
+                 deleted_by_user_id = :user_id
+             WHERE id = :id AND deleted_at IS NULL'
+        );
+        $delete->execute([
+            'id' => $movementId,
+            'user_id' => (int) ($user['id'] ?? 0) ?: null,
+        ]);
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        $pdo->rollBack();
+        throw $exception;
+    }
+
+    if ($reverseDelta < 0) {
+        stockcean_notify_stock_alerts($pdo, (int) ($user['id'] ?? 0));
+    }
+}
+
 function stockcean_next_order_number(): string
 {
     return 'SC-' . date('Ymd-His') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
@@ -1704,6 +1974,7 @@ function stockcean_dashboard(PDO $pdo, array $query, array $user): array
         'products' => stockcean_list_products($pdo, $query),
         'catalogProducts' => stockcean_supplier_catalog($pdo),
         'suppliers' => stockcean_list_suppliers($pdo),
+        'stockMovements' => stockcean_list_stock_movements($pdo),
         'purchaseOrders' => stockcean_list_purchase_orders($pdo),
         'runs' => stockcean_list_sync_runs($pdo),
     ];

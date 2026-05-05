@@ -49,6 +49,31 @@ try {
             ]);
         }
 
+        if ($action === 'create_stock_movement') {
+            $admin = stockcean_require_admin($pdo);
+            $movement = stockcean_create_stock_movement($pdo, $input, $admin);
+            stockcean_json_response([
+                'ok' => true,
+                'message' => sprintf(
+                    'Mouvement enregistre. Stock %s de %d unite(s).',
+                    $movement['quantityDelta'] >= 0 ? 'augmente' : 'diminue',
+                    abs((int) $movement['quantityDelta'])
+                ),
+                'stockMovement' => $movement,
+                'dashboard' => stockcean_dashboard($pdo, [], $admin),
+            ], 201);
+        }
+
+        if ($action === 'delete_stock_movement') {
+            $admin = stockcean_require_admin($pdo);
+            stockcean_delete_stock_movement($pdo, (int) ($input['id'] ?? 0), $admin);
+            stockcean_json_response([
+                'ok' => true,
+                'message' => 'Mouvement supprime et stock inverse.',
+                'dashboard' => stockcean_dashboard($pdo, [], $admin),
+            ]);
+        }
+
         if ($action === 'create_purchase_order') {
             $admin = stockcean_require_admin($pdo);
             $order = stockcean_create_purchase_order($pdo, $admin, $input);
