@@ -219,6 +219,14 @@ function agenda_settings_catalog(): array
                 'opportunity' => 'Opportunites',
             ],
         ],
+        'Prospection' => [
+            'moduleId' => 'prospection',
+            'label' => 'Prospection',
+            'types' => [
+                'prospect_follow_up' => 'Relances prospects',
+                'prospection_task' => 'Taches prospection',
+            ],
+        ],
         'NautiMail' => [
             'moduleId' => 'nautimail',
             'label' => 'NautiMail',
@@ -1016,6 +1024,9 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     if (agenda_user_has_module($user, 'nauticrm') && agenda_settings_module_enabled($settings, 'NautiCRM')) {
         $tasks = array_merge($tasks, agenda_collect_nauticrm_tasks($pdo, $user));
     }
+    if (agenda_user_has_module($user, 'prospection') && agenda_settings_module_enabled($settings, 'Prospection')) {
+        $tasks = array_merge($tasks, agenda_collect_prospection_tasks($pdo, $user));
+    }
     if (agenda_user_has_module($user, 'nautimail') && agenda_settings_module_enabled($settings, 'NautiMail')) {
         $tasks = array_merge($tasks, agenda_collect_nautimail_tasks($pdo, $user));
     }
@@ -1700,6 +1711,78 @@ function agenda_collect_nauticrm_tasks(PDO $pdo, array $user): array
     }
 
     return array_slice($tasks, 0, 160);
+}
+
+function agenda_collect_prospection_tasks(PDO $pdo, array $user): array
+{
+    $tasks = [];
+    $userId = (int) ($user['id'] ?? 0);
+    $isAdmin = agenda_is_admin($user);
+
+    if (oceanos_table_exists($pdo, 'prospection_prospects')) {
+        $where = "p.next_action_at IS NOT NULL AND p.status NOT IN ('converted', 'lost', 'archived')";
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (p.assigned_user_id = :prospect_assigned_user_id OR p.created_by_user_id = :prospect_created_user_id OR p.assigned_user_id IS NULL)';
+            $params['prospect_assigned_user_id'] = $userId;
+            $params['prospect_created_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT p.id, p.company_name, p.status, p.priority, p.next_action_at, p.notes
+             FROM prospection_prospects p
+             WHERE {$where}
+             ORDER BY p.next_action_at ASC, FIELD(p.priority, 'high', 'normal', 'low'), p.updated_at DESC
+             LIMIT 60"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $tasks[] = agenda_external_task(
+                'Prospection',
+                'prospect:' . (int) $row['id'],
+                'Relancer ' . agenda_clean_text($row['company_name'] ?? 'prospect', 150, true),
+                agenda_parse_due_datetime($row['next_action_at'] ?? ''),
+                agenda_clean_text($row['notes'] ?? '', 240, true),
+                agenda_normalize_priority($row['priority'] ?? 'normal'),
+                '/Prospection/',
+                'prospect_follow_up'
+            );
+        }
+    }
+
+    if (oceanos_table_exists($pdo, 'prospection_tasks')) {
+        $where = "t.status IN ('todo', 'doing')";
+        $params = [];
+        if (!$isAdmin) {
+            $where .= ' AND (t.assigned_user_id = :task_assigned_user_id OR t.created_by_user_id = :task_created_user_id OR t.assigned_user_id IS NULL)';
+            $params['task_assigned_user_id'] = $userId;
+            $params['task_created_user_id'] = $userId;
+        }
+        $statement = $pdo->prepare(
+            "SELECT t.id, t.title, t.priority, t.due_at, t.notes, p.company_name
+             FROM prospection_tasks t
+             LEFT JOIN prospection_prospects p ON p.id = t.prospect_id
+             WHERE {$where}
+             ORDER BY t.due_at IS NULL, t.due_at ASC, FIELD(t.priority, 'high', 'normal', 'low'), t.updated_at DESC
+             LIMIT 80"
+        );
+        $statement->execute($params);
+        foreach ($statement->fetchAll() as $row) {
+            $prospect = agenda_clean_text($row['company_name'] ?? '', 140, true);
+            $notes = agenda_clean_text($row['notes'] ?? '', 220, true);
+            $tasks[] = agenda_external_task(
+                'Prospection',
+                'task:' . (int) $row['id'],
+                agenda_clean_text($row['title'] ?? 'Tache prospection', 190, true),
+                agenda_parse_due_datetime($row['due_at'] ?? ''),
+                trim($prospect . ($notes !== '' ? ' - ' . $notes : '')),
+                agenda_normalize_priority($row['priority'] ?? 'normal'),
+                '/Prospection/',
+                'prospection_task'
+            );
+        }
+    }
+
+    return array_slice($tasks, 0, 120);
 }
 
 function agenda_nautimail_account_ids(PDO $pdo, array $user): array

@@ -322,7 +322,8 @@ a {
 .content-grid,
 .detail-grid,
 .reply-grid,
-.accounts-grid {
+.accounts-grid,
+.groups-grid {
   display: grid;
   gap: 16px;
   align-items: start;
@@ -333,7 +334,8 @@ a {
 }
 
 .detail-grid,
-.accounts-grid {
+.accounts-grid,
+.groups-grid {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
 }
 
@@ -518,6 +520,102 @@ legend {
 .draft-attachment-chip small {
   color: var(--muted);
   font-weight: 800;
+}
+
+.distribution-picker,
+.selected-members-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(8, 125, 121, 0.20);
+  border-radius: 8px;
+  background: rgba(8, 125, 121, 0.06);
+}
+
+.recipient-picker-list {
+  max-height: 320px;
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+}
+
+.recipient-option {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+}
+
+.recipient-option:hover,
+.recipient-option.is-selected {
+  border-color: rgba(8, 125, 121, 0.34);
+  background: rgba(8, 125, 121, 0.08);
+}
+
+.recipient-option:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.recipient-option strong,
+.recipient-option small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recipient-option small {
+  color: var(--muted);
+}
+
+.selected-members-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selected-members-list .empty-state {
+  width: 100%;
+}
+
+.member-chip {
+  min-width: min(100%, 250px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.member-chip strong,
+.member-chip small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-chip small {
+  color: var(--muted);
+}
+
+.member-chip button {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(199, 68, 68, 0.25);
+  border-radius: 8px;
+  background: rgba(199, 68, 68, 0.08);
+  color: var(--red);
+  font-weight: 900;
 }
 
 .mail-list {
@@ -1017,7 +1115,8 @@ legend {
   .content-grid,
   .detail-grid,
   .reply-grid,
-  .accounts-grid {
+  .accounts-grid,
+  .groups-grid {
     grid-template-columns: 1fr;
   }
 

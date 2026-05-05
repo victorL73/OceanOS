@@ -79,6 +79,14 @@ const apps = [
     color: "#087d79",
   },
   {
+    id: "prospection",
+    title: "Prospection",
+    subtitle: "Prospects, templates mail, IA et transfert NautiCRM.",
+    href: "/Prospection/",
+    mark: "PR",
+    color: "#1d6f86",
+  },
+  {
     id: "nautimail",
     title: "NautiMail",
     subtitle: "Boites mail partagees, tri IA et reponses client.",

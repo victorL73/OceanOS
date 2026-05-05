@@ -54,6 +54,11 @@ const elements = {
   replyAllButton: $("reply-all-button"),
   generateReplyButton: $("generate-reply-button"),
   replyForm: $("reply-form"),
+  replyGroupTools: $("reply-group-tools"),
+  replyGroupSelect: $("reply-group-select"),
+  replyGroupToButton: $("reply-group-to-button"),
+  replyGroupCcButton: $("reply-group-cc-button"),
+  replyGroupBccButton: $("reply-group-bcc-button"),
   replyTo: $("reply-to"),
   replyCc: $("reply-cc"),
   replyBcc: $("reply-bcc"),
@@ -90,6 +95,19 @@ const elements = {
   accountResetButton: $("account-reset-button"),
   accountDeactivateButton: $("account-deactivate-button"),
   accountsList: $("accounts-list"),
+  groupFormTitle: $("group-form-title"),
+  newGroupButton: $("new-group-button"),
+  distributionGroupForm: $("distribution-group-form"),
+  groupId: $("group-id"),
+  groupName: $("group-name"),
+  groupDescription: $("group-description"),
+  groupCrmSearch: $("group-crm-search"),
+  groupCrmRecipients: $("group-crm-recipients"),
+  groupMembersList: $("group-members-list"),
+  groupMemberCount: $("group-member-count"),
+  groupResetButton: $("group-reset-button"),
+  groupDeleteButton: $("group-delete-button"),
+  groupsList: $("groups-list"),
 };
 
 const state = {
@@ -101,6 +119,11 @@ const state = {
   selectedMessage: null,
   conversation: null,
   stats: {},
+  distributionGroups: [],
+  crmRecipients: [],
+  crmAvailable: false,
+  groupDraftMembers: [],
+  crmSearchTimer: null,
   currentView: "inbox",
   imapAvailable: false,
   aiSettings: null,
@@ -183,6 +206,54 @@ function renderDraftAttachments() {
 function clearDraftAttachments() {
   if (elements.replyAttachments) elements.replyAttachments.value = "";
   renderDraftAttachments();
+}
+
+function splitRecipientText(value) {
+  return String(value || "")
+    .split(/[;,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function appendRecipients(input, emails) {
+  if (!input || !Array.isArray(emails) || emails.length === 0) return;
+  const existing = splitRecipientText(input.value);
+  const seen = new Set(existing.map((email) => email.toLowerCase()));
+  emails.forEach((email) => {
+    const clean = String(email || "").trim();
+    if (clean && !seen.has(clean.toLowerCase())) {
+      existing.push(clean);
+      seen.add(clean.toLowerCase());
+    }
+  });
+  input.value = existing.join(", ");
+}
+
+function recipientDisplayName(recipient) {
+  return recipient?.displayName || recipient?.companyName || recipient?.email || "Contact";
+}
+
+function recipientSearchText(recipient) {
+  return [
+    recipient?.displayName,
+    recipient?.companyName,
+    recipient?.email,
+    recipient?.label,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function recipientByKey(key) {
+  const textKey = String(key || "");
+  const pools = [
+    state.groupDraftMembers || [],
+    state.crmRecipients || [],
+    ...(state.distributionGroups || []).map((group) => group.members || []),
+  ];
+  for (const pool of pools) {
+    const found = pool.find((recipient) => String(recipient.key) === textKey);
+    if (found) return found;
+  }
+  return null;
 }
 
 function escapeAttribute(value) {
@@ -366,6 +437,9 @@ function applyDashboard(payload) {
   state.accounts = payload.accounts || [];
   state.messages = payload.messages || [];
   state.stats = payload.stats || {};
+  state.distributionGroups = payload.distributionGroups || [];
+  state.crmRecipients = payload.crmRecipients || state.crmRecipients || [];
+  state.crmAvailable = Boolean(payload.crmAvailable);
   state.imapAvailable = Boolean(payload.imapAvailable);
   state.aiSettings = payload.aiSettings || null;
   state.selectedAccountId = Number(payload.selectedAccountId || state.selectedAccountId || 0);
@@ -402,6 +476,7 @@ function render() {
   renderAccountCards();
   renderDetail();
   renderReply();
+  renderDistributionGroups();
   updateSignaturePreviews();
   renderAccounts();
   renderShares();
@@ -472,26 +547,49 @@ function renderMessages() {
 function renderTriageBoard() {
   const categories = ["client", "vente", "gestion", "support", "finance", "spam", "autre"];
   const counts = Object.fromEntries(categories.map((category) => [category, 0]));
+  let sentCount = 0;
   state.messages.forEach((mail) => {
-    if (mail.isOutgoing) return;
+    if (mail.isOutgoing) {
+      sentCount += 1;
+      return;
+    }
     counts[mail.category] = (counts[mail.category] || 0) + 1;
   });
 
   const activeCategory = elements.filterCategory.value;
-  elements.triageBoard.innerHTML = categories.map((category) => `
+  const activeStatus = elements.filterStatus.value;
+  const categoryCards = categories.map((category) => `
     <button class="triage-card${activeCategory === category ? " is-active" : ""}" data-category-filter="${category}" type="button" aria-pressed="${activeCategory === category ? "true" : "false"}">
       <strong>${escapeHtml(labels.category[category])}</strong>
       <small>${counts[category] || 0} mail(s)</small>
     </button>
   `).join("");
+  elements.triageBoard.innerHTML = `
+    ${categoryCards}
+    <button class="triage-card${activeStatus === "sent" ? " is-active" : ""}" data-status-filter="sent" type="button" aria-pressed="${activeStatus === "sent" ? "true" : "false"}">
+      <strong>Envoyes</strong>
+      <small>${sentCount} mail(s)</small>
+    </button>
+  `;
 }
 
 function applyCategoryShortcut(category) {
   const nextCategory = elements.filterCategory.value === category ? "" : category;
   elements.filterCategory.value = nextCategory;
+  if (nextCategory) elements.filterStatus.value = "";
   setActiveView("inbox");
   void loadDashboard()
     .then(() => showMessage(nextCategory ? `Filtre ${labels.category[nextCategory] || nextCategory} applique.` : "Filtre categorie retire.", "success"))
+    .catch((error) => showMessage(error.message, "error"));
+}
+
+function applyStatusShortcut(status) {
+  const nextStatus = elements.filterStatus.value === status ? "" : status;
+  elements.filterStatus.value = nextStatus;
+  if (nextStatus === "sent") elements.filterCategory.value = "";
+  setActiveView("inbox");
+  void loadDashboard()
+    .then(() => showMessage(nextStatus ? `Filtre ${labels.status[nextStatus] || nextStatus} applique.` : "Filtre statut retire.", "success"))
     .catch((error) => showMessage(error.message, "error"));
 }
 
@@ -881,6 +979,7 @@ function renderReply() {
   if (elements.replyAllButton) elements.replyAllButton.classList.toggle("hidden", state.composeMode);
   if (elements.generateReplyButton) elements.generateReplyButton.classList.toggle("hidden", state.composeMode);
   if (elements.replyTone) elements.replyTone.disabled = state.composeMode;
+  renderReplyDistributionTools();
   updateSignaturePreviews();
   if (!showPanel) return;
   if (state.composeMode) {
@@ -912,6 +1011,218 @@ function openCompose() {
   clearReplyForm();
   renderReply();
   setActiveView("reply");
+}
+
+function renderReplyDistributionTools() {
+  if (!elements.replyGroupTools || !elements.replyGroupSelect) return;
+  const groups = state.distributionGroups || [];
+  elements.replyGroupTools.classList.toggle("hidden", groups.length === 0);
+  if (groups.length === 0) {
+    elements.replyGroupSelect.innerHTML = '<option value="">Aucun groupe</option>';
+    return;
+  }
+
+  const previous = elements.replyGroupSelect.value;
+  elements.replyGroupSelect.innerHTML = groups.map((group) => (
+    `<option value="${group.id}">${escapeHtml(group.name)} (${Number(group.memberCount || group.members?.length || 0)})</option>`
+  )).join("");
+  if (groups.some((group) => String(group.id) === previous)) {
+    elements.replyGroupSelect.value = previous;
+  }
+}
+
+function selectedDistributionGroup() {
+  const groupId = Number(elements.replyGroupSelect?.value || 0);
+  return (state.distributionGroups || []).find((group) => Number(group.id) === groupId) || null;
+}
+
+function addSelectedGroupToField(field) {
+  const group = selectedDistributionGroup();
+  if (!group) {
+    showMessage("Selectionnez un groupe de diffusion.", "error");
+    return;
+  }
+
+  const emails = (group.members || []).map((member) => member.email).filter(Boolean);
+  if (emails.length === 0) {
+    showMessage("Ce groupe ne contient aucun email.", "error");
+    return;
+  }
+
+  const target = field === "cc" ? elements.replyCc : (field === "bcc" ? elements.replyBcc : elements.replyTo);
+  appendRecipients(target, emails);
+  showMessage(`${group.name} ajoute (${emails.length} destinataire(s)).`, "success");
+}
+
+function resetDistributionGroupForm() {
+  if (!elements.distributionGroupForm) return;
+  elements.distributionGroupForm.reset();
+  elements.groupId.value = "";
+  elements.groupFormTitle.textContent = "Nouveau groupe";
+  state.groupDraftMembers = [];
+  elements.groupDeleteButton?.classList.add("hidden");
+  renderDistributionGroups();
+}
+
+function populateDistributionGroupForm(group) {
+  if (!group) return;
+  elements.groupId.value = group.id || "";
+  elements.groupFormTitle.textContent = group.id ? "Groupe de diffusion" : "Nouveau groupe";
+  elements.groupName.value = group.name || "";
+  elements.groupDescription.value = group.description || "";
+  state.groupDraftMembers = Array.isArray(group.members) ? [...group.members] : [];
+  elements.groupDeleteButton?.classList.toggle("hidden", !group.id);
+  setActiveView("groups");
+  renderDistributionGroups();
+}
+
+function addGroupDraftMember(key) {
+  const recipient = recipientByKey(key);
+  if (!recipient) return;
+  const emailKey = String(recipient.email || "").toLowerCase();
+  const exists = state.groupDraftMembers.some((member) => String(member.email || "").toLowerCase() === emailKey);
+  if (!exists) {
+    state.groupDraftMembers.push(recipient);
+    renderDistributionGroups();
+  }
+}
+
+function removeGroupDraftMember(key) {
+  const textKey = String(key || "");
+  state.groupDraftMembers = state.groupDraftMembers.filter((member) => String(member.key) !== textKey);
+  renderDistributionGroups();
+}
+
+function renderCrmRecipientPicker() {
+  if (!elements.groupCrmRecipients) return;
+  if (!state.crmAvailable) {
+    elements.groupCrmRecipients.innerHTML = '<div class="empty-state">NautiCRM n est pas disponible pour ce compte.</div>';
+    return;
+  }
+  const recipients = state.crmRecipients || [];
+  if (recipients.length === 0) {
+    elements.groupCrmRecipients.innerHTML = '<div class="empty-state">Aucun email NautiCRM trouve.</div>';
+    return;
+  }
+
+  const selectedEmails = new Set(state.groupDraftMembers.map((member) => String(member.email || "").toLowerCase()));
+  elements.groupCrmRecipients.innerHTML = recipients.map((recipient) => {
+    const selected = selectedEmails.has(String(recipient.email || "").toLowerCase());
+    return `
+      <button class="recipient-option${selected ? " is-selected" : ""}" data-recipient-add="${escapeAttribute(recipient.key)}" type="button" ${selected ? "disabled" : ""}>
+        <strong>${escapeHtml(recipientDisplayName(recipient))}</strong>
+        <small>${escapeHtml([recipient.email, recipient.companyName].filter(Boolean).join(" - "))}</small>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderGroupMembers() {
+  if (!elements.groupMembersList || !elements.groupMemberCount) return;
+  const members = state.groupDraftMembers || [];
+  elements.groupMemberCount.textContent = String(members.length);
+  if (members.length === 0) {
+    elements.groupMembersList.innerHTML = '<div class="empty-state">Ajoutez des contacts NautiCRM au groupe.</div>';
+    return;
+  }
+
+  elements.groupMembersList.innerHTML = members.map((member) => `
+    <span class="member-chip">
+      <strong>${escapeHtml(recipientDisplayName(member))}</strong>
+      <small>${escapeHtml(member.email || "")}</small>
+      <button type="button" aria-label="Retirer" data-recipient-remove="${escapeAttribute(member.key)}">x</button>
+    </span>
+  `).join("");
+}
+
+function renderDistributionGroups() {
+  renderReplyDistributionTools();
+  renderCrmRecipientPicker();
+  renderGroupMembers();
+  if (!elements.groupsList) return;
+  const groups = state.distributionGroups || [];
+  if (groups.length === 0) {
+    elements.groupsList.innerHTML = '<div class="empty-state">Aucun groupe de diffusion.</div>';
+    return;
+  }
+
+  elements.groupsList.innerHTML = groups.map((group) => `
+    <article class="list-card">
+      <strong>${escapeHtml(group.name || "Groupe")}</strong>
+      <small>${escapeHtml(group.description || "Groupe NautiCRM")}</small>
+      <div class="card-tags">
+        ${badge(`${Number(group.memberCount || group.members?.length || 0)} contact(s)`, "client")}
+      </div>
+      <div class="card-actions">
+        <button class="ghost-button" data-group-compose="${group.id}" type="button">Ecrire</button>
+        <button class="ghost-button" data-group-edit="${group.id}" type="button">Editer</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+async function searchCrmRecipients() {
+  const query = elements.groupCrmSearch?.value.trim() || "";
+  try {
+    const payload = await apiRequest(`${API.messages}?action=crm_recipients&q=${encodeURIComponent(query)}`);
+    state.crmAvailable = Boolean(payload.crmAvailable);
+    state.crmRecipients = payload.recipients || [];
+    renderDistributionGroups();
+  } catch (error) {
+    showMessage(error.message || "Recherche NautiCRM impossible.", "error");
+  }
+}
+
+function scheduleCrmRecipientSearch() {
+  if (state.crmSearchTimer) window.clearTimeout(state.crmSearchTimer);
+  state.crmSearchTimer = window.setTimeout(() => {
+    void searchCrmRecipients();
+  }, 250);
+}
+
+async function saveDistributionGroup(event) {
+  event.preventDefault();
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "save_distribution_group",
+        accountId: state.selectedAccountId,
+        id: Number(elements.groupId.value || 0),
+        name: elements.groupName.value.trim(),
+        description: elements.groupDescription.value.trim(),
+        memberKeys: state.groupDraftMembers.map((member) => member.key),
+      }),
+    });
+    applyDashboard(payload.dashboard || payload);
+    if (payload.group) populateDistributionGroupForm(payload.group);
+    showMessage(payload.message || "Groupe de diffusion enregistre.", "success");
+  } catch (error) {
+    showMessage(error.message || "Enregistrement du groupe impossible.", "error");
+  }
+}
+
+async function deleteDistributionGroup() {
+  const groupId = Number(elements.groupId?.value || 0);
+  if (groupId <= 0) return;
+  const ok = window.confirm("Supprimer ce groupe de diffusion ?");
+  if (!ok) return;
+
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_distribution_group",
+        accountId: state.selectedAccountId,
+        groupId,
+      }),
+    });
+    applyDashboard(payload.dashboard || payload);
+    resetDistributionGroupForm();
+    showMessage(payload.message || "Groupe supprime.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression impossible.", "error");
+  }
 }
 
 function renderShares(selectedIds = null) {
@@ -1360,12 +1671,17 @@ function installListeners() {
   elements.logoutButton.addEventListener("click", () => { void logout(); });
   elements.filtersForm.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (elements.filterStatus.value === "sent") elements.filterCategory.value = "";
     void loadDashboard().catch((error) => showMessage(error.message, "error"));
   });
   elements.triageBoard.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-category-filter]");
-    if (button) {
-      applyCategoryShortcut(button.dataset.categoryFilter || "");
+    const categoryButton = event.target.closest("[data-category-filter]");
+    const statusButton = event.target.closest("[data-status-filter]");
+    if (categoryButton) {
+      applyCategoryShortcut(categoryButton.dataset.categoryFilter || "");
+    }
+    if (statusButton) {
+      applyStatusShortcut(statusButton.dataset.statusFilter || "");
     }
   });
 
@@ -1397,6 +1713,9 @@ function installListeners() {
   elements.replyAllButton?.addEventListener("click", () => openReply(!state.replyAll));
   elements.generateReplyButton?.addEventListener("click", () => { void generateReply(); });
   elements.replyForm.addEventListener("submit", sendReply);
+  elements.replyGroupToButton?.addEventListener("click", () => addSelectedGroupToField("to"));
+  elements.replyGroupCcButton?.addEventListener("click", () => addSelectedGroupToField("cc"));
+  elements.replyGroupBccButton?.addEventListener("click", () => addSelectedGroupToField("bcc"));
   elements.replyAttachments?.addEventListener("change", renderDraftAttachments);
   elements.replyResetButton.addEventListener("click", () => {
     if (state.composeMode) {
@@ -1422,6 +1741,35 @@ function installListeners() {
   elements.accountSignature?.addEventListener("input", updateSignaturePreviews);
   elements.accountResetButton.addEventListener("click", resetAccountForm);
   elements.accountDeactivateButton.addEventListener("click", () => { void deactivateAccount(); });
+
+  elements.newGroupButton?.addEventListener("click", resetDistributionGroupForm);
+  elements.distributionGroupForm?.addEventListener("submit", saveDistributionGroup);
+  elements.groupResetButton?.addEventListener("click", resetDistributionGroupForm);
+  elements.groupDeleteButton?.addEventListener("click", () => { void deleteDistributionGroup(); });
+  elements.groupCrmSearch?.addEventListener("input", scheduleCrmRecipientSearch);
+  elements.groupCrmRecipients?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-recipient-add]");
+    if (button) addGroupDraftMember(button.dataset.recipientAdd || "");
+  });
+  elements.groupMembersList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-recipient-remove]");
+    if (button) removeGroupDraftMember(button.dataset.recipientRemove || "");
+  });
+  elements.groupsList?.addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-group-edit]");
+    const composeButton = event.target.closest("[data-group-compose]");
+    if (editButton) {
+      const group = (state.distributionGroups || []).find((item) => Number(item.id) === Number(editButton.dataset.groupEdit));
+      if (group) populateDistributionGroupForm(group);
+    }
+    if (composeButton) {
+      const group = (state.distributionGroups || []).find((item) => Number(item.id) === Number(composeButton.dataset.groupCompose));
+      if (group) {
+        openCompose();
+        appendRecipients(elements.replyTo, (group.members || []).map((member) => member.email).filter(Boolean));
+      }
+    }
+  });
 
   elements.accountsList.addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-account-edit]");
@@ -1449,6 +1797,7 @@ async function init() {
     const authenticated = await fetchAuth();
     if (!authenticated) return;
     resetAccountForm();
+    resetDistributionGroupForm();
     await loadDashboard();
     const initialMessageId = initialMessageIdFromUrl();
     if (initialMessageId > 0) {

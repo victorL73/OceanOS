@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Prospection">
+  <rect width="64" height="64" rx="14" fill="#1d6f86"/>
+  <path d="M16 42V18h19c7 0 12 4 12 10s-5 10-12 10H25v4h-9Zm9-13h10c2 0 4-1 4-3s-2-3-4-3H25v6Z" fill="#fff"/>
+  <path d="M42 43l6 6 2-2-6-6 3-6-11 4 6 4Z" fill="#8fd17d"/>
+</svg>

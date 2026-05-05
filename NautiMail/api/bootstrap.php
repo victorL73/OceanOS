@@ -108,6 +108,38 @@ function nautimail_ensure_schema(PDO $pdo): void
     );
 
     $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nautimail_distribution_groups (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id BIGINT UNSIGNED NOT NULL,
+            name VARCHAR(140) NOT NULL,
+            description TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_nautimail_distribution_group_name (user_id, name),
+            KEY idx_nautimail_distribution_group_user (user_id),
+            CONSTRAINT fk_nautimail_distribution_group_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS nautimail_distribution_group_members (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            group_id BIGINT UNSIGNED NOT NULL,
+            source_type ENUM('crm_client', 'crm_contact') NOT NULL DEFAULT 'crm_contact',
+            crm_client_id BIGINT UNSIGNED NULL,
+            crm_contact_id BIGINT UNSIGNED NULL,
+            email VARCHAR(190) NOT NULL,
+            display_name VARCHAR(190) NULL,
+            company_name VARCHAR(190) NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_nautimail_distribution_member_email (group_id, email),
+            KEY idx_nautimail_distribution_member_group (group_id),
+            KEY idx_nautimail_distribution_member_email (email),
+            CONSTRAINT fk_nautimail_distribution_member_group FOREIGN KEY (group_id) REFERENCES nautimail_distribution_groups(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
         "CREATE TABLE IF NOT EXISTS nautimail_messages (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             account_id BIGINT UNSIGNED NOT NULL,
@@ -430,6 +462,399 @@ function nautimail_account_shared_user_ids(PDO $pdo, int $accountId): array
     $statement = $pdo->prepare('SELECT user_id FROM nautimail_account_users WHERE account_id = :account_id ORDER BY user_id ASC');
     $statement->execute(['account_id' => $accountId]);
     return array_map(static fn(array $row): int => (int) $row['user_id'], $statement->fetchAll());
+}
+
+function nautimail_user_is_admin(array $user): bool
+{
+    return in_array((string) ($user['role'] ?? 'member'), ['super', 'admin'], true);
+}
+
+function nautimail_user_has_module(array $user, string $moduleId): bool
+{
+    $visibleModules = oceanos_decode_visible_modules($user['visible_modules_json'] ?? null);
+    return in_array($moduleId, $visibleModules, true);
+}
+
+function nautimail_crm_available(PDO $pdo, array $user): bool
+{
+    return nautimail_user_has_module($user, 'nauticrm')
+        && oceanos_table_exists($pdo, 'nauticrm_clients')
+        && oceanos_table_exists($pdo, 'nauticrm_contacts');
+}
+
+function nautimail_crm_access_clause(array $user, string $clientAlias = 'c', string $prefix = 'crm'): array
+{
+    if (nautimail_user_is_admin($user)) {
+        return ['', []];
+    }
+
+    $param = $prefix . '_user_id';
+    return [
+        " AND ({$clientAlias}.assigned_user_id = :{$param} OR {$clientAlias}.created_by_user_id = :{$param} OR {$clientAlias}.assigned_user_id IS NULL)",
+        [$param => (int) $user['id']],
+    ];
+}
+
+function nautimail_public_crm_recipient(array $row): array
+{
+    $sourceType = (string) ($row['source_type'] ?? 'crm_contact');
+    $contactId = isset($row['crm_contact_id']) ? (int) $row['crm_contact_id'] : 0;
+    $clientId = isset($row['crm_client_id']) ? (int) $row['crm_client_id'] : 0;
+    $displayName = nautimail_clean_text($row['display_name'] ?? '', 190, true);
+    $companyName = nautimail_clean_text($row['company_name'] ?? '', 190, true);
+    $email = mb_strtolower(nautimail_clean_text($row['email'] ?? '', 190, true));
+
+    return [
+        'key' => $sourceType . ':' . ($sourceType === 'crm_contact' ? $contactId : $clientId),
+        'sourceType' => $sourceType,
+        'crmClientId' => $clientId > 0 ? $clientId : null,
+        'crmContactId' => $contactId > 0 ? $contactId : null,
+        'email' => $email,
+        'displayName' => $displayName,
+        'companyName' => $companyName,
+        'label' => trim(($displayName !== '' ? $displayName : $companyName) . ' <' . $email . '>'),
+    ];
+}
+
+function nautimail_crm_recipients(PDO $pdo, array $user, string $search = '', int $limit = 140): array
+{
+    if (!nautimail_crm_available($pdo, $user)) {
+        return [];
+    }
+
+    $limit = max(10, min(300, $limit));
+    $search = nautimail_clean_text($search, 120, true);
+    [$contactAccessSql, $contactAccessParams] = nautimail_crm_access_clause($user, 'c', 'contact');
+    [$clientAccessSql, $clientAccessParams] = nautimail_crm_access_clause($user, 'c', 'client');
+
+    $contactWhere = 'ct.email IS NOT NULL AND ct.email <> "" AND c.status <> "archived"' . $contactAccessSql;
+    $contactParams = $contactAccessParams;
+    if ($search !== '') {
+        $contactWhere .= ' AND (ct.email LIKE :contact_search OR ct.first_name LIKE :contact_search OR ct.last_name LIKE :contact_search OR c.company_name LIKE :contact_search OR c.city LIKE :contact_search OR c.segment LIKE :contact_search)';
+        $contactParams['contact_search'] = '%' . $search . '%';
+    }
+
+    $contacts = $pdo->prepare(
+        'SELECT
+            "crm_contact" AS source_type,
+            c.id AS crm_client_id,
+            ct.id AS crm_contact_id,
+            ct.email,
+            TRIM(CONCAT(COALESCE(ct.first_name, ""), " ", COALESCE(ct.last_name, ""))) AS display_name,
+            c.company_name
+         FROM nauticrm_contacts ct
+         INNER JOIN nauticrm_clients c ON c.id = ct.client_id
+         WHERE ' . $contactWhere . '
+         ORDER BY c.company_name ASC, ct.is_primary DESC, ct.last_name ASC, ct.first_name ASC
+         LIMIT ' . $limit
+    );
+    $contacts->execute($contactParams);
+
+    $clientWhere = 'c.email IS NOT NULL AND c.email <> "" AND c.status <> "archived"' . $clientAccessSql;
+    $clientParams = $clientAccessParams;
+    if ($search !== '') {
+        $clientWhere .= ' AND (c.email LIKE :client_search OR c.company_name LIKE :client_search OR c.city LIKE :client_search OR c.segment LIKE :client_search)';
+        $clientParams['client_search'] = '%' . $search . '%';
+    }
+
+    $clients = $pdo->prepare(
+        'SELECT
+            "crm_client" AS source_type,
+            c.id AS crm_client_id,
+            NULL AS crm_contact_id,
+            c.email,
+            c.company_name AS display_name,
+            c.company_name
+         FROM nauticrm_clients c
+         WHERE ' . $clientWhere . '
+         ORDER BY c.company_name ASC
+         LIMIT ' . $limit
+    );
+    $clients->execute($clientParams);
+
+    $recipients = [];
+    $seenEmails = [];
+    foreach (array_merge($contacts->fetchAll() ?: [], $clients->fetchAll() ?: []) as $row) {
+        $email = mb_strtolower(trim((string) ($row['email'] ?? '')));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || isset($seenEmails[$email])) {
+            continue;
+        }
+        $seenEmails[$email] = true;
+        $recipients[] = nautimail_public_crm_recipient($row);
+        if (count($recipients) >= $limit) {
+            break;
+        }
+    }
+
+    usort($recipients, static fn(array $left, array $right): int => strcasecmp((string) $left['label'], (string) $right['label']));
+    return $recipients;
+}
+
+function nautimail_crm_recipient_by_key(PDO $pdo, array $user, string $key): ?array
+{
+    if (!nautimail_crm_available($pdo, $user) || !preg_match('/^crm_(contact|client):([0-9]+)$/', $key, $matches)) {
+        return null;
+    }
+
+    $type = (string) $matches[1];
+    $id = (int) $matches[2];
+    if ($id <= 0) {
+        return null;
+    }
+
+    if ($type === 'contact') {
+        [$accessSql, $accessParams] = nautimail_crm_access_clause($user, 'c', 'lookup_contact');
+        $statement = $pdo->prepare(
+            'SELECT
+                "crm_contact" AS source_type,
+                c.id AS crm_client_id,
+                ct.id AS crm_contact_id,
+                ct.email,
+                TRIM(CONCAT(COALESCE(ct.first_name, ""), " ", COALESCE(ct.last_name, ""))) AS display_name,
+                c.company_name
+             FROM nauticrm_contacts ct
+             INNER JOIN nauticrm_clients c ON c.id = ct.client_id
+             WHERE ct.id = :contact_id
+               AND ct.email IS NOT NULL
+               AND ct.email <> ""
+               AND c.status <> "archived"' . $accessSql . '
+             LIMIT 1'
+        );
+        $statement->execute(['contact_id' => $id] + $accessParams);
+    } else {
+        [$accessSql, $accessParams] = nautimail_crm_access_clause($user, 'c', 'lookup_client');
+        $statement = $pdo->prepare(
+            'SELECT
+                "crm_client" AS source_type,
+                c.id AS crm_client_id,
+                NULL AS crm_contact_id,
+                c.email,
+                c.company_name AS display_name,
+                c.company_name
+             FROM nauticrm_clients c
+             WHERE c.id = :client_id
+               AND c.email IS NOT NULL
+               AND c.email <> ""
+               AND c.status <> "archived"' . $accessSql . '
+             LIMIT 1'
+        );
+        $statement->execute(['client_id' => $id] + $accessParams);
+    }
+
+    $row = $statement->fetch();
+    if (!is_array($row) || !filter_var((string) ($row['email'] ?? ''), FILTER_VALIDATE_EMAIL)) {
+        return null;
+    }
+
+    return nautimail_public_crm_recipient($row);
+}
+
+function nautimail_public_distribution_member(array $row): array
+{
+    return nautimail_public_crm_recipient([
+        'source_type' => (string) ($row['source_type'] ?? 'crm_contact'),
+        'crm_client_id' => isset($row['crm_client_id']) ? (int) $row['crm_client_id'] : null,
+        'crm_contact_id' => isset($row['crm_contact_id']) ? (int) $row['crm_contact_id'] : null,
+        'email' => (string) $row['email'],
+        'display_name' => (string) ($row['display_name'] ?? ''),
+        'company_name' => (string) ($row['company_name'] ?? ''),
+    ]);
+}
+
+function nautimail_distribution_groups(PDO $pdo, array $user): array
+{
+    $statement = $pdo->prepare(
+        'SELECT *
+         FROM nautimail_distribution_groups
+         WHERE user_id = :user_id
+         ORDER BY name ASC, id ASC'
+    );
+    $statement->execute(['user_id' => (int) $user['id']]);
+    $groups = $statement->fetchAll() ?: [];
+    if ($groups === []) {
+        return [];
+    }
+
+    $groupIds = array_map(static fn(array $row): int => (int) $row['id'], $groups);
+    $membersByGroup = array_fill_keys($groupIds, []);
+    $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+    $members = $pdo->prepare(
+        "SELECT *
+         FROM nautimail_distribution_group_members
+         WHERE group_id IN ({$placeholders})
+         ORDER BY company_name ASC, display_name ASC, email ASC"
+    );
+    $members->execute($groupIds);
+    foreach ($members->fetchAll() ?: [] as $member) {
+        $membersByGroup[(int) $member['group_id']][] = nautimail_public_distribution_member($member);
+    }
+
+    return array_map(static function (array $group) use ($membersByGroup): array {
+        $groupId = (int) $group['id'];
+        $members = $membersByGroup[$groupId] ?? [];
+        return [
+            'id' => $groupId,
+            'name' => (string) $group['name'],
+            'description' => (string) ($group['description'] ?? ''),
+            'memberCount' => count($members),
+            'members' => $members,
+            'createdAt' => (string) $group['created_at'],
+            'updatedAt' => (string) $group['updated_at'],
+        ];
+    }, $groups);
+}
+
+function nautimail_distribution_group_by_id(PDO $pdo, array $user, int $groupId): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT *
+         FROM nautimail_distribution_groups
+         WHERE id = :id
+           AND user_id = :user_id
+         LIMIT 1'
+    );
+    $statement->execute([
+        'id' => $groupId,
+        'user_id' => (int) $user['id'],
+    ]);
+    $row = $statement->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function nautimail_resolve_distribution_members(PDO $pdo, array $user, mixed $memberKeys): array
+{
+    if (!is_array($memberKeys)) {
+        throw new InvalidArgumentException('Selection CRM invalide.');
+    }
+
+    $members = [];
+    $seenEmails = [];
+    foreach ($memberKeys as $rawKey) {
+        $key = nautimail_clean_text($rawKey, 80, true);
+        $recipient = nautimail_crm_recipient_by_key($pdo, $user, $key);
+        if ($recipient === null) {
+            continue;
+        }
+        $emailKey = mb_strtolower((string) $recipient['email']);
+        if (isset($seenEmails[$emailKey])) {
+            continue;
+        }
+        $seenEmails[$emailKey] = true;
+        $members[] = $recipient;
+        if (count($members) > 300) {
+            throw new InvalidArgumentException('Un groupe est limite a 300 destinataires.');
+        }
+    }
+
+    if ($members === []) {
+        throw new InvalidArgumentException('Ajoutez au moins un email NautiCRM au groupe.');
+    }
+
+    return $members;
+}
+
+function nautimail_save_distribution_group(PDO $pdo, array $user, array $input): array
+{
+    $groupId = (int) ($input['id'] ?? 0);
+    $name = nautimail_clean_text($input['name'] ?? '', 140, true);
+    if ($name === '') {
+        throw new InvalidArgumentException('Nom du groupe obligatoire.');
+    }
+
+    if ($groupId > 0 && nautimail_distribution_group_by_id($pdo, $user, $groupId) === null) {
+        throw new InvalidArgumentException('Groupe introuvable.');
+    }
+
+    $description = nautimail_nullable_text($input['description'] ?? '', 1000, false);
+    $members = nautimail_resolve_distribution_members($pdo, $user, $input['memberKeys'] ?? []);
+
+    $pdo->beginTransaction();
+    try {
+        if ($groupId > 0) {
+            $statement = $pdo->prepare(
+                'UPDATE nautimail_distribution_groups
+                 SET name = :name,
+                     description = :description
+                 WHERE id = :id
+                   AND user_id = :user_id'
+            );
+            $statement->execute([
+                'id' => $groupId,
+                'user_id' => (int) $user['id'],
+                'name' => $name,
+                'description' => $description,
+            ]);
+        } else {
+            $statement = $pdo->prepare(
+                'INSERT INTO nautimail_distribution_groups (user_id, name, description)
+                 VALUES (:user_id, :name, :description)'
+            );
+            $statement->execute([
+                'user_id' => (int) $user['id'],
+                'name' => $name,
+                'description' => $description,
+            ]);
+            $groupId = (int) $pdo->lastInsertId();
+        }
+
+        $delete = $pdo->prepare('DELETE FROM nautimail_distribution_group_members WHERE group_id = :group_id');
+        $delete->execute(['group_id' => $groupId]);
+
+        $insert = $pdo->prepare(
+            'INSERT INTO nautimail_distribution_group_members
+                (group_id, source_type, crm_client_id, crm_contact_id, email, display_name, company_name)
+             VALUES
+                (:group_id, :source_type, :crm_client_id, :crm_contact_id, :email, :display_name, :company_name)'
+        );
+        foreach ($members as $member) {
+            $insert->execute([
+                'group_id' => $groupId,
+                'source_type' => (string) $member['sourceType'],
+                'crm_client_id' => $member['crmClientId'],
+                'crm_contact_id' => $member['crmContactId'],
+                'email' => (string) $member['email'],
+                'display_name' => nautimail_nullable_text($member['displayName'] ?? '', 190, true),
+                'company_name' => nautimail_nullable_text($member['companyName'] ?? '', 190, true),
+            ]);
+        }
+
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if ($exception instanceof PDOException && ((string) $exception->getCode() === '23000' || str_contains($exception->getMessage(), 'uniq_nautimail_distribution_group_name'))) {
+            throw new InvalidArgumentException('Un groupe porte deja ce nom.');
+        }
+        throw $exception;
+    }
+
+    $groups = nautimail_distribution_groups($pdo, $user);
+    foreach ($groups as $group) {
+        if ((int) $group['id'] === $groupId) {
+            return $group;
+        }
+    }
+
+    throw new RuntimeException('Impossible de relire le groupe.');
+}
+
+function nautimail_delete_distribution_group(PDO $pdo, array $user, array $input): void
+{
+    $groupId = (int) ($input['groupId'] ?? $input['id'] ?? 0);
+    if ($groupId <= 0 || nautimail_distribution_group_by_id($pdo, $user, $groupId) === null) {
+        throw new InvalidArgumentException('Groupe introuvable.');
+    }
+
+    $statement = $pdo->prepare(
+        'DELETE FROM nautimail_distribution_groups
+         WHERE id = :id
+           AND user_id = :user_id'
+    );
+    $statement->execute([
+        'id' => $groupId,
+        'user_id' => (int) $user['id'],
+    ]);
 }
 
 function nautimail_notification_user_ids(PDO $pdo, int $accountId): array
@@ -1255,28 +1680,33 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
             $messageParams[] = $category;
         }
 
-        $status = nautimail_enum($query['status'] ?? '', ['new', 'triaged', 'read', 'replied', 'archived'], '');
-        if ($status !== '') {
+        $status = nautimail_enum($query['status'] ?? '', ['new', 'triaged', 'read', 'replied', 'archived', 'sent'], '');
+        if ($status !== '' && $status !== 'sent') {
             $messageWhere[] = 'm.status = ?';
             $messageParams[] = $status;
-        } else {
+        } elseif ($status === '') {
             $messageWhere[] = "m.status <> 'archived'";
         }
 
-        $sql = 'SELECT m.*, a.label AS account_label, a.email_address AS account_email, u.display_name AS assigned_user_display_name
-                FROM nautimail_messages m
-                INNER JOIN nautimail_accounts a ON a.id = m.account_id
-                LEFT JOIN oceanos_users u ON u.id = m.assigned_user_id
-                WHERE ' . implode(' AND ', $messageWhere) . '
-                ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
-                LIMIT 140';
-        $statement = $pdo->prepare($sql);
-        $statement->execute($messageParams);
-        $messages = array_map('nautimail_public_message', $statement->fetchAll());
+        if ($status !== 'sent') {
+            $sql = 'SELECT m.*, a.label AS account_label, a.email_address AS account_email, u.display_name AS assigned_user_display_name
+                    FROM nautimail_messages m
+                    INNER JOIN nautimail_accounts a ON a.id = m.account_id
+                    LEFT JOIN oceanos_users u ON u.id = m.assigned_user_id
+                    WHERE ' . implode(' AND ', $messageWhere) . '
+                    ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
+                    LIMIT 140';
+            $statement = $pdo->prepare($sql);
+            $statement->execute($messageParams);
+            $messages = array_map('nautimail_public_message', $statement->fetchAll());
+        }
 
-        if ($category === '' && $status === '') {
+        if ($category === '' && ($status === '' || $status === 'sent')) {
             $sentWhere = ['s.account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ')', 's.message_id IS NULL'];
             $sentParams = $accountIds;
+            if ($status === 'sent') {
+                $sentWhere[] = 's.status = "sent"';
+            }
             if ($selectedAccountId > 0) {
                 $sentWhere[] = 's.account_id = ?';
                 $sentParams[] = $selectedAccountId;
@@ -1351,6 +1781,9 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
         'selectedAccountId' => $selectedAccountId,
         'messages' => $messages,
         'stats' => $stats,
+        'distributionGroups' => nautimail_distribution_groups($pdo, $user),
+        'crmRecipients' => nautimail_crm_recipients($pdo, $user, '', 120),
+        'crmAvailable' => nautimail_crm_available($pdo, $user),
         'imapAvailable' => function_exists('imap_open'),
         'aiSettings' => oceanos_ai_public_settings($pdo, (int) $user['id']),
     ];
@@ -3237,9 +3670,9 @@ function nautimail_send_message(PDO $pdo, array $user, array $input): array
         ], 403);
     }
 
-    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? ''), true, 20);
-    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 30);
-    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 30);
+    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? ''), true, 300);
+    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 300);
+    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 300);
     $subject = nautimail_clean_text($input['subject'] ?? '', 255, true);
     $body = nautimail_clean_text($input['body'] ?? '', 120000, false);
     if ($subject === '' || $body === '') {
@@ -3305,9 +3738,9 @@ function nautimail_send_reply(PDO $pdo, array $user, array $input): array
         ], 403);
     }
 
-    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? $message['sender_email'] ?? ''), true, 20);
-    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 30);
-    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 30);
+    $toRecipients = nautimail_parse_recipients((string) ($input['toEmail'] ?? $message['sender_email'] ?? ''), true, 300);
+    $ccRecipients = nautimail_parse_recipients((string) ($input['ccEmail'] ?? ''), false, 300);
+    $bccRecipients = nautimail_parse_recipients((string) ($input['bccEmail'] ?? ''), false, 300);
     $subject = nautimail_clean_text($input['subject'] ?? nautimail_reply_subject((string) $message['subject']), 255, true);
     $body = nautimail_clean_text($input['body'] ?? '', 120000, false);
     if ($subject === '' || $body === '') {

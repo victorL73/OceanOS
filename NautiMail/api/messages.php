@@ -48,6 +48,15 @@ try {
             ]);
         }
 
+        if ($action === 'crm_recipients') {
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'crmAvailable' => nautimail_crm_available($pdo, $user),
+                'recipients' => nautimail_crm_recipients($pdo, $user, (string) ($_GET['q'] ?? ''), 180),
+            ]);
+        }
+
         nautimail_json_response(nautimail_dashboard($pdo, $_GET, $user));
     }
 
@@ -85,6 +94,27 @@ try {
                 'message' => 'Adresse principale mise a jour.',
                 'account' => nautimail_public_account($pdo, $account, (int) $account['id']),
                 'dashboard' => nautimail_dashboard($pdo, ['accountId' => (int) $account['id']], $user),
+            ]);
+        }
+
+        if ($action === 'save_distribution_group') {
+            $group = nautimail_save_distribution_group($pdo, $user, $input);
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'message' => 'Groupe de diffusion enregistre.',
+                'group' => $group,
+                'dashboard' => nautimail_dashboard($pdo, ['accountId' => (int) ($input['accountId'] ?? 0)], $user),
+            ]);
+        }
+
+        if ($action === 'delete_distribution_group') {
+            nautimail_delete_distribution_group($pdo, $user, $input);
+            nautimail_json_response([
+                'ok' => true,
+                'managedBy' => 'OceanOS',
+                'message' => 'Groupe de diffusion supprime.',
+                'dashboard' => nautimail_dashboard($pdo, ['accountId' => (int) ($input['accountId'] ?? 0)], $user),
             ]);
         }
 

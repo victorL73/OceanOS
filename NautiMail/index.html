@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/nautimail.svg?v=20260502">
   <meta name="description" content="NautiMail - Boites mail partagees et tri IA OceanOS.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css">
-  <link rel="stylesheet" href="assets/style.css?v=20260503-nautimail-primary-account">
+  <link rel="stylesheet" href="assets/style.css?v=20260504-nautimail-distribution-groups">
   <script defer src="/OceanOS/assets/guard.js?v=20260503-nautimail-notification-link"></script>
 </head>
 <body>
@@ -70,6 +70,7 @@
         <button class="view-tab is-active" data-view="inbox" type="button">Boite</button>
         <button class="view-tab" data-view="detail" type="button">Mail</button>
         <button class="view-tab" data-view="reply" type="button">Reponse</button>
+        <button class="view-tab" data-view="groups" type="button">Groupes</button>
         <button class="view-tab" data-view="accounts" type="button">Adresses</button>
       </nav>
 
@@ -98,6 +99,7 @@
                 <option value="triaged">Tries</option>
                 <option value="read">Lus</option>
                 <option value="replied">Repondus</option>
+                <option value="sent">Envoyes</option>
                 <option value="archived">Archives</option>
               </select>
               <button class="ghost-button" type="submit">Filtrer</button>
@@ -209,6 +211,17 @@
             </div>
           </div>
           <form id="reply-form" class="stack-form">
+            <section id="reply-group-tools" class="distribution-picker hidden">
+              <label class="field">
+                <span>Groupe de diffusion</span>
+                <select id="reply-group-select"></select>
+              </label>
+              <div class="form-actions">
+                <button id="reply-group-to-button" class="ghost-button" type="button">Ajouter a A</button>
+                <button id="reply-group-cc-button" class="ghost-button" type="button">Ajouter Cc</button>
+                <button id="reply-group-bcc-button" class="ghost-button" type="button">Ajouter Cci</button>
+              </div>
+            </section>
             <label class="field">
               <span>A</span>
               <input id="reply-to" type="text" inputmode="email" required>
@@ -247,6 +260,56 @@
             </div>
           </form>
         </section>
+      </section>
+
+      <section id="view-groups" class="view-section hidden groups-grid" data-view-section="groups">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Diffusion</p>
+              <h2 id="group-form-title">Nouveau groupe</h2>
+            </div>
+            <button id="new-group-button" class="ghost-button" type="button">Nouveau</button>
+          </div>
+          <form id="distribution-group-form" class="stack-form">
+            <input id="group-id" type="hidden">
+            <label class="field">
+              <span>Nom du groupe</span>
+              <input id="group-name" type="text" placeholder="Clients chantier, prospects salon..." required>
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <textarea id="group-description" rows="3"></textarea>
+            </label>
+            <label class="field">
+              <span>Rechercher dans NautiCRM</span>
+              <input id="group-crm-search" type="search" placeholder="Client, contact, email, ville">
+            </label>
+            <div id="group-crm-recipients" class="recipient-picker-list"></div>
+            <section class="selected-members-box">
+              <div class="section-heading">
+                <strong>Destinataires du groupe</strong>
+                <span id="group-member-count">0</span>
+              </div>
+              <div id="group-members-list" class="selected-members-list"></div>
+            </section>
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Enregistrer</button>
+              <button id="group-reset-button" class="ghost-button" type="button">Vider</button>
+              <button id="group-delete-button" class="ghost-button danger-text hidden" type="button">Supprimer</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Listes</p>
+              <h2>Groupes disponibles</h2>
+            </div>
+          </div>
+          <div id="groups-list" class="cards-list"></div>
+        </aside>
       </section>
 
       <section id="view-accounts" class="view-section hidden accounts-grid" data-view-section="accounts">
@@ -380,6 +443,6 @@
     </section>
   </main>
 
-  <script src="assets/app.js?v=20260503-nautimail-primary-account"></script>
+  <script src="assets/app.js?v=20260504-nautimail-sent-filter"></script>
 </body>
 </html>

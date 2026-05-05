@@ -17,6 +17,7 @@ www/
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
   Tresorcean/            Finance, tresorerie, benefices et TVA
   NautiCRM/              CRM clients, contacts, relances et opportunites
+  Prospection/           Prospects, templates mail, IA et transfert NautiCRM
   NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
   NautiPost/             Campagnes, messages et outils marketing
   NautiCloud/            Drive partage, apercus et edition temps reel
@@ -52,6 +53,7 @@ Les applications concernées actuellement sont :
 - Stockcean
 - Tresorcean
 - NautiCRM
+- Prospection
 - NautiMail
 - NautiPost
 - NautiCloud
@@ -236,6 +238,16 @@ nauticrm_opportunities
 nauticrm_sync_runs
 ```
 
+Tables Prospection :
+
+```text
+prospection_prospects
+prospection_tasks
+prospection_interactions
+prospection_email_templates
+prospection_email_sends
+```
+
 Tables NautiMail :
 
 ```text
@@ -347,6 +359,8 @@ OceanOS > menu utilisateur > IA Groq
 Elle est partagée avec les modules qui en ont besoin, notamment :
 
 - Flowcean
+- NautiCRM
+- Prospection
 - NautiMail
 - NautiPost
 - MeetOcean
@@ -421,6 +435,24 @@ Il utilise OceanOS pour :
 - enregistrer contacts, interactions, relances, taches et opportunites
 - recuperer les clients PrestaShop via la configuration OceanOS
 - archiver les clients sans suppression physique
+
+## Prospection
+
+Prospection se trouve au meme niveau que les autres applications :
+
+```text
+www/Prospection/
+```
+
+Il utilise OceanOS pour :
+
+- verifier la session et les droits de module
+- gerer une liste de prospects separee du portefeuille NautiCRM
+- enrichir et importer des prospects avec la cle Groq configuree dans OceanOS
+- gerer des templates de mail avec variables comme `{{companyName}}`, `{{contactName}}`, `{{city}}` et `{{userName}}`
+- envoyer les emails via les comptes SMTP NautiMail accessibles a l'utilisateur
+- journaliser les envois dans NautiMail et afficher les reponses entrantes synchronisees
+- marquer une reponse positive puis transferer le prospect dans NautiCRM
 
 ## NautiMail
 
@@ -590,7 +622,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, Prospection, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -659,6 +691,7 @@ http://localhost/Invocean/
 http://localhost/Devis/
 http://localhost/Stockcean/
 http://localhost/NautiCRM/
+http://localhost/Prospection/
 http://localhost/NautiMail/
 http://localhost/NautiPost/
 http://localhost/NautiCloud/
