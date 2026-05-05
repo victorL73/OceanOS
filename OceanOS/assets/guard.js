@@ -207,6 +207,21 @@
     return serviceWorkerRegistrationPromise;
   }
 
+  async function updateAppBadge(count) {
+    if (!window.isSecureContext || !("setAppBadge" in navigator)) return;
+
+    const badgeCount = Math.max(0, Math.floor(Number(count || 0)));
+    try {
+      if (badgeCount > 0) {
+        await navigator.setAppBadge(badgeCount);
+      } else if ("clearAppBadge" in navigator) {
+        await navigator.clearAppBadge();
+      } else {
+        await navigator.setAppBadge(0);
+      }
+    } catch (error) {}
+  }
+
   function urlBase64ToUint8Array(value) {
     const padding = "=".repeat((4 - (value.length % 4)) % 4);
     const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
@@ -403,6 +418,9 @@
 
     notificationState.badge.textContent = String(notificationState.unreadCount || 0);
     notificationState.badge.hidden = Number(notificationState.unreadCount || 0) <= 0;
+    if (notificationState.loaded) {
+      void updateAppBadge(notificationState.unreadCount);
+    }
 
     notificationState.list.innerHTML = "";
     if (!notificationState.loaded) {

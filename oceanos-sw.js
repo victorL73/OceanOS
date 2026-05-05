@@ -1,4 +1,4 @@
-const CACHE_NAME = "oceanos-pwa-20260505";
+const CACHE_NAME = "oceanos-pwa-20260505-badge";
 const CORE_ASSETS = [
   "/OceanOS/",
   "/OceanOS/manifest.webmanifest",
@@ -70,6 +70,31 @@ function oceanosNotificationUrl(value) {
   }
 }
 
+function oceanosBadgeCount(value) {
+  const count = Math.floor(Number(value || 0));
+  return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
+function oceanosSetAppBadge(count) {
+  const badgeCount = oceanosBadgeCount(count);
+  const workerNavigator = self.navigator || {};
+  if (!("setAppBadge" in workerNavigator)) {
+    return Promise.resolve();
+  }
+
+  try {
+    if (badgeCount > 0) {
+      return workerNavigator.setAppBadge(badgeCount).catch(() => undefined);
+    }
+    if ("clearAppBadge" in workerNavigator) {
+      return workerNavigator.clearAppBadge().catch(() => undefined);
+    }
+    return workerNavigator.setAppBadge(0).catch(() => undefined);
+  } catch (error) {
+    return Promise.resolve();
+  }
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -91,7 +116,10 @@ self.addEventListener("push", (event) => {
     requireInteraction: false,
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(Promise.all([
+    oceanosSetAppBadge(data.badgeCount || data.unreadCount || 0),
+    self.registration.showNotification(title, options),
+  ]));
 });
 
 self.addEventListener("notificationclick", (event) => {

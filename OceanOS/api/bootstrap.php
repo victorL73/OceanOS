@@ -1333,6 +1333,7 @@ function oceanos_dispatch_push_notification(PDO $pdo, int $userId, array $notifi
     }
 
     $notificationId = (int) ($notification['id'] ?? 0);
+    $badgeCount = oceanos_unread_notification_count($pdo, $userId);
     $payload = [
         'title' => mb_substr((string) ($notification['title'] ?? 'OceanOS'), 0, 120),
         'body' => mb_substr((string) ($notification['body'] ?? ''), 0, 240),
@@ -1340,6 +1341,7 @@ function oceanos_dispatch_push_notification(PDO $pdo, int $userId, array $notifi
         'severity' => oceanos_normalize_notification_severity((string) ($notification['severity'] ?? 'info')),
         'url' => oceanos_push_target_url($notification),
         'notificationId' => $notificationId,
+        'badgeCount' => $badgeCount,
         'tag' => $notificationId > 0 ? 'oceanos-' . $notificationId : 'oceanos-' . hash('sha256', serialize($notification)),
         'icon' => '/OceanOS/assets/favicons/oceanos-192.png',
         'badge' => '/OceanOS/assets/favicons/oceanos-192.png',

@@ -364,7 +364,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260505-pwa-push"></script>
+  <script defer src="assets/guard.js?v=20260505-pwa-badge"></script>
   <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
 </body>
 </html>
