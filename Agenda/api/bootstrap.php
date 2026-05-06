@@ -1205,12 +1205,15 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
     }
 
     $deletedWhere = oceanos_column_exists($pdo, 'flowcean_workspaces', 'deleted_at') ? ' AND w.deleted_at IS NULL' : '';
+    $ownerSelect = oceanos_column_exists($pdo, 'flowcean_workspaces', 'owner_user_id') ? 'w.owner_user_id' : 'NULL AS owner_user_id';
+    $personalSelect = oceanos_column_exists($pdo, 'flowcean_workspaces', 'is_personal') ? 'w.is_personal' : '0 AS is_personal';
+    $selectColumns = 'w.id, w.slug, w.name, ' . $ownerSelect . ', ' . $personalSelect . ', w.data_json, w.updated_at';
     if ((string) ($user['role'] ?? '') === 'super') {
-        $statement = $pdo->prepare('SELECT w.id, w.slug, w.name, w.data_json, w.updated_at FROM flowcean_workspaces w WHERE 1=1' . $deletedWhere . ' ORDER BY w.updated_at DESC LIMIT 30');
+        $statement = $pdo->prepare('SELECT ' . $selectColumns . ' FROM flowcean_workspaces w WHERE 1=1' . $deletedWhere . ' ORDER BY w.updated_at DESC LIMIT 30');
         $statement->execute();
     } elseif (oceanos_table_exists($pdo, 'flowcean_workspace_members')) {
         $statement = $pdo->prepare(
-            'SELECT DISTINCT w.id, w.slug, w.name, w.data_json, w.updated_at
+            'SELECT DISTINCT ' . $selectColumns . '
              FROM flowcean_workspaces w
              LEFT JOIN flowcean_workspace_members wm ON wm.workspace_id = w.id
              WHERE (w.owner_user_id = :user_id OR wm.user_id = :user_id)' . $deletedWhere . '
@@ -1220,7 +1223,7 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
         $statement->execute(['user_id' => (int) $user['id']]);
     } else {
         $statement = $pdo->prepare(
-            'SELECT w.id, w.slug, w.name, w.data_json, w.updated_at
+            'SELECT ' . $selectColumns . '
              FROM flowcean_workspaces w
              WHERE w.owner_user_id = :user_id' . $deletedWhere . '
              ORDER BY w.updated_at DESC
@@ -1253,7 +1256,7 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
                     $block['id'] ?? '',
                     'block_' . substr(hash('sha1', $pageId . ':' . $title), 0, 12)
                 );
-                $tasks[] = agenda_external_task(
+                $task = agenda_external_task(
                     'Flowcean',
                     (string) $workspace['id'] . ':page:' . $pageId . ':block:' . $blockId,
                     $title,
@@ -1263,12 +1266,18 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
                     '/Flowcean/',
                     'todo_block'
                 );
+                $tasks[] = agenda_flowcean_tag_task($task, $workspace, $pageTitle, $user);
             }
-            foreach (agenda_flowcean_database_tasks($workspace, $page, $pageId) as $task) {
+            foreach (agenda_flowcean_database_tasks($workspace, $page, $pageId, $user) as $task) {
                 $tasks[] = $task;
             }
         }
     }
+
+    usort($tasks, static function (array $a, array $b): int {
+        return ((int) ($a['_flowceanRank'] ?? 20) <=> (int) ($b['_flowceanRank'] ?? 20))
+            ?: strcmp((string) ($b['_flowceanUpdatedAt'] ?? ''), (string) ($a['_flowceanUpdatedAt'] ?? ''));
+    });
 
     return array_slice(agenda_dedupe_flowcean_tasks($tasks), 0, 80);
 }
@@ -1301,6 +1310,57 @@ function agenda_flowcean_source_scope(string $sourceId): string
     return preg_replace('/:(block|row):.*$/', '', $sourceId) ?: $sourceId;
 }
 
+function agenda_flowcean_workspace_rank(array $workspace, array $user): int
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId > 0 && (int) ($workspace['owner_user_id'] ?? 0) === $userId) {
+        return 0;
+    }
+    if (empty($workspace['is_personal'])) {
+        return 1;
+    }
+
+    return 2;
+}
+
+function agenda_flowcean_tag_task(array $task, array $workspace, string $pageTitle, array $user): array
+{
+    $task['sourceWorkspaceId'] = (int) ($workspace['id'] ?? 0);
+    $task['sourceWorkspaceName'] = (string) ($workspace['name'] ?? '');
+    $task['sourcePageTitle'] = $pageTitle;
+    $task['_flowceanRank'] = agenda_flowcean_workspace_rank($workspace, $user);
+    $task['_flowceanUpdatedAt'] = (string) ($workspace['updated_at'] ?? '');
+
+    return $task;
+}
+
+function agenda_flowcean_task_page_title(array $task): string
+{
+    $pageTitle = agenda_flowcean_signature_text($task['sourcePageTitle'] ?? '');
+    if ($pageTitle !== '') {
+        return $pageTitle;
+    }
+
+    $description = (string) ($task['description'] ?? '');
+    if (str_contains($description, '/')) {
+        $parts = array_map('trim', explode('/', $description));
+        $last = end($parts);
+        return agenda_flowcean_signature_text(is_string($last) ? $last : '');
+    }
+
+    return '';
+}
+
+function agenda_flowcean_content_key(array $task): string
+{
+    return implode('|', [
+        (string) ($task['sourceType'] ?? 'task'),
+        agenda_flowcean_task_page_title($task),
+        agenda_flowcean_signature_text($task['title'] ?? ''),
+        (string) ($task['startsAt'] ?? ''),
+    ]);
+}
+
 function agenda_dedupe_flowcean_tasks(array $tasks): array
 {
     $seenSources = [];
@@ -1313,12 +1373,7 @@ function agenda_dedupe_flowcean_tasks(array $tasks): array
             continue;
         }
 
-        $contentKey = implode('|', [
-            agenda_flowcean_source_scope($sourceId),
-            agenda_flowcean_signature_text($task['title'] ?? ''),
-            (string) ($task['startsAt'] ?? ''),
-            agenda_flowcean_signature_text($task['description'] ?? ''),
-        ]);
+        $contentKey = agenda_flowcean_content_key($task);
         if (isset($seenContent[$contentKey])) {
             continue;
         }
@@ -1327,13 +1382,14 @@ function agenda_dedupe_flowcean_tasks(array $tasks): array
             $seenSources[$sourceId] = true;
         }
         $seenContent[$contentKey] = true;
+        unset($task['_flowceanRank'], $task['_flowceanUpdatedAt']);
         $deduped[] = $task;
     }
 
     return $deduped;
 }
 
-function agenda_flowcean_database_tasks(array $workspace, array $page, string $pageId): array
+function agenda_flowcean_database_tasks(array $workspace, array $page, string $pageId, array $user): array
 {
     $database = is_array($page['database'] ?? null) ? $page['database'] : null;
     if ($database === null || !is_array($database['rows'] ?? null) || !is_array($database['properties'] ?? null)) {
@@ -1367,16 +1423,18 @@ function agenda_flowcean_database_tasks(array $workspace, array $page, string $p
             $row['id'] ?? '',
             'row_' . substr(hash('sha1', is_string($rowHash) ? $rowHash : $title), 0, 12)
         );
-        $tasks[] = agenda_external_task(
+        $pageTitle = agenda_clean_text($page['title'] ?? 'Tableau', 120, true);
+        $task = agenda_external_task(
             'Flowcean',
             (string) $workspace['id'] . ':page:' . $pageId . ':row:' . $rowId,
             $title,
             $startsAt,
-            (string) $workspace['name'] . ' / ' . agenda_clean_text($page['title'] ?? 'Tableau', 120, true),
+            (string) $workspace['name'] . ' / ' . $pageTitle,
             $priority,
             '/Flowcean/',
             'database_row'
         );
+        $tasks[] = agenda_flowcean_tag_task($task, $workspace, $pageTitle, $user);
     }
 
     return $tasks;

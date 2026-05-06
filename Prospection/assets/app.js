@@ -838,7 +838,9 @@ async function sendMail(event) {
   event.preventDefault();
   const prospect = selectedProspect();
   if (!prospect) return;
-  const ok = window.confirm(`Envoyer ce mail a ${prospect.email || "ce prospect"} via NautiMail ?`);
+  const recipient = prospect.email || "ce prospect";
+  const subject = elements.mailSubject.value.trim() || "(sans sujet)";
+  const ok = window.confirm(`Etes-vous sur de vouloir envoyer ce mail via NautiMail ?\n\nDestinataire : ${recipient}\nSujet : ${subject}`);
   if (!ok) return;
   elements.mailSendButton.disabled = true;
   showMessage("Envoi via NautiMail en cours...");
