@@ -124,7 +124,8 @@ try {
                 $participant['clientId'],
                 (int) ($input['sinceSignalId'] ?? 0),
                 (int) ($input['sinceTranscriptId'] ?? 0),
-                $participant['targetLanguage']
+                $participant['targetLanguage'],
+                (int) ($input['sinceChatId'] ?? 0)
             ),
             'message' => 'Presence mise a jour.',
         ]);
@@ -145,7 +146,8 @@ try {
             $participant['clientId'],
             (int) ($input['sinceSignalId'] ?? 0),
             (int) ($input['sinceTranscriptId'] ?? 0),
-            $participant['targetLanguage']
+            $participant['targetLanguage'],
+            (int) ($input['sinceChatId'] ?? 0)
         ));
     }
 
@@ -208,9 +210,34 @@ try {
                 $participant['clientId'],
                 (int) ($input['sinceSignalId'] ?? 0),
                 max(0, $transcript['id'] - 1),
-                $participant['targetLanguage']
+                $participant['targetLanguage'],
+                (int) ($input['sinceChatId'] ?? 0)
             ),
             'message' => 'Transcription ajoutee.',
+        ]);
+    }
+
+    if ($action === 'add_chat_message') {
+        $room = $isGuest
+            ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
+            : meetocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
+        $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
+        $message = meetocean_add_chat_message($pdo, $room, $actor, $input);
+        oceanos_json_response([
+            ...meetocean_room_state(
+                $pdo,
+                $room,
+                $actor,
+                $participant['clientId'],
+                (int) ($input['sinceSignalId'] ?? 0),
+                (int) ($input['sinceTranscriptId'] ?? 0),
+                $participant['targetLanguage'],
+                max(0, $message['id'] - 1)
+            ),
+            'message' => 'Message envoye.',
         ]);
     }
 

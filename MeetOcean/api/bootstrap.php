@@ -9,6 +9,7 @@ const MEETOCEAN_PRESENCE_TOUCH_SECONDS = 5;
 const MEETOCEAN_SIGNAL_TTL_MINUTES = 10;
 const MEETOCEAN_DB_RETRY_ATTEMPTS = 4;
 const MEETOCEAN_AGENDA_GUEST_OPEN_MINUTES = 10;
+const MEETOCEAN_CHAT_FILE_MAX_BYTES = 5242880;
 
 class MeetOceanGuestAccessException extends InvalidArgumentException
 {
@@ -221,6 +222,26 @@ function meetocean_ensure_schema(PDO $pdo): void
     if (!oceanos_column_exists($pdo, 'meetocean_transcripts', 'created_at')) {
         meetocean_exec($pdo, 'ALTER TABLE meetocean_transcripts ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER is_final');
     }
+
+    meetocean_exec($pdo,
+        "CREATE TABLE IF NOT EXISTS meetocean_chat_messages (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            room_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NULL,
+            client_id VARCHAR(80) NOT NULL,
+            sender_name VARCHAR(160) NOT NULL,
+            message_type VARCHAR(20) NOT NULL DEFAULT 'text',
+            message_text LONGTEXT NULL,
+            file_name VARCHAR(190) NULL,
+            file_mime VARCHAR(120) NULL,
+            file_size BIGINT UNSIGNED NULL,
+            file_data LONGBLOB NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_meetocean_chat_room_id (room_id, id),
+            CONSTRAINT fk_meetocean_chat_room FOREIGN KEY (room_id) REFERENCES meetocean_rooms(id) ON DELETE CASCADE,
+            CONSTRAINT fk_meetocean_chat_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
 }
 
 function meetocean_require_user(PDO $pdo): array
@@ -1081,6 +1102,162 @@ function meetocean_add_transcript(PDO $pdo, array $room, array $user, array $inp
     ];
 }
 
+function meetocean_clean_chat_text(mixed $value): string
+{
+    $text = str_replace(["\r\n", "\r"], "\n", (string) $value);
+    $text = preg_replace("/[ \t]+/", ' ', $text) ?? '';
+    $text = preg_replace("/\n{3,}/", "\n\n", $text) ?? '';
+    return mb_substr(trim($text), 0, 4000);
+}
+
+function meetocean_clean_file_name(mixed $value): string
+{
+    $name = trim((string) $value);
+    $name = str_replace(['\\', '/'], '_', $name);
+    $name = preg_replace('/[^\p{L}\p{N} ._-]/u', '_', $name) ?? '';
+    $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+    if ($name === '' || $name === '.' || $name === '..') {
+        $name = 'fichier';
+    }
+
+    return mb_substr($name, 0, 180);
+}
+
+function meetocean_decode_chat_file(array $input): ?array
+{
+    $file = is_array($input['file'] ?? null) ? $input['file'] : [];
+    $data = trim((string) ($file['data'] ?? $input['fileData'] ?? ''));
+    if ($data === '') {
+        return null;
+    }
+
+    if (str_contains($data, ',')) {
+        $data = substr($data, strpos($data, ',') + 1);
+    }
+    $data = preg_replace('/\s+/', '', $data) ?? '';
+    $decoded = base64_decode($data, true);
+    if ($decoded === false) {
+        throw new InvalidArgumentException('Fichier de tchat invalide.');
+    }
+
+    $size = strlen($decoded);
+    if ($size <= 0) {
+        throw new InvalidArgumentException('Fichier vide.');
+    }
+    if ($size > MEETOCEAN_CHAT_FILE_MAX_BYTES) {
+        throw new InvalidArgumentException('Fichier trop volumineux pour le tchat. Maximum 5 Mo.');
+    }
+
+    $declaredSize = (int) ($file['size'] ?? $input['fileSize'] ?? 0);
+    if ($declaredSize > 0 && abs($declaredSize - $size) > 2) {
+        throw new InvalidArgumentException('Taille du fichier incoherente.');
+    }
+
+    $mime = trim((string) ($file['mime'] ?? $file['type'] ?? $input['fileMime'] ?? ''));
+    $mime = preg_match('/^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/i', $mime) ? $mime : 'application/octet-stream';
+
+    return [
+        'name' => meetocean_clean_file_name($file['name'] ?? $input['fileName'] ?? 'fichier'),
+        'mime' => mb_substr($mime, 0, 120),
+        'size' => $size,
+        'data' => $decoded,
+    ];
+}
+
+function meetocean_chat_sender_name(PDO $pdo, array $room, array $user, string $clientId): string
+{
+    $statement = $pdo->prepare(
+        'SELECT display_name
+         FROM meetocean_participants
+         WHERE room_id = :room_id AND client_id = :client_id
+         LIMIT 1'
+    );
+    meetocean_execute($statement, [
+        'room_id' => (int) $room['id'],
+        'client_id' => $clientId,
+    ]);
+    $displayName = $statement->fetchColumn();
+    if (is_string($displayName) && trim($displayName) !== '') {
+        return mb_substr(trim($displayName), 0, 140);
+    }
+
+    return mb_substr(trim((string) ($user['display_name'] ?? $user['email'] ?? 'Participant')), 0, 140);
+}
+
+function meetocean_add_chat_message(PDO $pdo, array $room, array $user, array $input): array
+{
+    $clientId = meetocean_clean_client_id($input['clientId'] ?? '');
+    $text = meetocean_clean_chat_text($input['text'] ?? $input['message'] ?? '');
+    $file = meetocean_decode_chat_file($input);
+    if ($text === '' && $file === null) {
+        throw new InvalidArgumentException('Message vide.');
+    }
+
+    $statement = $pdo->prepare(
+        'INSERT INTO meetocean_chat_messages
+            (room_id, user_id, client_id, sender_name, message_type, message_text, file_name, file_mime, file_size, file_data)
+         VALUES
+            (:room_id, :user_id, :client_id, :sender_name, :message_type, :message_text, :file_name, :file_mime, :file_size, :file_data)'
+    );
+    $statement->bindValue('room_id', (int) $room['id'], PDO::PARAM_INT);
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId > 0) {
+        $statement->bindValue('user_id', $userId, PDO::PARAM_INT);
+    } else {
+        $statement->bindValue('user_id', null, PDO::PARAM_NULL);
+    }
+    $statement->bindValue('client_id', $clientId);
+    $statement->bindValue('sender_name', meetocean_chat_sender_name($pdo, $room, $user, $clientId));
+    $statement->bindValue('message_type', $file !== null ? 'file' : 'text');
+    $statement->bindValue('message_text', $text !== '' ? $text : null, $text !== '' ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $statement->bindValue('file_name', $file['name'] ?? null, $file !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $statement->bindValue('file_mime', $file['mime'] ?? null, $file !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+    $statement->bindValue('file_size', $file['size'] ?? null, $file !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
+    $statement->bindValue('file_data', $file['data'] ?? null, $file !== null ? PDO::PARAM_LOB : PDO::PARAM_NULL);
+    meetocean_execute($statement);
+    meetocean_touch_room($pdo, (int) $room['id']);
+
+    return [
+        'id' => (int) $pdo->lastInsertId(),
+    ];
+}
+
+function meetocean_chat_message_payload(array $row): array
+{
+    $fileData = $row['file_data'] ?? null;
+
+    return [
+        'id' => (int) $row['id'],
+        'clientId' => (string) $row['client_id'],
+        'userId' => (int) ($row['user_id'] ?? 0),
+        'senderName' => (string) $row['sender_name'],
+        'messageType' => (string) ($row['message_type'] ?? 'text'),
+        'text' => (string) ($row['message_text'] ?? ''),
+        'fileName' => (string) ($row['file_name'] ?? ''),
+        'fileMime' => (string) ($row['file_mime'] ?? ''),
+        'fileSize' => isset($row['file_size']) ? (int) $row['file_size'] : 0,
+        'fileData' => $fileData !== null ? base64_encode((string) $fileData) : '',
+        'createdAt' => (string) $row['created_at'],
+    ];
+}
+
+function meetocean_chat_messages_since(PDO $pdo, int $roomId, int $sinceId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT id, room_id, user_id, client_id, sender_name, message_type, message_text, file_name, file_mime, file_size, file_data, created_at
+         FROM meetocean_chat_messages
+         WHERE room_id = :room_id
+           AND id > :since_id
+         ORDER BY id ASC
+         LIMIT 100'
+    );
+    $statement->bindValue('room_id', $roomId, PDO::PARAM_INT);
+    $statement->bindValue('since_id', max(0, $sinceId), PDO::PARAM_INT);
+    meetocean_execute($statement);
+
+    return array_map(static fn(array $row): array => meetocean_chat_message_payload($row), $statement->fetchAll() ?: []);
+}
+
 function meetocean_translate_text(PDO $pdo, int $userId, string $text, string $sourceLanguage, string $targetLanguage): string
 {
     $settings = oceanos_ai_private_settings($pdo, $userId);
@@ -1222,7 +1399,7 @@ function meetocean_translation_user_id(PDO $pdo, array $room, array $user): int
     return $candidates[0] ?? 0;
 }
 
-function meetocean_room_state(PDO $pdo, array $room, array $user, string $clientId, int $sinceSignalId = 0, int $sinceTranscriptId = 0, ?string $targetLanguage = null): array
+function meetocean_room_state(PDO $pdo, array $room, array $user, string $clientId, int $sinceSignalId = 0, int $sinceTranscriptId = 0, ?string $targetLanguage = null, int $sinceChatId = 0): array
 {
     $clientId = meetocean_clean_client_id($clientId);
     $room = meetocean_ensure_invite($pdo, $room);
@@ -1248,6 +1425,7 @@ function meetocean_room_state(PDO $pdo, array $room, array $user, string $client
         'participants' => $participants,
         'signals' => meetocean_signals_since($pdo, (int) $room['id'], $clientId, $sinceSignalId),
         'transcripts' => meetocean_transcripts_since($pdo, (int) $room['id'], $sinceTranscriptId, $targetLanguage, $translationUserId),
+        'chatMessages' => meetocean_chat_messages_since($pdo, (int) $room['id'], $sinceChatId),
     ];
 }
 
@@ -1277,6 +1455,9 @@ function meetocean_guest_dashboard(PDO $pdo, array $room, mixed $guestName = '')
             'model' => (string) ($ai['model'] ?? 'llama-3.3-70b-versatile'),
             'hasApiKey' => (bool) ($ai['hasApiKey'] ?? false),
         ],
+        'chat' => [
+            'fileMaxBytes' => MEETOCEAN_CHAT_FILE_MAX_BYTES,
+        ],
         'room' => meetocean_public_room($pdo, $room, meetocean_guest_user($guestName)),
         'recentRooms' => [],
     ];
@@ -1300,6 +1481,9 @@ function meetocean_dashboard(PDO $pdo, array $user): array
             'provider' => (string) ($ai['provider'] ?? 'groq'),
             'model' => (string) ($ai['model'] ?? 'llama-3.3-70b-versatile'),
             'hasApiKey' => (bool) ($ai['hasApiKey'] ?? false),
+        ],
+        'chat' => [
+            'fileMaxBytes' => MEETOCEAN_CHAT_FILE_MAX_BYTES,
         ],
         'recentRooms' => meetocean_recent_rooms($pdo, $user),
     ];

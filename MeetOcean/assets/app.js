@@ -50,6 +50,13 @@ const elements = {
   translationToggle: $("translation-toggle"),
   participantCount: $("participant-count"),
   participantList: $("participant-list"),
+  chatList: $("chat-list"),
+  chatForm: $("chat-form"),
+  chatMessageInput: $("chat-message-input"),
+  chatFileButton: $("chat-file-button"),
+  chatFileInput: $("chat-file-input"),
+  chatFilePreview: $("chat-file-preview"),
+  chatSendButton: $("chat-send-button"),
   transcriptList: $("transcript-list"),
   clearTranscriptButton: $("clear-transcript-button"),
 };
@@ -79,8 +86,12 @@ const state = {
   peers: new Map(),
   videoTiles: new Map(),
   transcriptMap: new Map(),
+  chatMap: new Map(),
   lastSignalId: 0,
   lastTranscriptId: 0,
+  lastChatId: 0,
+  chatFileMaxBytes: 5 * 1024 * 1024,
+  pendingChatFile: null,
   syncTimer: null,
   pendingSync: false,
   sourceLanguage: "fr-FR",
@@ -743,6 +754,7 @@ function renderRecentRooms(rooms = []) {
 function renderDashboard(payload) {
   state.isGuest = Boolean(payload.isGuest);
   state.languages = payload.languages || { "fr-FR": "Francais", "en-US": "Anglais" };
+  state.chatFileMaxBytes = Number(payload.chat?.fileMaxBytes || state.chatFileMaxBytes);
   setSpokenLanguage(payload.defaults?.sourceLanguage || "fr-FR");
   state.inviteRoom = payload.room || state.inviteRoom;
   if (state.inviteRoom?.code) {
@@ -770,6 +782,9 @@ function setRoomActive(active) {
   elements.meetingStage.classList.toggle("hidden", !active);
   elements.sideColumn?.classList.toggle("hidden", state.isGuest && !active);
   elements.connectionPill.textContent = active ? "En reunion" : "Hors reunion";
+  elements.chatMessageInput.disabled = !active;
+  elements.chatFileButton.disabled = !active;
+  elements.chatSendButton.disabled = !active;
 }
 
 function updateRoomHeader() {
@@ -907,6 +922,175 @@ function renderVideos() {
       state.videoTiles.delete(clientIdValue);
     }
   });
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} o`;
+  if (value < 1024 * 1024) return `${Math.round(value / 102.4) / 10} Ko`;
+  return `${Math.round(value / 1024 / 102.4) / 10} Mo`;
+}
+
+function chatFileDataUrl(item) {
+  if (!item.fileData) return "";
+  const mime = item.fileMime || "application/octet-stream";
+  return `data:${mime};base64,${item.fileData}`;
+}
+
+function renderChatMessages() {
+  const items = Array.from(state.chatMap.values()).sort((a, b) => a.id - b.id);
+  elements.chatList.innerHTML = "";
+
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state inline";
+    empty.textContent = "Aucun message";
+    elements.chatList.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = `chat-item ${item.clientId === state.clientId ? "is-own" : ""}`.trim();
+
+    const head = document.createElement("div");
+    const sender = document.createElement("strong");
+    sender.textContent = item.clientId === state.clientId ? "Vous" : item.senderName || "Participant";
+    const time = document.createElement("span");
+    time.textContent = formatDate(item.createdAt);
+    head.append(sender, time);
+    article.appendChild(head);
+
+    if (item.text) {
+      const text = document.createElement("p");
+      text.textContent = item.text;
+      article.appendChild(text);
+    }
+
+    if (item.messageType === "file" && item.fileName) {
+      const fileLink = document.createElement("a");
+      fileLink.className = "chat-file-link";
+      fileLink.href = chatFileDataUrl(item);
+      fileLink.download = item.fileName;
+      fileLink.textContent = `${item.fileName} (${formatBytes(item.fileSize)})`;
+      article.appendChild(fileLink);
+    }
+
+    elements.chatList.appendChild(article);
+  });
+  elements.chatList.scrollTop = elements.chatList.scrollHeight;
+}
+
+function updateChatFilePreview() {
+  if (!elements.chatFilePreview) return;
+  elements.chatFilePreview.replaceChildren();
+
+  if (!state.pendingChatFile) {
+    elements.chatFilePreview.classList.add("hidden");
+    return;
+  }
+
+  const label = document.createElement("span");
+  label.textContent = `${state.pendingChatFile.name} - ${formatBytes(state.pendingChatFile.size)}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "Retirer";
+  remove.addEventListener("click", () => {
+    state.pendingChatFile = null;
+    if (elements.chatFileInput) {
+      elements.chatFileInput.value = "";
+    }
+    updateChatFilePreview();
+  });
+  elements.chatFilePreview.append(label, remove);
+  elements.chatFilePreview.classList.remove("hidden");
+}
+
+function selectChatFile() {
+  const file = elements.chatFileInput?.files?.[0] || null;
+  if (!file) {
+    state.pendingChatFile = null;
+    updateChatFilePreview();
+    return;
+  }
+
+  if (file.size > state.chatFileMaxBytes) {
+    state.pendingChatFile = null;
+    elements.chatFileInput.value = "";
+    updateChatFilePreview();
+    setMessage(`Fichier trop volumineux. Maximum ${formatBytes(state.chatFileMaxBytes)}.`, "error");
+    return;
+  }
+
+  state.pendingChatFile = file;
+  updateChatFilePreview();
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve(result.includes(",") ? result.slice(result.indexOf(",") + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sendChatMessage(event = null) {
+  event?.preventDefault();
+  if (!state.room) return;
+
+  const text = elements.chatMessageInput.value.trim();
+  const file = state.pendingChatFile;
+  if (!text && !file) {
+    elements.chatMessageInput.focus();
+    return;
+  }
+  if (file && file.size > state.chatFileMaxBytes) {
+    setMessage(`Fichier trop volumineux. Maximum ${formatBytes(state.chatFileMaxBytes)}.`, "error");
+    return;
+  }
+
+  elements.chatSendButton.disabled = true;
+  elements.chatFileButton.disabled = true;
+  try {
+    const payload = {
+      roomId: state.room.id,
+      clientId: state.clientId,
+      text,
+      sourceLanguage: state.sourceLanguage,
+      targetLanguage: effectiveTargetLanguage(),
+      mediaState: mediaState(),
+      sinceSignalId: state.lastSignalId,
+      sinceTranscriptId: state.lastTranscriptId,
+      sinceChatId: state.lastChatId,
+    };
+
+    if (file) {
+      payload.file = {
+        name: file.name,
+        mime: file.type || "application/octet-stream",
+        size: file.size,
+        data: await fileToBase64(file),
+      };
+    }
+
+    const response = await postAction("add_chat_message", payload);
+    elements.chatMessageInput.value = "";
+    state.pendingChatFile = null;
+    if (elements.chatFileInput) {
+      elements.chatFileInput.value = "";
+    }
+    updateChatFilePreview();
+    await applySyncPayload(response);
+  } catch (error) {
+    setMessage(error.message || "Message non envoye.", "error");
+  } finally {
+    elements.chatSendButton.disabled = false;
+    elements.chatFileButton.disabled = false;
+  }
 }
 
 function renderTranscripts() {
@@ -1393,6 +1577,13 @@ async function applySyncPayload(payload) {
     });
     renderTranscripts();
   }
+  if (Array.isArray(payload.chatMessages)) {
+    payload.chatMessages.forEach((item) => {
+      state.chatMap.set(item.id, item);
+      state.lastChatId = Math.max(state.lastChatId, Number(item.id || 0));
+    });
+    renderChatMessages();
+  }
   syncPeersWithParticipants();
   renderVideos();
 
@@ -1416,6 +1607,7 @@ async function syncNow() {
       mediaState: mediaState(),
       sinceSignalId: state.lastSignalId,
       sinceTranscriptId: state.lastTranscriptId,
+      sinceChatId: state.lastChatId,
     });
     await applySyncPayload(payload);
   } catch (error) {
@@ -1501,7 +1693,9 @@ async function enterRoom(payload) {
   state.room = payload.room;
   state.lastSignalId = 0;
   state.lastTranscriptId = 0;
+  state.lastChatId = 0;
   state.transcriptMap.clear();
+  state.chatMap.clear();
   updateRoomHeader();
   setRoomActive(true);
   await applySyncPayload(payload);
@@ -1548,8 +1742,14 @@ function cleanupMeeting() {
   state.room = null;
   state.participants = [];
   state.transcriptMap.clear();
+  state.chatMap.clear();
   state.lastSignalId = 0;
   state.lastTranscriptId = 0;
+  state.lastChatId = 0;
+  state.pendingChatFile = null;
+  if (elements.chatFileInput) {
+    elements.chatFileInput.value = "";
+  }
   state.media = {
     microphone: false,
     camera: false,
@@ -1557,6 +1757,8 @@ function cleanupMeeting() {
     connectionState: "online",
   };
   renderParticipants();
+  renderChatMessages();
+  updateChatFilePreview();
   renderTranscripts();
   renderVideos();
   updateControlButtons();
@@ -1734,6 +1936,7 @@ async function addTranscript(text) {
       mediaState: mediaState(),
       sinceSignalId: state.lastSignalId,
       sinceTranscriptId: state.lastTranscriptId,
+      sinceChatId: state.lastChatId,
     });
     await applySyncPayload(payload);
   } catch (error) {
@@ -1942,6 +2145,15 @@ function bindEvents() {
   elements.cameraBackgroundFile?.addEventListener("change", () => void loadCustomCameraBackground());
   elements.sourceLanguage.addEventListener("change", changeStartLanguage);
   elements.targetLanguage.addEventListener("change", changeStartLanguage);
+  elements.chatForm?.addEventListener("submit", (event) => void sendChatMessage(event));
+  elements.chatFileButton?.addEventListener("click", () => elements.chatFileInput?.click());
+  elements.chatFileInput?.addEventListener("change", selectChatFile);
+  elements.chatMessageInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void sendChatMessage();
+    }
+  });
   elements.clearTranscriptButton.addEventListener("click", () => {
     state.transcriptMap.clear();
     renderTranscripts();
@@ -1994,6 +2206,7 @@ async function boot() {
   syncCameraBackgroundControls();
   bindEvents();
   renderParticipants();
+  renderChatMessages();
   renderTranscripts();
   updateControlButtons();
   syncScheduledStartInput();

@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/meetocean.svg?v=20260501">
   <meta name="description" content="MeetOcean - reunions video, transcription et traduction en temps reel.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-menu">
-  <link rel="stylesheet" href="assets/style.css?v=20260506-camera-backgrounds">
+  <link rel="stylesheet" href="assets/style.css?v=20260506-chat-files">
   <script defer src="/OceanOS/assets/guard.js?v=20260506-mobile-menu"></script>
-  <script defer src="assets/app.js?v=20260506-camera-backgrounds"></script>
+  <script defer src="assets/app.js?v=20260506-chat-files"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -185,6 +185,26 @@
               <span class="count-pill" id="participant-count">0</span>
             </div>
             <div class="participant-list" id="participant-list"></div>
+          </section>
+
+          <section class="panel chat-panel">
+            <div class="panel-header compact">
+              <div>
+                <p class="eyebrow">Tchat</p>
+                <h2>Messages</h2>
+              </div>
+              <button class="ghost-button compact-button" id="chat-file-button" type="button" disabled>Fichier</button>
+            </div>
+            <div class="chat-list" id="chat-list"></div>
+            <form class="chat-form" id="chat-form">
+              <input id="chat-file-input" class="hidden" type="file">
+              <div class="chat-file-preview hidden" id="chat-file-preview"></div>
+              <label class="field">
+                <span>Message</span>
+                <textarea id="chat-message-input" rows="2" maxlength="4000" placeholder="Ecrire un message" disabled></textarea>
+              </label>
+              <button class="primary-button full-button" id="chat-send-button" type="submit" disabled>Envoyer</button>
+            </form>
           </section>
 
           <section class="panel transcript-panel">
