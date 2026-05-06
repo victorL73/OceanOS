@@ -13,6 +13,7 @@ foreach (['Commandes', 'SAV'] as $agendaOptionalModule) {
 }
 
 const AGENDA_MODULE_ID = 'agenda';
+const AGENDA_SYNC_DOMAIN = 'interne.renovboat.com';
 
 function agenda_pdo(): PDO
 {
@@ -75,6 +76,18 @@ function agenda_ensure_schema(PDO $pdo): void
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             CONSTRAINT fk_agenda_user_settings_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS agenda_calendar_sync_tokens (
+            user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            token_hash CHAR(64) NOT NULL UNIQUE,
+            token_cipher TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            last_used_at DATETIME NULL,
+            CONSTRAINT fk_agenda_sync_tokens_user FOREIGN KEY (user_id) REFERENCES oceanos_users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 }
@@ -339,6 +352,135 @@ function agenda_save_settings(PDO $pdo, int $userId, mixed $settings): array
     $normalized = agenda_normalize_settings($settings);
     agenda_store_settings($pdo, $userId, $normalized);
     return $normalized;
+}
+
+function agenda_base_calendar_url(): string
+{
+    return 'https://' . AGENDA_SYNC_DOMAIN . '/Agenda/api/calendar.php';
+}
+
+function agenda_sync_token_hash(string $token): string
+{
+    return hash('sha256', $token);
+}
+
+function agenda_random_sync_token(): string
+{
+    return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+}
+
+function agenda_calendar_sync_links(string $token): array
+{
+    $url = agenda_base_calendar_url() . '?' . http_build_query(['token' => $token]);
+    return [
+        'url' => $url,
+        'webcalUrl' => preg_replace('~^https://~', 'webcal://', $url) ?: $url,
+        'domain' => AGENDA_SYNC_DOMAIN,
+    ];
+}
+
+function agenda_calendar_sync_status(PDO $pdo, int $userId): array
+{
+    $status = [
+        'enabled' => false,
+        'url' => '',
+        'webcalUrl' => '',
+        'domain' => AGENDA_SYNC_DOMAIN,
+        'createdAt' => null,
+        'updatedAt' => null,
+        'lastUsedAt' => null,
+    ];
+    if ($userId <= 0) {
+        return $status;
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT token_cipher, created_at, updated_at, last_used_at
+         FROM agenda_calendar_sync_tokens
+         WHERE user_id = :user_id
+         LIMIT 1'
+    );
+    $statement->execute(['user_id' => $userId]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        return $status;
+    }
+
+    $token = oceanos_decrypt_secret($row['token_cipher'] ?? '');
+    $status['enabled'] = true;
+    $status['createdAt'] = (string) ($row['created_at'] ?? '');
+    $status['updatedAt'] = (string) ($row['updated_at'] ?? '');
+    $status['lastUsedAt'] = $row['last_used_at'] !== null ? (string) $row['last_used_at'] : null;
+    if ($token !== '') {
+        $status = array_merge($status, agenda_calendar_sync_links($token));
+    }
+
+    return $status;
+}
+
+function agenda_generate_calendar_sync(PDO $pdo, int $userId): array
+{
+    if ($userId <= 0) {
+        throw new InvalidArgumentException('Utilisateur invalide.');
+    }
+
+    $token = agenda_random_sync_token();
+    $statement = $pdo->prepare(
+        'INSERT INTO agenda_calendar_sync_tokens (user_id, token_hash, token_cipher)
+         VALUES (:user_id, :token_hash, :token_cipher)
+         ON DUPLICATE KEY UPDATE
+            token_hash = VALUES(token_hash),
+            token_cipher = VALUES(token_cipher),
+            updated_at = CURRENT_TIMESTAMP,
+            last_used_at = NULL'
+    );
+    $statement->execute([
+        'user_id' => $userId,
+        'token_hash' => agenda_sync_token_hash($token),
+        'token_cipher' => oceanos_encrypt_secret($token),
+    ]);
+
+    return agenda_calendar_sync_status($pdo, $userId);
+}
+
+function agenda_revoke_calendar_sync(PDO $pdo, int $userId): array
+{
+    if ($userId > 0) {
+        $statement = $pdo->prepare('DELETE FROM agenda_calendar_sync_tokens WHERE user_id = :user_id');
+        $statement->execute(['user_id' => $userId]);
+    }
+
+    return agenda_calendar_sync_status($pdo, $userId);
+}
+
+function agenda_user_from_sync_token(PDO $pdo, string $token): ?array
+{
+    $token = trim($token);
+    if (!preg_match('/^[A-Za-z0-9_-]{32,160}$/', $token)) {
+        return null;
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT u.*
+         FROM agenda_calendar_sync_tokens t
+         INNER JOIN oceanos_users u ON u.id = t.user_id
+         WHERE t.token_hash = :token_hash AND u.is_active = 1
+         LIMIT 1'
+    );
+    $statement->execute(['token_hash' => agenda_sync_token_hash($token)]);
+    $user = $statement->fetch();
+    if (!is_array($user) || !agenda_user_can_access($user)) {
+        return null;
+    }
+
+    $update = $pdo->prepare(
+        'UPDATE agenda_calendar_sync_tokens
+         SET last_used_at = CURRENT_TIMESTAMP
+         WHERE user_id = :user_id'
+    );
+    $update->execute(['user_id' => (int) $user['id']]);
+
+    return $user;
 }
 
 function agenda_settings_module_enabled(?array $settings, string $module): bool
@@ -2060,6 +2202,231 @@ function agenda_priority_from_text(string $value): string
     return 'normal';
 }
 
+function agenda_calendar_feed_items(PDO $pdo, array $user): array
+{
+    $settings = agenda_settings($pdo, (int) ($user['id'] ?? 0));
+    $items = array_merge(
+        agenda_list_events($pdo, $user, $settings),
+        agenda_collect_module_tasks($pdo, $user, $settings)
+    );
+
+    $items = array_values(array_filter($items, static function (array $item): bool {
+        return trim((string) ($item['startsAt'] ?? '')) !== ''
+            && agenda_normalize_status($item['status'] ?? 'planned') !== 'cancelled';
+    }));
+
+    usort($items, static function (array $a, array $b): int {
+        return strcmp((string) ($a['startsAt'] ?? ''), (string) ($b['startsAt'] ?? ''))
+            ?: strcmp((string) ($a['uid'] ?? $a['id'] ?? ''), (string) ($b['uid'] ?? $b['id'] ?? ''));
+    });
+
+    return $items;
+}
+
+function agenda_ics_datetime(mixed $value): ?DateTimeImmutable
+{
+    $text = trim((string) $value);
+    if ($text === '') {
+        return null;
+    }
+
+    $text = str_replace('T', ' ', $text);
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $text)) {
+        $text .= ' 00:00:00';
+    } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $text)) {
+        $text .= ':00';
+    }
+
+    try {
+        return new DateTimeImmutable($text, new DateTimeZone('UTC'));
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+function agenda_ics_utc(DateTimeImmutable $date): string
+{
+    return $date->setTimezone(new DateTimeZone('UTC'))->format('Ymd\THis\Z');
+}
+
+function agenda_ics_date_value(DateTimeImmutable $date): string
+{
+    return $date->setTimezone(new DateTimeZone('UTC'))->format('Ymd');
+}
+
+function agenda_ics_escape(mixed $value): string
+{
+    $text = str_replace(["\r\n", "\r"], "\n", (string) $value);
+    $text = str_replace('\\', '\\\\', $text);
+    $text = str_replace(["\n", ';', ','], ['\\n', '\\;', '\\,'], $text);
+    return $text;
+}
+
+function agenda_ics_param_escape(mixed $value): string
+{
+    return str_replace(['\\', '"', "\r", "\n"], ['\\\\', '\"', '', ''], (string) $value);
+}
+
+function agenda_ics_fold_line(string $line): array
+{
+    if (strlen($line) <= 75) {
+        return [$line];
+    }
+
+    $characters = preg_split('//u', $line, -1, PREG_SPLIT_NO_EMPTY);
+    if (!is_array($characters)) {
+        return [$line];
+    }
+
+    $folded = [];
+    $current = '';
+    foreach ($characters as $character) {
+        $limit = $folded === [] ? 75 : 74;
+        if ($current !== '' && strlen($current . $character) > $limit) {
+            $folded[] = ($folded === [] ? '' : ' ') . $current;
+            $current = $character;
+            continue;
+        }
+        $current .= $character;
+    }
+
+    if ($current !== '') {
+        $folded[] = ($folded === [] ? '' : ' ') . $current;
+    }
+
+    return $folded;
+}
+
+function agenda_absolute_url(mixed $url): string
+{
+    $url = trim((string) $url);
+    if ($url === '') {
+        return '';
+    }
+    if (preg_match('~^https?://~i', $url)) {
+        return $url;
+    }
+
+    return 'https://' . AGENDA_SYNC_DOMAIN . '/' . ltrim($url, '/');
+}
+
+function agenda_ics_uid(array $item): string
+{
+    $uid = (string) ($item['uid'] ?? $item['id'] ?? bin2hex(random_bytes(8)));
+    $uid = preg_replace('/[^a-zA-Z0-9_.:-]+/', '-', $uid) ?: 'item';
+    return $uid . '@agenda.oceanos';
+}
+
+function agenda_ics_item_lines(PDO $pdo, array $item, string $stamp): array
+{
+    $start = agenda_ics_datetime($item['startsAt'] ?? '');
+    if ($start === null) {
+        return [];
+    }
+
+    $allDay = (bool) ($item['allDay'] ?? false);
+    $end = agenda_ics_datetime($item['endsAt'] ?? '');
+    if ($allDay) {
+        $end = $end !== null && $end > $start ? $end : $start->modify('+1 day');
+    } else {
+        $end = $end !== null && $end > $start ? $end : $start->modify('+30 minutes');
+    }
+
+    $module = (string) ($item['module'] ?? 'Agenda');
+    $title = agenda_clean_text($item['title'] ?? 'Agenda', 190, true);
+    if ($module !== 'Agenda') {
+        $title = '[' . $module . '] ' . $title;
+    }
+
+    $actionUrl = agenda_absolute_url($item['meetOceanJoinUrl'] ?? '') ?: agenda_absolute_url($item['actionUrl'] ?? '');
+    $descriptionParts = [];
+    $description = agenda_clean_text($item['description'] ?? '', 1800);
+    if ($description !== '') {
+        $descriptionParts[] = $description;
+    }
+    if ($actionUrl !== '') {
+        $descriptionParts[] = $actionUrl;
+    }
+
+    $lines = [
+        'BEGIN:VEVENT',
+        'UID:' . agenda_ics_uid($item),
+        'DTSTAMP:' . $stamp,
+        $allDay
+            ? 'DTSTART;VALUE=DATE:' . agenda_ics_date_value($start)
+            : 'DTSTART:' . agenda_ics_utc($start),
+        $allDay
+            ? 'DTEND;VALUE=DATE:' . agenda_ics_date_value($end)
+            : 'DTEND:' . agenda_ics_utc($end),
+        'SUMMARY:' . agenda_ics_escape($title),
+        'STATUS:CONFIRMED',
+        'TRANSP:OPAQUE',
+        'CATEGORIES:' . agenda_ics_escape($module),
+    ];
+
+    if ($descriptionParts !== []) {
+        $lines[] = 'DESCRIPTION:' . agenda_ics_escape(implode("\n", $descriptionParts));
+    }
+    if (trim((string) ($item['location'] ?? '')) !== '') {
+        $lines[] = 'LOCATION:' . agenda_ics_escape($item['location']);
+    }
+    if ($actionUrl !== '') {
+        $lines[] = 'URL:' . agenda_ics_escape($actionUrl);
+    }
+    if (trim((string) ($item['createdAt'] ?? '')) !== '') {
+        $created = agenda_ics_datetime($item['createdAt']);
+        if ($created !== null) {
+            $lines[] = 'CREATED:' . agenda_ics_utc($created);
+        }
+    }
+    if (trim((string) ($item['updatedAt'] ?? '')) !== '') {
+        $updated = agenda_ics_datetime($item['updatedAt']);
+        if ($updated !== null) {
+            $lines[] = 'LAST-MODIFIED:' . agenda_ics_utc($updated);
+        }
+    }
+
+    foreach (($item['attendees'] ?? []) as $attendee) {
+        if (!is_array($attendee) || trim((string) ($attendee['email'] ?? '')) === '') {
+            continue;
+        }
+        $name = agenda_ics_param_escape($attendee['displayName'] ?? $attendee['email']);
+        $lines[] = 'ATTENDEE;CN="' . $name . '":MAILTO:' . trim((string) $attendee['email']);
+    }
+
+    $lines[] = 'END:VEVENT';
+    return $lines;
+}
+
+function agenda_build_calendar_ics(PDO $pdo, array $user): string
+{
+    $stamp = agenda_ics_utc(new DateTimeImmutable('now', new DateTimeZone('UTC')));
+    $userName = agenda_clean_text($user['display_name'] ?? $user['email'] ?? 'OceanOS', 120, true);
+    $lines = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//OceanOS//Agenda//FR',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'X-WR-CALNAME:' . agenda_ics_escape('OceanOS Agenda - ' . $userName),
+        'X-WR-TIMEZONE:Europe/Paris',
+        'REFRESH-INTERVAL;VALUE=DURATION:PT15M',
+        'X-PUBLISHED-TTL:PT15M',
+    ];
+
+    foreach (agenda_calendar_feed_items($pdo, $user) as $item) {
+        $lines = array_merge($lines, agenda_ics_item_lines($pdo, $item, $stamp));
+    }
+
+    $lines[] = 'END:VCALENDAR';
+    $folded = [];
+    foreach ($lines as $line) {
+        array_push($folded, ...agenda_ics_fold_line($line));
+    }
+
+    return implode("\r\n", $folded) . "\r\n";
+}
+
 function agenda_dashboard(PDO $pdo, array $user): array
 {
     $settings = agenda_settings($pdo, (int) ($user['id'] ?? 0));
@@ -2086,6 +2453,7 @@ function agenda_dashboard(PDO $pdo, array $user): array
         'users' => agenda_public_users($pdo),
         'settings' => $settings,
         'settingsCatalog' => agenda_settings_catalog(),
+        'sync' => agenda_calendar_sync_status($pdo, (int) ($user['id'] ?? 0)),
         'events' => $events,
         'moduleTasks' => $moduleTasks,
         'items' => $feed,

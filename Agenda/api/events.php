@@ -79,6 +79,26 @@ try {
         ]);
     }
 
+    if ($action === 'generate_calendar_sync') {
+        $sync = agenda_generate_calendar_sync($pdo, (int) ($user['id'] ?? 0));
+        oceanos_json_response([
+            'ok' => true,
+            'message' => 'Lien de synchronisation iPhone genere.',
+            'sync' => $sync,
+            ...agenda_dashboard($pdo, $user),
+        ]);
+    }
+
+    if ($action === 'revoke_calendar_sync') {
+        $sync = agenda_revoke_calendar_sync($pdo, (int) ($user['id'] ?? 0));
+        oceanos_json_response([
+            'ok' => true,
+            'message' => 'Synchronisation iPhone desactivee.',
+            'sync' => $sync,
+            ...agenda_dashboard($pdo, $user),
+        ]);
+    }
+
     oceanos_json_response([
         'ok' => false,
         'error' => 'unsupported_action',

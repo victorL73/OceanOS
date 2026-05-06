@@ -542,6 +542,44 @@ textarea:focus {
   gap: 12px;
 }
 
+.settings-sync-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-sync-head,
+.settings-sync-actions,
+.sync-link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-sync-head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.settings-sync-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.settings-sync-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sync-link-row input {
+  min-width: 0;
+  font-size: 0.88rem;
+}
+
 .settings-card {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -759,6 +797,20 @@ textarea:focus {
     height: 118px;
     min-height: 98px;
     padding: 6px;
+  }
+
+  .settings-sync-head,
+  .sync-link-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-sync-actions {
+    justify-content: stretch;
+  }
+
+  .settings-sync-actions > * {
+    flex: 1 1 auto;
   }
 }
 

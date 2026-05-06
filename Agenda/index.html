@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/agenda.svg?v=20260501">
   <meta name="description" content="Agenda OceanOS - calendrier personnel, taches consolidees et reunions MeetOcean.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260505-mobile-keyboard">
-  <link rel="stylesheet" href="assets/style.css?v=20260506-calendar-scroll">
+  <link rel="stylesheet" href="assets/style.css?v=20260506-iphone-sync">
   <script defer src="/OceanOS/assets/guard.js?v=20260505-mobile-keyboard"></script>
-  <script defer src="assets/app.js?v=20260506-calendar-scroll"></script>
+  <script defer src="assets/app.js?v=20260506-iphone-sync"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -121,6 +121,23 @@
               </div>
               <button class="primary-button" id="save-settings-button" type="button">Enregistrer</button>
             </div>
+            <section class="settings-sync-panel" aria-label="Synchronisation iPhone">
+              <div class="settings-sync-head">
+                <div>
+                  <p class="eyebrow">iPhone</p>
+                  <h3>Synchronisation calendrier</h3>
+                </div>
+                <div class="settings-sync-actions">
+                  <button class="primary-button compact-button" id="enable-sync-button" type="button">Activer</button>
+                  <button class="ghost-button compact-button" id="copy-sync-button" type="button" disabled>Copier</button>
+                  <button class="ghost-button compact-button danger-text" id="revoke-sync-button" type="button" disabled>Desactiver</button>
+                </div>
+              </div>
+              <div class="sync-link-row">
+                <input id="sync-url" type="text" readonly placeholder="Aucun lien actif">
+                <a class="ghost-link compact-button hidden" id="sync-webcal-link" href="#" rel="noopener">Ouvrir</a>
+              </div>
+            </section>
             <div class="settings-list" id="settings-list"></div>
           </section>
         </section>

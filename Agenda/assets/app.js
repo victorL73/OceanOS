@@ -47,6 +47,11 @@ const elements = {
   saveButton: $("save-event-button"),
   settingsList: $("settings-list"),
   saveSettingsButton: $("save-settings-button"),
+  syncUrl: $("sync-url"),
+  syncWebcalLink: $("sync-webcal-link"),
+  enableSyncButton: $("enable-sync-button"),
+  copySyncButton: $("copy-sync-button"),
+  revokeSyncButton: $("revoke-sync-button"),
 };
 
 const state = {
@@ -57,6 +62,7 @@ const state = {
   items: [],
   settings: null,
   settingsCatalog: {},
+  sync: null,
   activeView: "list",
   currentMonth: startOfMonth(new Date()),
   editingId: null,
@@ -350,6 +356,21 @@ function collectSettingsFromForm() {
   return settings;
 }
 
+function renderSync() {
+  if (!elements.syncUrl) return;
+  const sync = state.sync || {};
+  const activeUrl = sync.webcalUrl || sync.url || "";
+  const enabled = Boolean(sync.enabled && activeUrl);
+  elements.syncUrl.value = activeUrl;
+  elements.syncUrl.placeholder = enabled ? "" : "Aucun lien actif";
+  elements.enableSyncButton.textContent = enabled ? "Regenerer" : "Activer";
+  elements.enableSyncButton.disabled = false;
+  elements.copySyncButton.disabled = !enabled;
+  elements.revokeSyncButton.disabled = !enabled;
+  elements.syncWebcalLink.classList.toggle("hidden", !enabled);
+  elements.syncWebcalLink.href = enabled ? activeUrl : "#";
+}
+
 function renderMetrics() {
   const [start, end] = todayRange(7);
   const upcoming = state.items.filter((item) => {
@@ -626,11 +647,13 @@ function applyPayload(payload) {
   state.items = Array.isArray(payload.items) ? payload.items : [];
   state.settings = payload.settings || null;
   state.settingsCatalog = payload.settingsCatalog || {};
+  state.sync = payload.sync || null;
   renderIdentity(payload);
   renderModuleFilter();
   renderMetrics();
   renderAttendees([state.currentUser?.id].filter(Boolean));
   renderSettings();
+  renderSync();
   renderAll();
 }
 
@@ -707,6 +730,43 @@ async function saveSettings() {
     showMessage(error.message || "Enregistrement des parametres impossible.", "error");
   } finally {
     elements.saveSettingsButton.disabled = false;
+  }
+}
+
+async function updateCalendarSync(action) {
+  const buttons = [elements.enableSyncButton, elements.copySyncButton, elements.revokeSyncButton].filter(Boolean);
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
+  showMessage("");
+  try {
+    const response = await requestJson(API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+    applyPayload(response);
+    showMessage(response.message || "Synchronisation mise a jour.", "success");
+  } catch (error) {
+    showMessage(error.message || "Synchronisation impossible.", "error");
+    renderSync();
+  }
+}
+
+async function copySyncUrl() {
+  const value = elements.syncUrl?.value || "";
+  if (!value) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      elements.syncUrl.select();
+      document.execCommand("copy");
+      elements.syncUrl.blur();
+    }
+    showMessage("Lien de synchronisation copie.", "success");
+  } catch (error) {
+    elements.syncUrl.select();
+    showMessage("Selectionnez le lien pour le copier.", "error");
   }
 }
 
@@ -804,6 +864,13 @@ function bindEvents() {
   elements.form.addEventListener("submit", saveEvent);
   elements.cancelEditButton.addEventListener("click", resetForm);
   elements.saveSettingsButton?.addEventListener("click", () => void saveSettings());
+  elements.enableSyncButton?.addEventListener("click", () => void updateCalendarSync("generate_calendar_sync"));
+  elements.copySyncButton?.addEventListener("click", () => void copySyncUrl());
+  elements.revokeSyncButton?.addEventListener("click", () => {
+    if (window.confirm("Desactiver la synchronisation iPhone ?")) {
+      void updateCalendarSync("revoke_calendar_sync");
+    }
+  });
   elements.newEventButton.addEventListener("click", () => {
     resetForm();
     elements.formPanel.scrollIntoView({ behavior: "smooth", block: "start" });
