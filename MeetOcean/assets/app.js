@@ -298,8 +298,10 @@ function guestAccessBlocked(payload = null) {
 function guestAccessBlockedMessage(payload = null) {
   if (!guestAccessBlocked(payload)) return "";
   const access = currentGuestAccess(payload) || {};
-  const openLabel = access.opensAtLabel || formatMeetingDate(access.opensAt);
-  return access.message || `Cette reunion sera accessible aux invites a partir du ${openLabel}.`;
+  const openLabel = formatMeetingDate(access.opensAt) || access.opensAtLabel || "";
+  return openLabel
+    ? `Cette reunion sera accessible aux invites a partir du ${openLabel}.`
+    : access.message || "Cette reunion n est pas encore accessible aux invites.";
 }
 
 function scheduleGuestAccessRefresh(payload = null) {

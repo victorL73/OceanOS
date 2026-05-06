@@ -10,6 +10,7 @@ const MEETOCEAN_SIGNAL_TTL_MINUTES = 10;
 const MEETOCEAN_DB_RETRY_ATTEMPTS = 4;
 const MEETOCEAN_AGENDA_GUEST_OPEN_MINUTES = 10;
 const MEETOCEAN_CHAT_FILE_MAX_BYTES = 5242880;
+const MEETOCEAN_DISPLAY_TIMEZONE = 'Europe/Paris';
 
 class MeetOceanGuestAccessException extends InvalidArgumentException
 {
@@ -73,6 +74,55 @@ function meetocean_exec(PDO $pdo, string $sql): int|false
     }
 
     return false;
+}
+
+function meetocean_utc_timezone(): DateTimeZone
+{
+    static $timezone = null;
+    if ($timezone === null) {
+        $timezone = new DateTimeZone('UTC');
+    }
+
+    return $timezone;
+}
+
+function meetocean_display_timezone(): DateTimeZone
+{
+    static $timezone = null;
+    if ($timezone === null) {
+        $timezone = new DateTimeZone(MEETOCEAN_DISPLAY_TIMEZONE);
+    }
+
+    return $timezone;
+}
+
+function meetocean_parse_utc_datetime(mixed $value): ?DateTimeImmutable
+{
+    $text = trim((string) $value);
+    if ($text === '') {
+        return null;
+    }
+
+    $text = str_replace('T', ' ', $text);
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $text)) {
+        $text .= ' 00:00:00';
+    } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $text)) {
+        $text .= ':00';
+    }
+
+    try {
+        return (new DateTimeImmutable($text, meetocean_utc_timezone()))
+            ->setTimezone(meetocean_utc_timezone());
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+function meetocean_format_display_datetime(DateTimeInterface $date): string
+{
+    return DateTimeImmutable::createFromInterface($date)
+        ->setTimezone(meetocean_display_timezone())
+        ->format('d/m H:i');
 }
 
 function meetocean_ensure_schema(PDO $pdo): void
@@ -390,10 +440,8 @@ function meetocean_parse_scheduled_start(mixed $value): ?string
         return null;
     }
 
-    $value = str_replace('T', ' ', substr($value, 0, 19));
-    try {
-        $date = new DateTimeImmutable($value);
-    } catch (Throwable $exception) {
+    $date = meetocean_parse_utc_datetime($value);
+    if ($date === null) {
         throw new InvalidArgumentException('Date de reunion invalide.');
     }
 
@@ -533,9 +581,8 @@ function meetocean_guest_access_for_room(PDO $pdo, array $room): array
         ];
     }
 
-    try {
-        $startsAt = new DateTimeImmutable((string) $event['starts_at']);
-    } catch (Throwable) {
+    $startsAt = meetocean_parse_utc_datetime($event['starts_at'] ?? '');
+    if ($startsAt === null) {
         return [
             'restricted' => false,
             'available' => true,
@@ -544,10 +591,10 @@ function meetocean_guest_access_for_room(PDO $pdo, array $room): array
     }
 
     $opensAt = $startsAt->modify('-' . MEETOCEAN_AGENDA_GUEST_OPEN_MINUTES . ' minutes');
-    $now = new DateTimeImmutable('now');
+    $now = new DateTimeImmutable('now', meetocean_utc_timezone());
     $available = $now >= $opensAt;
     $availableInSeconds = $available ? 0 : max(1, $opensAt->getTimestamp() - $now->getTimestamp());
-    $opensAtLabel = $opensAt->format('d/m H:i');
+    $opensAtLabel = meetocean_format_display_datetime($opensAt);
 
     return [
         'restricted' => true,
@@ -555,7 +602,7 @@ function meetocean_guest_access_for_room(PDO $pdo, array $room): array
         'eventId' => (int) ($event['id'] ?? 0),
         'eventStatus' => (string) ($event['status'] ?? ''),
         'startsAt' => $startsAt->format('Y-m-d H:i:s'),
-        'startsAtLabel' => $startsAt->format('d/m H:i'),
+        'startsAtLabel' => meetocean_format_display_datetime($startsAt),
         'opensAt' => $opensAt->format('Y-m-d H:i:s'),
         'opensAtLabel' => $opensAtLabel,
         'availableInSeconds' => $availableInSeconds,
@@ -581,11 +628,8 @@ function meetocean_format_reminder_time(?string $value): string
         return '';
     }
 
-    try {
-        return (new DateTimeImmutable($value))->format('d/m H:i');
-    } catch (Throwable $exception) {
-        return trim($value);
-    }
+    $date = meetocean_parse_utc_datetime($value);
+    return $date !== null ? meetocean_format_display_datetime($date) : trim($value);
 }
 
 function meetocean_notify_room_reminder(PDO $pdo, array $room, string $kind): void
@@ -635,8 +679,8 @@ function meetocean_dispatch_due_notifications(PDO $pdo, ?int $userId = null): vo
          FROM meetocean_rooms
          WHERE scheduled_start_at IS NOT NULL
            AND notified_15_at IS NULL
-           AND scheduled_start_at > NOW()
-           AND scheduled_start_at <= DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+           AND scheduled_start_at > UTC_TIMESTAMP()
+           AND scheduled_start_at <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)
            {$ownerFilter}
          LIMIT 30"
     );
@@ -647,7 +691,7 @@ function meetocean_dispatch_due_notifications(PDO $pdo, ?int $userId = null): vo
     }
     foreach ($reminderStatement->fetchAll() ?: [] as $room) {
         meetocean_notify_room_reminder($pdo, $room, '15');
-        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_15_at = NOW() WHERE id = :id AND notified_15_at IS NULL');
+        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_15_at = UTC_TIMESTAMP() WHERE id = :id AND notified_15_at IS NULL');
         meetocean_execute($update, ['id' => (int) $room['id']]);
     }
 
@@ -656,7 +700,7 @@ function meetocean_dispatch_due_notifications(PDO $pdo, ?int $userId = null): vo
          FROM meetocean_rooms
          WHERE scheduled_start_at IS NOT NULL
            AND notified_start_at IS NULL
-           AND scheduled_start_at <= NOW()
+           AND scheduled_start_at <= UTC_TIMESTAMP()
            {$ownerFilter}
          LIMIT 30"
     );
@@ -667,7 +711,7 @@ function meetocean_dispatch_due_notifications(PDO $pdo, ?int $userId = null): vo
     }
     foreach ($startStatement->fetchAll() ?: [] as $room) {
         meetocean_notify_room_reminder($pdo, $room, 'start');
-        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_start_at = NOW() WHERE id = :id AND notified_start_at IS NULL');
+        $update = $pdo->prepare('UPDATE meetocean_rooms SET notified_start_at = UTC_TIMESTAMP() WHERE id = :id AND notified_start_at IS NULL');
         meetocean_execute($update, ['id' => (int) $room['id']]);
     }
 }
