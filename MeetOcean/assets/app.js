@@ -83,6 +83,11 @@ const state = {
   cameraBackgroundEffect: "none",
   cameraBackgroundImage: null,
   cameraBackgroundProcessor: null,
+  cameraSegmentation: null,
+  cameraSegmentationPromise: null,
+  cameraSegmentationPending: false,
+  cameraSegmentationMask: null,
+  cameraSegmentationLastFrameAt: 0,
   peers: new Map(),
   videoTiles: new Map(),
   transcriptMap: new Map(),
@@ -365,9 +370,46 @@ function cameraBackgroundUsesProcessor() {
   return state.cameraBackgroundEffect !== "none";
 }
 
+function mediaPipeSelfieAsset(file) {
+  return `assets/vendor/mediapipe-selfie-segmentation/${file}`;
+}
+
+async function ensureCameraSegmentation() {
+  if (state.cameraSegmentation) return state.cameraSegmentation;
+  if (state.cameraSegmentationPromise) return state.cameraSegmentationPromise;
+  if (typeof window.SelfieSegmentation !== "function") {
+    throw new Error("Detourage camera indisponible dans ce navigateur.");
+  }
+
+  state.cameraSegmentationPromise = (async () => {
+    const segmentation = new window.SelfieSegmentation({
+      locateFile: (file) => mediaPipeSelfieAsset(file),
+    });
+    segmentation.setOptions({
+      modelSelection: 1,
+      selfieMode: false,
+    });
+    segmentation.onResults((results) => {
+      state.cameraSegmentationMask = results.segmentationMask || null;
+      state.cameraSegmentationPending = false;
+    });
+    await segmentation.initialize();
+    state.cameraSegmentation = segmentation;
+    return segmentation;
+  })();
+
+  try {
+    return await state.cameraSegmentationPromise;
+  } catch (error) {
+    state.cameraSegmentationPromise = null;
+    state.cameraSegmentation = null;
+    throw error;
+  }
+}
+
 function drawCoverSource(ctx, source, width, height) {
-  const sourceWidth = source.videoWidth || source.naturalWidth || width;
-  const sourceHeight = source.videoHeight || source.naturalHeight || height;
+  const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
+  const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
   const scale = Math.max(width / sourceWidth, height / sourceHeight);
   const drawWidth = sourceWidth * scale;
   const drawHeight = sourceHeight * scale;
@@ -464,8 +506,14 @@ function drawSelectedVirtualBackground(processor, width, height) {
   drawStudioBackground(ctx, width, height);
 }
 
-function drawSoftPortraitForeground(processor, width, height) {
+function drawSegmentedPersonForeground(processor, width, height) {
   const { ctx, sourceVideo, foregroundCanvas, maskCanvas } = processor;
+  const segmentationMask = state.cameraSegmentationMask;
+  if (!segmentationMask) {
+    drawCoverSource(ctx, sourceVideo, width, height);
+    return;
+  }
+
   foregroundCanvas.width = width;
   foregroundCanvas.height = height;
   maskCanvas.width = width;
@@ -477,11 +525,8 @@ function drawSoftPortraitForeground(processor, width, height) {
 
   const mask = maskCanvas.getContext("2d");
   mask.clearRect(0, 0, width, height);
-  mask.filter = `blur(${Math.max(18, Math.round(width * 0.025))}px)`;
-  mask.fillStyle = "#000";
-  mask.beginPath();
-  mask.ellipse(width * 0.5, height * 0.48, width * 0.31, height * 0.52, 0, 0, Math.PI * 2);
-  mask.fill();
+  mask.filter = `blur(${Math.max(3, Math.round(width * 0.006))}px)`;
+  drawCoverSource(mask, segmentationMask, width, height);
   mask.filter = "none";
 
   fg.globalCompositeOperation = "destination-in";
@@ -500,6 +545,8 @@ function stopCameraBackgroundProcessor() {
   processor.sourceVideo.pause();
   processor.sourceVideo.srcObject = null;
   state.cameraBackgroundProcessor = null;
+  state.cameraSegmentationPending = false;
+  state.cameraSegmentationMask = null;
 }
 
 async function startCameraBackgroundProcessor(sourceTrack) {
@@ -514,6 +561,7 @@ async function startCameraBackgroundProcessor(sourceTrack) {
   sourceVideo.playsInline = true;
   sourceVideo.srcObject = sourceStream;
   await sourceVideo.play();
+  const segmentation = await ensureCameraSegmentation();
 
   const settings = sourceTrack.getSettings ? sourceTrack.getSettings() : {};
   const canvas = document.createElement("canvas");
@@ -545,6 +593,11 @@ async function startCameraBackgroundProcessor(sourceTrack) {
       return;
     }
 
+    if (sourceVideo.readyState < 2) {
+      processor.animationFrame = window.requestAnimationFrame(draw);
+      return;
+    }
+
     const width = sourceVideo.videoWidth || Number(settings.width || 1280);
     const height = sourceVideo.videoHeight || Number(settings.height || 720);
     if (canvas.width !== width || canvas.height !== height) {
@@ -553,8 +606,17 @@ async function startCameraBackgroundProcessor(sourceTrack) {
     }
 
     ctx.clearRect(0, 0, width, height);
+    const now = performance.now();
+    if (!state.cameraSegmentationPending && now - state.cameraSegmentationLastFrameAt > 90) {
+      state.cameraSegmentationPending = true;
+      state.cameraSegmentationLastFrameAt = now;
+      void segmentation.send({ image: sourceVideo }).catch(() => {
+        state.cameraSegmentationPending = false;
+      });
+    }
+
     drawSelectedVirtualBackground(processor, width, height);
-    drawSoftPortraitForeground(processor, width, height);
+    drawSegmentedPersonForeground(processor, width, height);
     outputTrack.enabled = sourceTrack.enabled;
     processor.animationFrame = window.requestAnimationFrame(draw);
   };
