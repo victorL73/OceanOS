@@ -241,6 +241,23 @@ function formatMoney(value, currency = "EUR") {
   }).format(amount);
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
+function parseOceanDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDate(value) {
   if (!value) return "—";
   const date = new Date(`${value}T00:00:00`);
@@ -250,10 +267,10 @@ function formatDate(value) {
 
 function formatDateTime(value) {
   if (!value) return "—";
-  const normalized = String(value).replace(" ", "T");
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseOceanDateTime(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: USER_TIME_ZONE,
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);

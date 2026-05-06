@@ -30,6 +30,7 @@ const elements = {
   filtersForm: $("filters-form"),
   filterSearch: $("filter-search"),
   filterCategory: $("filter-category"),
+  filterPriority: $("filter-priority"),
   filterStatus: $("filter-status"),
   messagesList: $("messages-list"),
   triageBoard: $("triage-board"),
@@ -130,9 +131,13 @@ const state = {
   replyAll: false,
   composeMode: false,
   selectedConversationKey: "",
+  draggedMailId: "",
   autoRefreshTimer: null,
   syncInProgress: false,
 };
+
+const MAIL_CATEGORIES = ["client", "vente", "gestion", "support", "finance", "spam", "autre"];
+const MAIL_PRIORITIES = ["urgent", "high", "normal", "low", "archive"];
 
 const labels = {
   category: {
@@ -149,6 +154,7 @@ const labels = {
     normal: "Normale",
     high: "Haute",
     urgent: "Urgente",
+    archive: "Archive",
   },
   status: {
     new: "Nouveau",
@@ -260,11 +266,29 @@ function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
+function parseOceanDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDateTime(value) {
   if (!value) return "";
-  const date = new Date(String(value).replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = parseOceanDateTime(value);
+  if (!date) return String(value);
   return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: USER_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -407,6 +431,7 @@ function queryFromFilters() {
   if (state.selectedAccountId > 0) params.set("accountId", String(state.selectedAccountId));
   if (elements.filterSearch.value.trim()) params.set("search", elements.filterSearch.value.trim());
   if (elements.filterCategory.value) params.set("category", elements.filterCategory.value);
+  if (elements.filterPriority?.value) params.set("priority", elements.filterPriority.value);
   if (elements.filterStatus.value) params.set("status", elements.filterStatus.value);
   return params;
 }
@@ -525,7 +550,7 @@ function renderMessages() {
 
   const selectedKey = selectedMailKey();
   elements.messagesList.innerHTML = state.messages.map((mail) => `
-    <button class="mail-row${String(mail.id) === selectedKey ? " is-selected" : ""}" data-mail-open="${escapeAttribute(mail.id)}" type="button">
+    <button class="mail-row${String(mail.id) === selectedKey ? " is-selected" : ""}" data-mail-open="${escapeAttribute(mail.id)}" data-mail-drag="${mail.isOutgoing ? "" : escapeAttribute(mail.id)}" draggable="${mail.isOutgoing ? "false" : "true"}" type="button">
       <span class="mail-sender">
         <strong>${escapeHtml(mail.isOutgoing ? `A ${mail.recipientText || "destinataire"}` : (mail.senderName || mail.senderEmail || "Expediteur"))}</strong>
         <small>${escapeHtml(mail.isOutgoing ? (mail.accountEmail || "") : (mail.senderEmail || mail.accountEmail || ""))}</small>
@@ -545,26 +570,44 @@ function renderMessages() {
 }
 
 function renderTriageBoard() {
-  const categories = ["client", "vente", "gestion", "support", "finance", "spam", "autre"];
-  const counts = Object.fromEntries(categories.map((category) => [category, 0]));
+  const categoryCounts = Object.fromEntries(MAIL_CATEGORIES.map((category) => [category, 0]));
+  const priorityCounts = Object.fromEntries(MAIL_PRIORITIES.map((priority) => [priority, 0]));
   let sentCount = 0;
   state.messages.forEach((mail) => {
     if (mail.isOutgoing) {
       sentCount += 1;
       return;
     }
-    counts[mail.category] = (counts[mail.category] || 0) + 1;
+    categoryCounts[mail.category] = (categoryCounts[mail.category] || 0) + 1;
+    priorityCounts[mail.priority] = (priorityCounts[mail.priority] || 0) + 1;
   });
 
   const activeCategory = elements.filterCategory.value;
+  const activePriority = elements.filterPriority?.value || "";
   const activeStatus = elements.filterStatus.value;
-  const categoryCards = categories.map((category) => `
+
+  const priorityCards = MAIL_PRIORITIES.map((priority) => {
+    const isArchive = priority === "archive";
+    const active = isArchive ? (activeStatus === "archived" || activePriority === "archive") : activePriority === priority;
+    const count = isArchive ? Number(state.stats.archiveCount || priorityCounts.archive || 0) : (priorityCounts[priority] || 0);
+    return `
+      <button class="triage-card priority-card is-drop-target${active ? " is-active" : ""}" data-priority-filter="${priority}" data-priority-drop="${priority}" type="button" aria-pressed="${active ? "true" : "false"}">
+        <strong>${escapeHtml(labels.priority[priority])}</strong>
+        <small>${count} mail(s)</small>
+      </button>
+    `;
+  }).join("");
+
+  const categoryCards = MAIL_CATEGORIES.map((category) => `
     <button class="triage-card${activeCategory === category ? " is-active" : ""}" data-category-filter="${category}" type="button" aria-pressed="${activeCategory === category ? "true" : "false"}">
       <strong>${escapeHtml(labels.category[category])}</strong>
-      <small>${counts[category] || 0} mail(s)</small>
+      <small>${categoryCounts[category] || 0} mail(s)</small>
     </button>
   `).join("");
   elements.triageBoard.innerHTML = `
+    <div class="triage-section-title">Priorites</div>
+    ${priorityCards}
+    <div class="triage-section-title">Categories</div>
     ${categoryCards}
     <button class="triage-card${activeStatus === "sent" ? " is-active" : ""}" data-status-filter="sent" type="button" aria-pressed="${activeStatus === "sent" ? "true" : "false"}">
       <strong>Envoyes</strong>
@@ -583,10 +626,33 @@ function applyCategoryShortcut(category) {
     .catch((error) => showMessage(error.message, "error"));
 }
 
+function applyPriorityShortcut(priority) {
+  if (!elements.filterPriority) return;
+  const archiveActive = priority === "archive" && (elements.filterStatus.value === "archived" || elements.filterPriority.value === "archive");
+  const nextPriority = archiveActive || elements.filterPriority.value === priority ? "" : priority;
+  elements.filterPriority.value = nextPriority;
+  if (nextPriority === "archive") {
+    elements.filterStatus.value = "archived";
+  } else if (archiveActive || elements.filterStatus.value === "archived" || elements.filterStatus.value === "sent") {
+    elements.filterStatus.value = "";
+  }
+  if (nextPriority) elements.filterCategory.value = "";
+  setActiveView("inbox");
+  void loadDashboard()
+    .then(() => showMessage(nextPriority ? `Filtre ${labels.priority[nextPriority] || nextPriority} applique.` : "Filtre priorite retire.", "success"))
+    .catch((error) => showMessage(error.message, "error"));
+}
+
 function applyStatusShortcut(status) {
   const nextStatus = elements.filterStatus.value === status ? "" : status;
   elements.filterStatus.value = nextStatus;
-  if (nextStatus === "sent") elements.filterCategory.value = "";
+  if (nextStatus === "sent") {
+    elements.filterCategory.value = "";
+    if (elements.filterPriority) elements.filterPriority.value = "";
+  }
+  if (nextStatus !== "archived" && elements.filterPriority?.value === "archive") {
+    elements.filterPriority.value = "";
+  }
   setActiveView("inbox");
   void loadDashboard()
     .then(() => showMessage(nextStatus ? `Filtre ${labels.status[nextStatus] || nextStatus} applique.` : "Filtre statut retire.", "success"))
@@ -1432,6 +1498,51 @@ async function saveMessageTriage(event) {
   }
 }
 
+function nextStatusForPriorityDrop(mail, priority) {
+  if (priority === "archive") return "archived";
+  const currentStatus = String(mail?.status || "triaged");
+  if (currentStatus === "archived" || currentStatus === "new") return "triaged";
+  return currentStatus;
+}
+
+async function updateMailPriorityByDrop(messageId, priority) {
+  const mail = state.messages.find((item) => String(item.id) === String(messageId));
+  if (!mail || mail.isOutgoing) {
+    showMessage("Seuls les mails recus peuvent etre classes par glisser-deposer.", "error");
+    return;
+  }
+
+  const nextPriority = MAIL_PRIORITIES.includes(priority) ? priority : "normal";
+  const selectedWasTarget = String(state.selectedMessage?.id || "") === String(mail.id);
+  try {
+    const payload = await apiRequest(API.messages, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "update_message",
+        messageId: Number(mail.id),
+        category: mail.category || "autre",
+        priority: nextPriority,
+        status: nextStatusForPriorityDrop(mail, nextPriority),
+        assignedUserId: Number(mail.assignedUserId || 0),
+      }),
+    });
+
+    applyDashboard(payload.dashboard || payload);
+    const targetStillVisible = state.messages.some((item) => String(item.id) === String(mail.id));
+    if (selectedWasTarget && !targetStillVisible) {
+      state.selectedMessage = null;
+      state.conversation = null;
+      state.replyAll = false;
+      state.composeMode = false;
+      renderDetail();
+      renderReply();
+    }
+    showMessage(nextPriority === "archive" ? "Mail archive." : `Priorite ${labels.priority[nextPriority] || nextPriority} appliquee.`, "success");
+  } catch (error) {
+    showMessage(error.message || "Changement de priorite impossible.", "error");
+  }
+}
+
 async function deleteSelectedMessage() {
   if (state.selectedMessage?.isOutgoing) {
     await deleteOutgoingMail(`sent:${Number(state.selectedMessage.sentId || 0)}`);
@@ -1754,18 +1865,49 @@ function installListeners() {
   elements.logoutButton.addEventListener("click", () => { void logout(); });
   elements.filtersForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (elements.filterStatus.value === "sent") elements.filterCategory.value = "";
+    if (elements.filterPriority?.value === "archive") elements.filterStatus.value = "archived";
+    if (elements.filterStatus.value === "sent") {
+      elements.filterCategory.value = "";
+      if (elements.filterPriority) elements.filterPriority.value = "";
+    }
     void loadDashboard().catch((error) => showMessage(error.message, "error"));
   });
   elements.triageBoard.addEventListener("click", (event) => {
+    const priorityButton = event.target.closest("[data-priority-filter]");
     const categoryButton = event.target.closest("[data-category-filter]");
     const statusButton = event.target.closest("[data-status-filter]");
+    if (priorityButton) {
+      applyPriorityShortcut(priorityButton.dataset.priorityFilter || "");
+      return;
+    }
     if (categoryButton) {
       applyCategoryShortcut(categoryButton.dataset.categoryFilter || "");
+      return;
     }
     if (statusButton) {
       applyStatusShortcut(statusButton.dataset.statusFilter || "");
     }
+  });
+  elements.triageBoard.addEventListener("dragover", (event) => {
+    const dropTarget = event.target.closest("[data-priority-drop]");
+    if (!dropTarget || !state.draggedMailId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    dropTarget.classList.add("is-drag-over");
+  });
+  elements.triageBoard.addEventListener("dragleave", (event) => {
+    const dropTarget = event.target.closest("[data-priority-drop]");
+    if (!dropTarget || dropTarget.contains(event.relatedTarget)) return;
+    dropTarget.classList.remove("is-drag-over");
+  });
+  elements.triageBoard.addEventListener("drop", (event) => {
+    const dropTarget = event.target.closest("[data-priority-drop]");
+    if (!dropTarget) return;
+    event.preventDefault();
+    elements.triageBoard.querySelectorAll(".is-drag-over").forEach((item) => item.classList.remove("is-drag-over"));
+    const messageId = event.dataTransfer.getData("text/x-nautimail-message-id") || state.draggedMailId;
+    state.draggedMailId = "";
+    void updateMailPriorityByDrop(messageId, dropTarget.dataset.priorityDrop || "normal");
   });
 
   elements.messagesList.addEventListener("click", (event) => {
@@ -1773,6 +1915,24 @@ function installListeners() {
     if (button) {
       void loadMessage(button.dataset.mailOpen);
     }
+  });
+  elements.messagesList.addEventListener("dragstart", (event) => {
+    const row = event.target.closest("[data-mail-drag]");
+    const messageId = row?.dataset.mailDrag || "";
+    if (!row || messageId === "") {
+      event.preventDefault();
+      return;
+    }
+    state.draggedMailId = messageId;
+    row.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/x-nautimail-message-id", messageId);
+    event.dataTransfer.setData("text/plain", messageId);
+  });
+  elements.messagesList.addEventListener("dragend", (event) => {
+    event.target.closest(".mail-row")?.classList.remove("is-dragging");
+    elements.triageBoard.querySelectorAll(".is-drag-over").forEach((item) => item.classList.remove("is-drag-over"));
+    state.draggedMailId = "";
   });
 
   elements.mailDetail.addEventListener("click", (event) => {

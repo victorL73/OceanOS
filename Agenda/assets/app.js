@@ -86,9 +86,22 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
 function parseDate(value) {
   if (!value) return null;
-  const date = new Date(String(value).replace(" ", "T"));
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -119,6 +132,17 @@ function toDateInput(value) {
   return date ? dateKey(date) : "";
 }
 
+function localInputToUtcSql(value, keepDateOnly = false) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (keepDateOnly || /^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const normalized = text.length === 16 ? `${text}:00` : text;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
 function defaultStartLocal() {
   const date = new Date();
   date.setMinutes(date.getMinutes() < 30 ? 30 : 0, 0, 0);
@@ -129,7 +153,7 @@ function defaultStartLocal() {
 function formatDate(value, options = {}) {
   const date = parseDate(value);
   if (!date) return "Sans date";
-  return new Intl.DateTimeFormat("fr-FR", options).format(date);
+  return new Intl.DateTimeFormat("fr-FR", { timeZone: USER_TIME_ZONE, ...options }).format(date);
 }
 
 function formatItemTime(item) {
@@ -502,22 +526,19 @@ function renderCalendar() {
     number.textContent = String(cellDate.getDate());
     cell.appendChild(number);
 
-    (byDay.get(key) || []).slice(0, 4).forEach((item) => {
+    const dayItems = byDay.get(key) || [];
+    const eventList = document.createElement("div");
+    eventList.className = "calendar-day-events";
+    dayItems.forEach((item) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `calendar-event ${item.priority || "normal"}`;
       button.textContent = item.title || "Element";
       button.title = `${item.module || "Agenda"} - ${item.title || ""}`;
       button.addEventListener("click", () => focusItemInList(item));
-      cell.appendChild(button);
+      eventList.appendChild(button);
     });
-    const overflow = (byDay.get(key) || []).length - 4;
-    if (overflow > 0) {
-      const more = document.createElement("span");
-      more.className = "calendar-more";
-      more.textContent = `+${overflow}`;
-      cell.appendChild(more);
-    }
+    cell.appendChild(eventList);
 
     elements.calendarGrid.appendChild(cell);
     cursor.setDate(cursor.getDate() + 1);
@@ -647,8 +668,8 @@ async function saveEvent(event) {
       category: elements.category.value,
       priority: elements.priority.value,
       allDay: elements.allDay.checked,
-      startsAt: elements.start.value,
-      endsAt: elements.end.value,
+      startsAt: localInputToUtcSql(elements.start.value, elements.allDay.checked),
+      endsAt: localInputToUtcSql(elements.end.value, elements.allDay.checked),
       location: elements.location.value.trim(),
       description: elements.description.value.trim(),
       createMeeting: elements.createMeeting.checked,

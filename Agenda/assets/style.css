@@ -643,14 +643,16 @@ textarea:focus {
 }
 
 .calendar-day {
+  height: 158px;
   min-height: 126px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #ffffff;
   padding: 9px;
   display: grid;
-  align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
+  overflow: hidden;
 }
 
 .calendar-day.muted {
@@ -665,6 +667,16 @@ textarea:focus {
 
 .calendar-day strong {
   font-size: 0.9rem;
+}
+
+.calendar-day-events {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding-right: 2px;
+  scrollbar-width: thin;
 }
 
 .calendar-event {
@@ -691,12 +703,6 @@ textarea:focus {
 .calendar-event.urgent {
   border-color: #ecc2c2;
   background: #fff0f0;
-}
-
-.calendar-more {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 900;
 }
 
 .empty-state {
@@ -750,6 +756,7 @@ textarea:focus {
   }
 
   .calendar-day {
+    height: 118px;
     min-height: 98px;
     padding: 6px;
   }

@@ -80,6 +80,9 @@ try {
         } elseif ($action === 'log_interaction') {
             $bundle = prospection_log_interaction($pdo, $user, $input);
             $message = 'Interaction ajoutee.';
+        } elseif ($action === 'delete_interaction') {
+            $bundle = prospection_delete_interaction($pdo, $user, $input);
+            $message = 'Interaction supprimee.';
         } elseif ($action === 'save_template') {
             $template = prospection_save_template($pdo, $user, $input);
             prospection_json_response([

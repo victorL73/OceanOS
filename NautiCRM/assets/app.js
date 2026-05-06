@@ -249,6 +249,23 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
+function parseOceanDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
@@ -262,9 +279,10 @@ function formatDate(value) {
 
 function formatDateTime(value) {
   if (!value) return "";
-  const date = new Date(String(value).replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = parseOceanDateTime(value);
+  if (!date) return String(value);
   return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: USER_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -275,7 +293,24 @@ function formatDateTime(value) {
 
 function toDatetimeLocal(value) {
   if (!value) return "";
-  return String(value).replace(" ", "T").slice(0, 16);
+  const date = parseOceanDateTime(value);
+  if (!date) return "";
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function localInputToUtcSql(value) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const normalized = text.length === 16 ? `${text}:00` : text;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
 function showMessage(message = "", type = "") {
@@ -921,7 +956,7 @@ async function logInteraction(event) {
         contactId: Number(elements.interactionContact.value || 0),
         interactionType: elements.interactionType.value,
         subject: elements.interactionSubject.value.trim(),
-        occurredAt: elements.interactionDate.value,
+        occurredAt: localInputToUtcSql(elements.interactionDate.value),
         nextActionAt: elements.interactionNextAction.value,
         body: elements.interactionBody.value.trim(),
       }),
@@ -1086,7 +1121,7 @@ function flowFormPayload(overrides = {}) {
     isRecurring: Boolean(overrides.isRecurring ?? elements.flowRecurring.checked),
     recurrenceFrequency: overrides.recurrenceFrequency ?? elements.flowFrequency.value,
     recurrenceInterval: Number((overrides.recurrenceInterval ?? elements.flowInterval.value) || 1),
-    nextNotificationAt: overrides.nextNotificationAt ?? elements.flowNextNotification.value,
+    nextNotificationAt: localInputToUtcSql(overrides.nextNotificationAt ?? elements.flowNextNotification.value),
     notes: String(overrides.notes ?? elements.flowNotes.value).trim(),
   };
 }

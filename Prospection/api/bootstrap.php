@@ -995,6 +995,29 @@ function prospection_log_interaction(PDO $pdo, array $user, array $input): array
     return prospection_prospect_bundle($pdo, $user, $prospectId);
 }
 
+function prospection_delete_interaction(PDO $pdo, array $user, array $input): array
+{
+    $interactionId = (int) ($input['id'] ?? 0);
+    if ($interactionId <= 0) {
+        throw new InvalidArgumentException('Interaction invalide.');
+    }
+
+    $statement = $pdo->prepare('SELECT * FROM prospection_interactions WHERE id = :id LIMIT 1');
+    $statement->execute(['id' => $interactionId]);
+    $interaction = $statement->fetch();
+    if (!is_array($interaction)) {
+        throw new InvalidArgumentException('Interaction introuvable.');
+    }
+
+    $prospectId = (int) $interaction['prospect_id'];
+    prospection_require_prospect($pdo, $prospectId);
+
+    $delete = $pdo->prepare('DELETE FROM prospection_interactions WHERE id = :id LIMIT 1');
+    $delete->execute(['id' => $interactionId]);
+
+    return prospection_prospect_bundle($pdo, $user, $prospectId);
+}
+
 function prospection_save_template(PDO $pdo, array $user, array $input): array
 {
     $id = (int) ($input['id'] ?? 0);

@@ -159,7 +159,7 @@ function nautimail_ensure_schema(PDO $pdo): void
             body_html LONGTEXT NULL,
             attachments_json LONGTEXT NULL,
             category ENUM('client', 'vente', 'gestion', 'support', 'finance', 'spam', 'autre') NOT NULL DEFAULT 'autre',
-            priority ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
+            priority ENUM('low', 'normal', 'high', 'urgent', 'archive') NOT NULL DEFAULT 'normal',
             status ENUM('new', 'triaged', 'read', 'replied', 'archived') NOT NULL DEFAULT 'new',
             ai_summary TEXT NULL,
             ai_actions TEXT NULL,
@@ -265,6 +265,11 @@ function nautimail_ensure_schema(PDO $pdo): void
     }
     if (!oceanos_column_exists($pdo, 'nautimail_sent_messages', 'attachments_json')) {
         $pdo->exec('ALTER TABLE nautimail_sent_messages ADD COLUMN attachments_json LONGTEXT NULL AFTER body_text');
+    }
+    $priorityColumn = $pdo->query("SHOW COLUMNS FROM nautimail_messages LIKE 'priority'")->fetch();
+    $priorityType = is_array($priorityColumn) ? strtolower((string) ($priorityColumn['Type'] ?? $priorityColumn['type'] ?? '')) : '';
+    if ($priorityType !== '' && !str_contains($priorityType, "'archive'")) {
+        $pdo->exec("ALTER TABLE nautimail_messages MODIFY COLUMN priority ENUM('low', 'normal', 'high', 'urgent', 'archive') NOT NULL DEFAULT 'normal'");
     }
 }
 
@@ -1680,12 +1685,19 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
             $messageParams[] = $category;
         }
 
+        $priority = nautimail_enum($query['priority'] ?? '', ['low', 'normal', 'high', 'urgent', 'archive'], '');
+        if ($priority !== '') {
+            $messageWhere[] = 'm.priority = ?';
+            $messageParams[] = $priority;
+        }
+
         $status = nautimail_enum($query['status'] ?? '', ['new', 'triaged', 'read', 'replied', 'archived', 'sent'], '');
         if ($status !== '' && $status !== 'sent') {
             $messageWhere[] = 'm.status = ?';
             $messageParams[] = $status;
-        } elseif ($status === '') {
+        } elseif ($status === '' && $priority !== 'archive') {
             $messageWhere[] = "m.status <> 'archived'";
+            $messageWhere[] = "m.priority <> 'archive'";
         }
 
         if ($status !== 'sent') {
@@ -1701,7 +1713,7 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
             $messages = array_map('nautimail_public_message', $statement->fetchAll());
         }
 
-        if ($category === '' && ($status === '' || $status === 'sent')) {
+        if ($category === '' && $priority === '' && ($status === '' || $status === 'sent')) {
             $sentWhere = ['s.account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ')', 's.message_id IS NULL'];
             $sentParams = $accountIds;
             if ($status === 'sent') {
@@ -1744,6 +1756,7 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
                 COUNT(*) AS message_count,
                 SUM(status = 'new') AS new_count,
                 SUM(priority = 'urgent') AS urgent_count,
+                SUM(status = 'archived' OR priority = 'archive') AS archive_count,
                 SUM(ai_summary IS NOT NULL AND ai_summary <> '') AS ai_count,
                 SUM(status = 'replied') AS replied_count
              FROM nautimail_messages
@@ -1766,6 +1779,7 @@ function nautimail_dashboard(PDO $pdo, array $query, array $user): array
                 'messageCount' => (int) $row['message_count'] + $sentStandaloneCount,
                 'newCount' => (int) $row['new_count'],
                 'urgentCount' => (int) $row['urgent_count'],
+                'archiveCount' => (int) $row['archive_count'],
                 'aiCount' => (int) $row['ai_count'],
                 'repliedCount' => (int) $row['replied_count'],
             ];
@@ -3085,7 +3099,7 @@ function nautimail_analyze_pending(PDO $pdo, array $user, array $input): array
     }
 
     $limit = max(1, min(10, (int) ($input['limit'] ?? 5)));
-    $where = 'account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ') AND (ai_summary IS NULL OR ai_summary = "") AND status <> "archived"';
+    $where = 'account_id IN (' . implode(',', array_fill(0, count($accountIds), '?')) . ') AND (ai_summary IS NULL OR ai_summary = "") AND status <> "archived" AND priority <> "archive"';
     $params = $accountIds;
     $accountId = (int) ($input['accountId'] ?? 0);
     if ($accountId > 0 && in_array($accountId, $accountIds, true)) {
@@ -3114,6 +3128,14 @@ function nautimail_update_message(PDO $pdo, array $user, array $input): array
     nautimail_require_message_access($pdo, $user, $messageId);
 
     $assignedUserId = (int) ($input['assignedUserId'] ?? 0);
+    $priority = nautimail_enum($input['priority'] ?? 'normal', ['low', 'normal', 'high', 'urgent', 'archive'], 'normal');
+    $status = nautimail_enum($input['status'] ?? 'triaged', ['new', 'triaged', 'read', 'replied', 'archived'], 'triaged');
+    if ($priority === 'archive') {
+        $status = 'archived';
+    } elseif ($status === 'archived') {
+        $priority = 'archive';
+    }
+
     $statement = $pdo->prepare(
         'UPDATE nautimail_messages
          SET category = :category,
@@ -3125,8 +3147,8 @@ function nautimail_update_message(PDO $pdo, array $user, array $input): array
     $statement->execute([
         'id' => $messageId,
         'category' => nautimail_enum($input['category'] ?? 'autre', ['client', 'vente', 'gestion', 'support', 'finance', 'spam', 'autre'], 'autre'),
-        'priority' => nautimail_enum($input['priority'] ?? 'normal', ['low', 'normal', 'high', 'urgent'], 'normal'),
-        'status' => nautimail_enum($input['status'] ?? 'triaged', ['new', 'triaged', 'read', 'replied', 'archived'], 'triaged'),
+        'priority' => $priority,
+        'status' => $status,
         'assigned_user_id' => $assignedUserId > 0 ? $assignedUserId : null,
     ]);
 

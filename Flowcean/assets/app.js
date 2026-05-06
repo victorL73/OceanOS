@@ -10381,11 +10381,11 @@ function documentBlockToPdfHtml(block, index) {
 
 function buildDocumentPdfHtml(page) {
   const title = escapeHtml(page.title || "Sans titre");
-  const updated = new Date(page.updatedAt || Date.now()).toLocaleDateString("fr-FR", {
+  const updated = formatOceanDate(page.updatedAt || Date.now(), {
     day: "2-digit",
     month: "long",
     year: "numeric",
-  });
+  }) || new Intl.DateTimeFormat("fr-FR").format(new Date());
   const blocks = isWordPage(page)
     ? normalizeWordPages(page.wordPages, page.wordHtml, page.blocks)
         .map((wordPage) => `<section class="pdf-word-sheet">${wordPage.html || "<p></p>"}</section>`)
@@ -10744,9 +10744,34 @@ function truncate(text, length = 90) {
   return text.length > length ? `${text.slice(0, length - 1)}…` : text;
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
+function parseOceanDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number" && Number.isFinite(value)) return new Date(value);
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatOceanDate(value, options = {}) {
+  const date = parseOceanDateTime(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("fr-FR", { timeZone: USER_TIME_ZONE, ...options }).format(date);
+}
+
 function formatRelative(value) {
   if (!value) return "a l'instant";
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
+  const date = parseOceanDateTime(value);
+  if (!date) return "a l'instant";
   const diff = Date.now() - date.getTime();
   const minutes = Math.round(diff / 60000);
   if (minutes < 1) return "a l'instant";
@@ -10755,7 +10780,7 @@ function formatRelative(value) {
   if (hours < 24) return `il y a ${hours} h`;
   const days = Math.round(hours / 24);
   if (days < 30) return `il y a ${days} j`;
-  return date.toLocaleDateString("fr-FR");
+  return formatOceanDate(date);
 }
 
 function offsetDate(days) {
@@ -11832,7 +11857,7 @@ function renderAdminUserList(users, callbacks = {}) {
 
     const meta = document.createElement("span");
     meta.className = "admin-user-meta";
-    meta.textContent = `${user.email} • créé le ${new Date(user.createdAt).toLocaleDateString("fr-FR")}`;
+    meta.textContent = `${user.email} - cree le ${formatOceanDate(user.createdAt) || ""}`;
 
     identity.append(name, meta);
 

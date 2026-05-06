@@ -969,6 +969,7 @@ function agenda_external_task(
         'kind' => 'module_task',
         'module' => $module,
         'sourceModule' => $module,
+        'sourceId' => $sourceId,
         'sourceType' => $sourceType,
         'title' => $title,
         'description' => $description,
@@ -1092,10 +1093,11 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
         if (!is_array($state) || !is_array($state['pages'] ?? null)) {
             continue;
         }
-        foreach ($state['pages'] as $page) {
+        foreach ($state['pages'] as $pageIndex => $page) {
             if (!is_array($page) || !empty($page['deletedAt'])) {
                 continue;
             }
+            $pageId = agenda_flowcean_source_part($page['id'] ?? '', 'page_' . (int) $pageIndex);
             $pageTitle = agenda_clean_text($page['title'] ?? 'Page Flowcean', 120, true);
             foreach (($page['blocks'] ?? []) as $block) {
                 if (!is_array($block) || ($block['type'] ?? '') !== 'todo' || !empty($block['checked'])) {
@@ -1105,9 +1107,13 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
                 if ($title === '') {
                     continue;
                 }
+                $blockId = agenda_flowcean_source_part(
+                    $block['id'] ?? '',
+                    'block_' . substr(hash('sha1', $pageId . ':' . $title), 0, 12)
+                );
                 $tasks[] = agenda_external_task(
                     'Flowcean',
-                    (string) $workspace['id'] . ':block:' . (string) ($block['id'] ?? count($tasks)),
+                    (string) $workspace['id'] . ':page:' . $pageId . ':block:' . $blockId,
                     $title,
                     null,
                     (string) $workspace['name'] . ' / ' . $pageTitle,
@@ -1116,16 +1122,76 @@ function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array
                     'todo_block'
                 );
             }
-            foreach (agenda_flowcean_database_tasks($workspace, $page) as $task) {
+            foreach (agenda_flowcean_database_tasks($workspace, $page, $pageId) as $task) {
                 $tasks[] = $task;
             }
         }
     }
 
-    return array_slice($tasks, 0, 80);
+    return array_slice(agenda_dedupe_flowcean_tasks($tasks), 0, 80);
 }
 
-function agenda_flowcean_database_tasks(array $workspace, array $page): array
+function agenda_flowcean_source_part(mixed $value, string $fallback): string
+{
+    $part = preg_replace('/[^a-zA-Z0-9_.-]+/', '-', trim((string) $value)) ?: '';
+    $part = trim($part, '-');
+    if ($part === '') {
+        $part = $fallback;
+    }
+
+    return substr($part, 0, 140);
+}
+
+function agenda_flowcean_signature_text(mixed $value): string
+{
+    $text = trim((string) $value);
+    $text = preg_replace('/\s+/', ' ', $text) ?: '';
+    $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', mb_strtolower($text));
+    if (is_string($ascii) && trim($ascii) !== '') {
+        $text = $ascii;
+    }
+
+    return strtolower($text);
+}
+
+function agenda_flowcean_source_scope(string $sourceId): string
+{
+    return preg_replace('/:(block|row):.*$/', '', $sourceId) ?: $sourceId;
+}
+
+function agenda_dedupe_flowcean_tasks(array $tasks): array
+{
+    $seenSources = [];
+    $seenContent = [];
+    $deduped = [];
+
+    foreach ($tasks as $task) {
+        $sourceId = (string) ($task['sourceId'] ?? $task['uid'] ?? $task['id'] ?? '');
+        if ($sourceId !== '' && isset($seenSources[$sourceId])) {
+            continue;
+        }
+
+        $contentKey = implode('|', [
+            agenda_flowcean_source_scope($sourceId),
+            agenda_flowcean_signature_text($task['title'] ?? ''),
+            (string) ($task['startsAt'] ?? ''),
+            agenda_flowcean_signature_text($task['description'] ?? ''),
+        ]);
+        if (isset($seenContent[$contentKey])) {
+            continue;
+        }
+
+        if ($sourceId !== '') {
+            $seenSources[$sourceId] = true;
+        }
+        $seenContent[$contentKey] = true;
+        $deduped[] = $task;
+    }
+
+    return $deduped;
+}
+
+function agenda_flowcean_database_tasks(array $workspace, array $page, string $pageId): array
 {
     $database = is_array($page['database'] ?? null) ? $page['database'] : null;
     if ($database === null || !is_array($database['rows'] ?? null) || !is_array($database['properties'] ?? null)) {
@@ -1154,9 +1220,14 @@ function agenda_flowcean_database_tasks(array $workspace, array $page): array
         }
         $startsAt = agenda_flowcean_row_date($cells, $properties);
         $priority = agenda_flowcean_row_priority($cells, $properties);
+        $rowHash = json_encode($cells, JSON_UNESCAPED_SLASHES);
+        $rowId = agenda_flowcean_source_part(
+            $row['id'] ?? '',
+            'row_' . substr(hash('sha1', is_string($rowHash) ? $rowHash : $title), 0, 12)
+        );
         $tasks[] = agenda_external_task(
             'Flowcean',
-            (string) $workspace['id'] . ':row:' . (string) ($row['id'] ?? count($tasks)),
+            (string) $workspace['id'] . ':page:' . $pageId . ':row:' . $rowId,
             $title,
             $startsAt,
             (string) $workspace['name'] . ' / ' . agenda_clean_text($page['title'] ?? 'Tableau', 120, true),

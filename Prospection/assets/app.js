@@ -164,6 +164,23 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+const USER_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Paris";
+
+function parseOceanDateTime(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  const normalized = text.replace(" ", "T");
+  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function formatDate(value) {
   if (!value) return "";
   const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
@@ -177,15 +194,27 @@ function formatDate(value) {
 
 function formatDateTime(value) {
   if (!value) return "";
-  const date = new Date(String(value).replace(" ", "T"));
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = parseOceanDateTime(value);
+  if (!date) return String(value);
   return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: USER_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function localInputToUtcSql(value) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const normalized = text.length === 16 ? `${text}:00` : text;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
 function showMessage(message = "", type = "") {
@@ -1020,6 +1049,9 @@ function renderInteractions() {
       <small>${escapeHtml(labels.interactionType[item.interactionType] || item.interactionType)} - ${escapeHtml(formatDateTime(item.occurredAt))}${item.userDisplayName ? ` - ${escapeHtml(item.userDisplayName)}` : ""}</small>
       ${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}
       <div class="card-tags">${item.nextActionAt ? badge(`Relance ${formatDate(item.nextActionAt)}`, "follow_up") : ""}</div>
+      <div class="card-actions">
+        <button class="ghost-button danger-text" data-interaction-delete="${item.id}" type="button">Supprimer</button>
+      </div>
     </article>
   `).join("");
 }
@@ -1040,7 +1072,7 @@ async function logInteraction(event) {
         prospectId,
         interactionType: elements.interactionType.value,
         subject: elements.interactionSubject.value.trim(),
-        occurredAt: elements.interactionDate.value,
+        occurredAt: localInputToUtcSql(elements.interactionDate.value),
         nextActionAt: elements.interactionNextAction.value,
         body: elements.interactionBody.value.trim(),
       }),
@@ -1050,6 +1082,31 @@ async function logInteraction(event) {
     showMessage(payload.message || "Interaction ajoutee.", "success");
   } catch (error) {
     showMessage(error.message || "Interaction impossible.", "error");
+  }
+}
+
+async function deleteInteraction(interactionId) {
+  const id = Number(interactionId || 0);
+  if (id <= 0) return;
+  const interaction = [
+    ...(state.selectedBundle?.interactions || []),
+    ...(state.recentInteractions || []),
+  ].find((item) => Number(item.id) === id);
+  const label = interaction?.subject ? `"${interaction.subject}"` : "cette interaction";
+  const ok = window.confirm(`Supprimer ${label} ?\nCela retire seulement l interaction de l historique.`);
+  if (!ok) return;
+  try {
+    const payload = await apiRequest(API.prospects, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "delete_interaction",
+        id,
+      }),
+    });
+    applySavePayload(payload);
+    showMessage(payload.message || "Interaction supprimee.", "success");
+  } catch (error) {
+    showMessage(error.message || "Suppression de l interaction impossible.", "error");
   }
 }
 
@@ -1147,6 +1204,7 @@ function renderActivity() {
       ${item.body ? `<small>${escapeHtml(item.body)}</small>` : ""}
       <div class="card-actions">
         <button class="ghost-button" data-prospect-open="${item.prospectId}" type="button">Prospect</button>
+        <button class="ghost-button danger-text" data-interaction-delete="${item.id}" type="button">Supprimer</button>
       </div>
     </article>
   `).join("");
@@ -1255,6 +1313,11 @@ function installListeners() {
     const taskDone = event.target.closest("[data-task-done]");
     if (taskDone) {
       void completeTask(taskDone.dataset.taskDone);
+    }
+
+    const interactionDelete = event.target.closest("[data-interaction-delete]");
+    if (interactionDelete) {
+      void deleteInteraction(interactionDelete.dataset.interactionDelete);
     }
 
     const aiRemove = event.target.closest("[data-ai-remove]");
