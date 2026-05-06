@@ -1,4 +1,4 @@
-const CACHE_NAME = "oceanos-pwa-20260506-mobile-shell";
+const CACHE_NAME = "oceanos-pwa-20260506-mobile-menu";
 const CORE_ASSETS = [
   "/OceanOS/",
   "/OceanOS/manifest.webmanifest",

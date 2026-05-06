@@ -515,17 +515,34 @@ textarea,
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.46) !important;
   }
 
-  :where(.modal, .dialog-backdrop, .drawer-backdrop, .user-menu) {
+  :where(.modal, .dialog-backdrop, .drawer-backdrop) {
     align-items: flex-end !important;
     padding: 10px !important;
   }
 
-  :where(.modal-panel, .dialog, .drawer, .side-panel, .user-menu-panel, .sheet, .popup) {
+  :where(.modal-panel, .dialog, .drawer, .side-panel, .sheet, .popup) {
     width: 100% !important;
     max-width: 100% !important;
     max-height: calc(var(--oceanos-dvh, 100vh) - 24px) !important;
     overflow-y: auto !important;
     border-radius: 14px 14px 0 0 !important;
+  }
+
+  :where(.user-menu) {
+    display: grid !important;
+    place-items: start center !important;
+    align-items: start !important;
+    padding: max(12px, env(safe-area-inset-top)) 10px 10px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :where(.user-menu-panel) {
+    width: min(100%, 1120px) !important;
+    max-width: 100% !important;
+    max-height: calc(var(--oceanos-dvh, 100vh) - 24px) !important;
+    overflow: hidden !important;
+    border-radius: 10px !important;
   }
 
   :where(.oceanos-return-button) {

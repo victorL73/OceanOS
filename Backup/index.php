@@ -20,7 +20,7 @@ if (!oceanos_is_super_user($user)) {
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Backup - Acces refuse</title>
-      <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-shell">
+      <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-menu">
       <link rel="stylesheet" href="/Backup/assets/style.css?v=20260502">
     </head>
     <body>
@@ -51,9 +51,9 @@ function backup_h(string $value): string
   <title>Backup OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/backup.svg?v=20260502">
   <meta name="description" content="Backup OceanOS - archives ZIP du dossier www et export SQL de la base.">
-  <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-shell">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-menu">
   <link rel="stylesheet" href="assets/style.css?v=20260502">
-  <script defer src="/OceanOS/assets/guard.js?v=20260506-mobile-shell"></script>
+  <script defer src="/OceanOS/assets/guard.js?v=20260506-mobile-menu"></script>
   <script defer src="assets/app.js?v=20260506-restore"></script>
 </head>
 <body>
