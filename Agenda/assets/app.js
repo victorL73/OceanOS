@@ -359,7 +359,8 @@ function collectSettingsFromForm() {
 function renderSync() {
   if (!elements.syncUrl) return;
   const sync = state.sync || {};
-  const activeUrl = sync.webcalUrl || sync.url || "";
+  const activeUrl = sync.url || sync.webcalUrl || "";
+  const openUrl = sync.webcalUrl || sync.url || "";
   const enabled = Boolean(sync.enabled && activeUrl);
   elements.syncUrl.value = activeUrl;
   elements.syncUrl.placeholder = enabled ? "" : "Aucun lien actif";
@@ -368,7 +369,7 @@ function renderSync() {
   elements.copySyncButton.disabled = !enabled;
   elements.revokeSyncButton.disabled = !enabled;
   elements.syncWebcalLink.classList.toggle("hidden", !enabled);
-  elements.syncWebcalLink.href = enabled ? activeUrl : "#";
+  elements.syncWebcalLink.href = enabled ? openUrl : "#";
 }
 
 function renderMetrics() {
