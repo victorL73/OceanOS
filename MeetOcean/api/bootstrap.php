@@ -8,6 +8,11 @@ const MEETOCEAN_PRESENCE_TTL_SECONDS = 45;
 const MEETOCEAN_PRESENCE_TOUCH_SECONDS = 5;
 const MEETOCEAN_SIGNAL_TTL_MINUTES = 10;
 const MEETOCEAN_DB_RETRY_ATTEMPTS = 4;
+const MEETOCEAN_AGENDA_GUEST_OPEN_MINUTES = 10;
+
+class MeetOceanGuestAccessException extends InvalidArgumentException
+{
+}
 
 function meetocean_pdo(): PDO
 {
@@ -465,6 +470,90 @@ function meetocean_internal_room_url(array $room): string
     return '/MeetOcean/?' . http_build_query(['room' => $code]);
 }
 
+function meetocean_agenda_event_for_room(PDO $pdo, int $roomId): ?array
+{
+    static $agendaRoomLookupReady = null;
+
+    if ($roomId <= 0) {
+        return null;
+    }
+
+    if ($agendaRoomLookupReady === null) {
+        $agendaRoomLookupReady = oceanos_table_exists($pdo, 'agenda_events')
+            && oceanos_column_exists($pdo, 'agenda_events', 'meetocean_room_id')
+            && oceanos_column_exists($pdo, 'agenda_events', 'starts_at');
+    }
+
+    if (!$agendaRoomLookupReady) {
+        return null;
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT id, title, starts_at, status
+         FROM agenda_events
+         WHERE meetocean_room_id = :room_id
+         ORDER BY starts_at ASC, id DESC
+         LIMIT 1'
+    );
+    meetocean_execute($statement, ['room_id' => $roomId]);
+    $event = $statement->fetch();
+
+    return is_array($event) ? $event : null;
+}
+
+function meetocean_guest_access_for_room(PDO $pdo, array $room): array
+{
+    $roomId = (int) ($room['id'] ?? 0);
+    $event = meetocean_agenda_event_for_room($pdo, $roomId);
+    if ($event === null) {
+        return [
+            'restricted' => false,
+            'available' => true,
+        ];
+    }
+
+    try {
+        $startsAt = new DateTimeImmutable((string) $event['starts_at']);
+    } catch (Throwable) {
+        return [
+            'restricted' => false,
+            'available' => true,
+            'eventId' => (int) ($event['id'] ?? 0),
+        ];
+    }
+
+    $opensAt = $startsAt->modify('-' . MEETOCEAN_AGENDA_GUEST_OPEN_MINUTES . ' minutes');
+    $now = new DateTimeImmutable('now');
+    $available = $now >= $opensAt;
+    $availableInSeconds = $available ? 0 : max(1, $opensAt->getTimestamp() - $now->getTimestamp());
+    $opensAtLabel = $opensAt->format('d/m H:i');
+
+    return [
+        'restricted' => true,
+        'available' => $available,
+        'eventId' => (int) ($event['id'] ?? 0),
+        'eventStatus' => (string) ($event['status'] ?? ''),
+        'startsAt' => $startsAt->format('Y-m-d H:i:s'),
+        'startsAtLabel' => $startsAt->format('d/m H:i'),
+        'opensAt' => $opensAt->format('Y-m-d H:i:s'),
+        'opensAtLabel' => $opensAtLabel,
+        'availableInSeconds' => $availableInSeconds,
+        'message' => $available
+            ? ''
+            : sprintf('Cette reunion sera accessible aux invites a partir du %s.', $opensAtLabel),
+    ];
+}
+
+function meetocean_assert_guest_room_is_open(PDO $pdo, array $room): void
+{
+    $access = meetocean_guest_access_for_room($pdo, $room);
+    if ((bool) ($access['restricted'] ?? false) && !(bool) ($access['available'] ?? false)) {
+        throw new MeetOceanGuestAccessException(
+            (string) ($access['message'] ?? 'Cette reunion n est pas encore accessible aux invites.')
+        );
+    }
+}
+
 function meetocean_format_reminder_time(?string $value): string
 {
     if ($value === null || trim($value) === '') {
@@ -694,6 +783,7 @@ function meetocean_public_room(PDO $pdo, array $room, ?array $viewer = null): ar
         'canDelete' => $canDelete,
         'participantCount' => (int) $statement->fetchColumn(),
         'scheduledStartAt' => ($room['scheduled_start_at'] ?? null) !== null ? (string) $room['scheduled_start_at'] : '',
+        'guestAccess' => meetocean_guest_access_for_room($pdo, $room),
         'createdAt' => (string) ($room['created_at'] ?? ''),
         'updatedAt' => (string) ($room['updated_at'] ?? ''),
         'lastActivityAt' => (string) ($room['last_activity_at'] ?? ''),

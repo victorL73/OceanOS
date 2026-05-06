@@ -95,6 +95,7 @@ const state = {
   pendingTranscriptTimer: null,
   transcriptFingerprints: [],
   autoJoinAttempted: false,
+  guestAccessTimer: null,
 };
 
 function clientId() {
@@ -263,6 +264,40 @@ function formatMeetingDate(value) {
   }).format(date);
 }
 
+function currentGuestAccess(payload = null) {
+  return payload?.guestAccess || payload?.room?.guestAccess || state.room?.guestAccess || state.inviteRoom?.guestAccess || null;
+}
+
+function guestAccessBlocked(payload = null) {
+  const access = currentGuestAccess(payload);
+  return Boolean(access?.restricted) && !access.available;
+}
+
+function guestAccessBlockedMessage(payload = null) {
+  if (!guestAccessBlocked(payload)) return "";
+  const access = currentGuestAccess(payload) || {};
+  const openLabel = access.opensAtLabel || formatMeetingDate(access.opensAt);
+  return access.message || `Cette reunion sera accessible aux invites a partir du ${openLabel}.`;
+}
+
+function scheduleGuestAccessRefresh(payload = null) {
+  window.clearTimeout(state.guestAccessTimer);
+  state.guestAccessTimer = null;
+
+  const access = currentGuestAccess(payload);
+  if (!access?.restricted || access.available) return;
+
+  const waitSeconds = Number(access.availableInSeconds);
+  const nextRefreshSeconds = Number.isFinite(waitSeconds)
+    ? Math.max(5, Math.min(waitSeconds + 1, 60))
+    : 30;
+
+  state.guestAccessTimer = window.setTimeout(() => {
+    state.guestAccessTimer = null;
+    void loadDashboard(true);
+  }, nextRefreshSeconds * 1000);
+}
+
 function localDatetimeValue(minutesFromNow = 0) {
   const date = new Date(Date.now() + minutesFromNow * 60000);
   date.setSeconds(0, 0);
@@ -411,6 +446,10 @@ function renderDashboard(payload) {
   elements.guestPanel.classList.toggle("hidden", !state.isGuest || Boolean(state.room));
   elements.startPanel.classList.toggle("hidden", state.isGuest || Boolean(state.room));
   elements.sideColumn?.classList.toggle("hidden", state.isGuest && !state.room);
+  const guestWaiting = state.isGuest && !state.room && guestAccessBlocked(payload);
+  elements.guestJoinButton.disabled = guestWaiting;
+  elements.guestJoinButton.title = guestWaiting ? guestAccessBlockedMessage(payload) : "";
+  scheduleGuestAccessRefresh(payload);
   renderRecentRooms(state.isGuest ? [] : payload.recentRooms || []);
 }
 
@@ -1065,6 +1104,12 @@ async function syncNow() {
     await applySyncPayload(payload);
   } catch (error) {
     if (error.code === "database_busy") return;
+    if (error.code === "guest_waiting") {
+      cleanupMeeting();
+      setMessage(error.message || "Cette reunion n est pas encore accessible aux invites.", "info");
+      void loadDashboard(false).catch(() => {});
+      return;
+    }
     setMessage(error.message || "Synchronisation indisponible.", "error");
   } finally {
     state.pendingSync = false;
@@ -1496,6 +1541,12 @@ async function joinGuestRoom() {
     setMessage("Lien invite invalide.", "error");
     return;
   }
+  const waitingMessage = guestAccessBlockedMessage();
+  if (waitingMessage) {
+    setMessage(waitingMessage, "info");
+    scheduleGuestAccessRefresh();
+    return;
+  }
   const guestName = elements.guestName.value.trim();
   if (!guestName) {
     setMessage("Indiquez votre nom pour rejoindre la reunion.", "error");
@@ -1522,9 +1573,14 @@ async function joinGuestRoom() {
     });
     await enterRoom(payload);
   } catch (error) {
+    if (error.code === "guest_waiting") {
+      await loadDashboard(false).catch(() => {});
+      setMessage(error.message || "Cette reunion n est pas encore accessible aux invites.", "info");
+      return;
+    }
     setMessage(error.message || "Connexion invite impossible.", "error", insecureMediaAction());
   } finally {
-    elements.guestJoinButton.disabled = false;
+    elements.guestJoinButton.disabled = guestAccessBlocked();
   }
 }
 
@@ -1590,6 +1646,13 @@ async function loadDashboard(showReadyMessage = true) {
   const payload = await requestJson(dashboardUrl());
   renderDashboard(payload);
   setVisible(true);
+  const waitingMessage = state.isGuest && !state.room ? guestAccessBlockedMessage(payload) : "";
+  if (waitingMessage) {
+    if (showReadyMessage) {
+      setMessage(waitingMessage, "info");
+    }
+    return;
+  }
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     showMediaSecurityMessage();
     return;

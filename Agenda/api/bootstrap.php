@@ -750,6 +750,28 @@ function agenda_meetocean_internal_url_from_room_id(PDO $pdo, ?int $roomId): str
     return is_array($room) ? agenda_meetocean_internal_url($room) : '';
 }
 
+function agenda_sync_meetocean_room_schedule(PDO $pdo, ?int $roomId, mixed $startsAt): void
+{
+    if ($roomId === null || $roomId <= 0) {
+        return;
+    }
+
+    $scheduledStart = meetocean_parse_scheduled_start($startsAt);
+    $statement = $pdo->prepare(
+        'UPDATE meetocean_rooms
+         SET notified_15_at = CASE WHEN scheduled_start_at <=> :same_scheduled_start_15 THEN notified_15_at ELSE NULL END,
+             notified_start_at = CASE WHEN scheduled_start_at <=> :same_scheduled_start_now THEN notified_start_at ELSE NULL END,
+             scheduled_start_at = :scheduled_start_at
+         WHERE id = :id'
+    );
+    $statement->execute([
+        'id' => $roomId,
+        'scheduled_start_at' => $scheduledStart,
+        'same_scheduled_start_15' => $scheduledStart,
+        'same_scheduled_start_now' => $scheduledStart,
+    ]);
+}
+
 function agenda_meetocean_event_join_url(PDO $pdo, array $event): string
 {
     $roomUrl = agenda_meetocean_internal_url_from_room_id(
@@ -833,7 +855,7 @@ function agenda_create_event(PDO $pdo, array $actor, array $input): array
     $pdo->beginTransaction();
     try {
         if ($event['createMeeting']) {
-            $room = meetocean_create_room($pdo, $actor, $event['title']);
+            $room = meetocean_create_room($pdo, $actor, $event['title'], $event['startsAt']);
             $roomId = (int) $room['id'];
             $joinUrl = agenda_meetocean_internal_url($room);
         }
@@ -889,10 +911,11 @@ function agenda_update_event(PDO $pdo, array $actor, array $input): array
     $pdo->beginTransaction();
     try {
         if ($event['createMeeting'] && $roomId === null) {
-            $room = meetocean_create_room($pdo, $actor, $event['title']);
+            $room = meetocean_create_room($pdo, $actor, $event['title'], $event['startsAt']);
             $roomId = (int) $room['id'];
             $joinUrl = agenda_meetocean_internal_url($room);
         } elseif ($roomId !== null && $roomId > 0) {
+            agenda_sync_meetocean_room_schedule($pdo, $roomId, $event['startsAt']);
             $joinUrl = agenda_meetocean_internal_url_from_room_id($pdo, $roomId) ?: $joinUrl;
         }
 

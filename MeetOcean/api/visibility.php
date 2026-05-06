@@ -98,6 +98,9 @@ try {
         $room = $isGuest
             ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
             : meetocean_find_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
         $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
         oceanos_json_response([
             ...meetocean_room_state($pdo, $room, $actor, $participant['clientId'], 0, 0, $participant['targetLanguage']),
@@ -109,6 +112,9 @@ try {
         $room = $isGuest
             ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
             : meetocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
         $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
         oceanos_json_response([
             ...meetocean_room_state(
@@ -128,6 +134,9 @@ try {
         $room = $isGuest
             ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
             : meetocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
         $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
         oceanos_json_response(meetocean_room_state(
             $pdo,
@@ -171,6 +180,9 @@ try {
         $room = $isGuest
             ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
             : meetocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
         $signal = meetocean_add_signal($pdo, $room, $input);
         oceanos_json_response([
             'ok' => true,
@@ -183,6 +195,9 @@ try {
         $room = $isGuest
             ? meetocean_find_invited_room($pdo, $input['roomCode'] ?? $input['roomId'] ?? '', $inviteToken)
             : meetocean_find_room($pdo, $input['roomId'] ?? $input['roomCode'] ?? '');
+        if ($isGuest) {
+            meetocean_assert_guest_room_is_open($pdo, $room);
+        }
         $participant = meetocean_touch_participant($pdo, $room, $actor, $input);
         $transcript = meetocean_add_transcript($pdo, $room, $actor, $input);
         oceanos_json_response([
@@ -204,6 +219,12 @@ try {
         'error' => 'unsupported_action',
         'message' => 'Action MeetOcean non supportee.',
     ], 422);
+} catch (MeetOceanGuestAccessException $exception) {
+    oceanos_json_response([
+        'ok' => false,
+        'error' => 'guest_waiting',
+        'message' => $exception->getMessage(),
+    ], 423);
 } catch (InvalidArgumentException $exception) {
     oceanos_json_response([
         'ok' => false,
