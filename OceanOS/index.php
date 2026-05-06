@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="OceanOS">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="description" content="OceanOS - Portail ERP central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
-  <link rel="stylesheet" href="assets/guard.css?v=20260505-mobile-keyboard">
+  <link rel="stylesheet" href="assets/guard.css?v=20260506-mobile-shell">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260503-git-revision-pill">
 </head>
 <body>
@@ -364,7 +364,7 @@
     </section>
   </main>
 
-  <script defer src="assets/guard.js?v=20260505-mobile-keyboard"></script>
+  <script defer src="assets/guard.js?v=20260506-mobile-shell"></script>
   <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
 </body>
 </html>

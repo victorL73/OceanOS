@@ -164,6 +164,8 @@ La planification se regle dans `/Backup/`. La ligne cron Ubuntu est generee auto
 
 Le module supprime automatiquement les archives de plus de 15 jours. Il garde aussi une limite maximale d'archives, reglable dans l'interface Backup.
 
+Une archive peut etre restauree depuis la liste des backups ou reimportee via un fichier ZIP. La restauration est reservee aux `super-utilisateur`, demande la confirmation `RESTAURER`, importe le dump SQL avec le client `mysql`, puis remet les fichiers `www/` presents dans l'archive. Les dossiers `Backup/storage`, `_backups` et `.git` ne sont pas remplaces.
+
 ## Base principale
 
 La base principale s'appelle :

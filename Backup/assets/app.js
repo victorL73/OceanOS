@@ -33,6 +33,10 @@ const elements = {
   runScheduledButton: $("run-scheduled-button"),
   cronCommand: $("cron-command"),
   copyCronButton: $("copy-cron-button"),
+  restoreFile: $("restore-file"),
+  restoreConfirmation: $("restore-confirmation"),
+  restorePreBackup: $("restore-pre-backup"),
+  restoreUploadButton: $("restore-upload-button"),
   backupList: $("backup-list"),
 };
 
@@ -54,6 +58,7 @@ function setBusy(isBusy, label = "Traitement...") {
   elements.refreshButton.disabled = isBusy;
   elements.saveScheduleButton.disabled = isBusy;
   elements.runScheduledButton.disabled = isBusy;
+  elements.restoreUploadButton.disabled = isBusy;
   elements.runState.textContent = isBusy ? label : "Pret";
 }
 
@@ -62,6 +67,19 @@ async function fetchJson(url, options = {}) {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     ...options,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.message || payload.error || "Erreur Backup.");
+  }
+  return payload;
+}
+
+async function fetchFormData(url, formData) {
+  const response = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) {
@@ -238,12 +256,17 @@ function renderBackups() {
     download.className = "ghost-link";
     download.href = backup.downloadUrl;
     download.textContent = "Telecharger";
+    const restore = document.createElement("button");
+    restore.className = "ghost-button";
+    restore.type = "button";
+    restore.textContent = "Restaurer";
+    restore.addEventListener("click", () => restoreExistingBackup(backup));
     const remove = document.createElement("button");
     remove.className = "danger-button";
     remove.type = "button";
     remove.textContent = "Supprimer";
     remove.addEventListener("click", () => deleteBackup(backup));
-    actions.append(download, remove);
+    actions.append(download, restore, remove);
 
     item.append(info, actions);
     elements.backupList.appendChild(item);
@@ -356,6 +379,74 @@ async function deleteBackup(backup) {
   }
 }
 
+function restorePreBackupEnabled() {
+  return Boolean(elements.restorePreBackup?.checked);
+}
+
+async function restoreExistingBackup(backup) {
+  if (state.loading) return;
+  const confirmation = window.prompt(`Tapez RESTAURER pour restaurer ${backup.fileName}`);
+  if (confirmation === null) return;
+
+  setBusy(true, "Restauration...");
+  showMessage("Restauration en cours.", "info");
+  try {
+    const payload = await fetchJson(API_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "restore_existing",
+        fileName: backup.fileName,
+        confirmation,
+        preRestoreBackup: restorePreBackupEnabled(),
+      }),
+    });
+    applyPayload(payload);
+    showMessage(payload.message || "Restauration terminee.", "success");
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function restoreUploadedBackup() {
+  if (state.loading) return;
+  const file = elements.restoreFile.files?.[0] || null;
+  if (!file) {
+    showMessage("Choisissez un ZIP Backup.", "error");
+    return;
+  }
+
+  const confirmation = elements.restoreConfirmation.value.trim();
+  if (confirmation.toUpperCase() !== "RESTAURER") {
+    showMessage("Tapez RESTAURER pour confirmer la restauration.", "error");
+    return;
+  }
+
+  const ok = window.confirm(`Restaurer ${file.name} maintenant ?`);
+  if (!ok) return;
+
+  const formData = new FormData();
+  formData.append("action", "restore_upload");
+  formData.append("backup_zip", file);
+  formData.append("restore_confirmation", confirmation);
+  formData.append("pre_restore_backup", restorePreBackupEnabled() ? "1" : "0");
+
+  setBusy(true, "Restauration...");
+  showMessage("Upload et restauration du ZIP en cours.", "info");
+  try {
+    const payload = await fetchFormData(API_URL, formData);
+    applyPayload(payload);
+    elements.restoreFile.value = "";
+    elements.restoreConfirmation.value = "";
+    showMessage(payload.message || "Restauration terminee.", "success");
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function copyCronCommand() {
   const command = elements.cronCommand.textContent.trim();
   if (!command) return;
@@ -388,6 +479,7 @@ elements.scheduleForm.addEventListener("input", updateSchedulePreview);
 elements.scheduleForm.addEventListener("change", updateSchedulePreview);
 elements.runScheduledButton.addEventListener("click", runScheduledNow);
 elements.copyCronButton.addEventListener("click", copyCronCommand);
+elements.restoreUploadButton.addEventListener("click", restoreUploadedBackup);
 elements.logoutButton.addEventListener("click", logout);
 
 void loadStatus().catch((error) => showMessage(error.message, "error"));

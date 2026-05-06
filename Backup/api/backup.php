@@ -68,7 +68,9 @@ try {
     }
 
     if ($method === 'POST') {
-        $input = oceanos_read_json_request();
+        $contentType = strtolower((string) ($_SERVER['CONTENT_TYPE'] ?? ''));
+        $isMultipart = str_contains($contentType, 'multipart/form-data');
+        $input = $isMultipart ? $_POST : oceanos_read_json_request();
         $action = strtolower(trim((string) ($input['action'] ?? 'create')));
 
         if ($action === 'create') {
@@ -93,6 +95,34 @@ try {
             oceanos_json_response([
                 ...backup_status_payload($user),
                 'message' => 'Backup supprime.',
+            ]);
+        }
+
+        if ($action === 'restore_existing') {
+            $restore = backup_restore_existing_backup(
+                (string) ($input['fileName'] ?? $input['file_name'] ?? ''),
+                $user,
+                (string) ($input['confirmation'] ?? ''),
+                filter_var($input['preRestoreBackup'] ?? $input['pre_restore_backup'] ?? true, FILTER_VALIDATE_BOOLEAN)
+            );
+            oceanos_json_response([
+                ...backup_status_payload($user),
+                'restore' => $restore,
+                'message' => 'Restauration terminee.',
+            ]);
+        }
+
+        if ($action === 'restore_upload') {
+            $restore = backup_restore_uploaded_backup(
+                $_FILES['backup_zip'] ?? null,
+                $user,
+                (string) ($input['restore_confirmation'] ?? $input['confirmation'] ?? ''),
+                filter_var($input['pre_restore_backup'] ?? $input['preRestoreBackup'] ?? true, FILTER_VALIDATE_BOOLEAN)
+            );
+            oceanos_json_response([
+                ...backup_status_payload($user),
+                'restore' => $restore,
+                'message' => 'Restauration terminee.',
             ]);
         }
 

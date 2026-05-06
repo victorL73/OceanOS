@@ -308,3 +308,297 @@ textarea,
     flex: 1 1 0;
   }
 }
+
+@media (max-width: 820px) {
+  :root {
+    --oceanos-mobile-gutter: 14px;
+    --oceanos-mobile-radius: 10px;
+  }
+
+  html,
+  body {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    min-height: var(--oceanos-dvh, 100vh);
+    min-height: 100dvh;
+    padding-right: max(env(safe-area-inset-right), 0px);
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+    padding-left: max(env(safe-area-inset-left), 0px);
+  }
+
+  body.oceanos-standalone-webapp {
+    min-height: var(--oceanos-dvh, 100dvh);
+  }
+
+  body.oceanos-mobile-webapp :where(.app-shell, .shell, .page-shell, .dashboard-shell, .workspace-shell, .public-view) {
+    height: auto !important;
+    min-height: var(--oceanos-dvh, 100dvh) !important;
+  }
+
+  img,
+  canvas,
+  video,
+  iframe,
+  svg {
+    max-width: 100%;
+  }
+
+  :where(.app-shell, .shell, .page-shell, .dashboard-shell, .dashboard-view, .workspace-shell, .workspace-view, .public-view, .admin-shell, .portal-shell, .module-shell, main, section) {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  :where(.app-shell, .shell, .page-shell, .dashboard-shell, .dashboard-view, .workspace-shell, .workspace-view, .public-view, .admin-shell, .portal-shell, .module-shell) {
+    width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  :where(body > .app-shell, body > .shell, body > .page-shell, body > .dashboard-shell, body > .workspace-shell, body > .public-view, body > main) {
+    padding: var(--oceanos-mobile-gutter) !important;
+  }
+
+  :where(.app-shell, .dashboard-shell, .workspace-shell, .content-grid, .workspace-grid, .dashboard-layout, .entries-layout, .orders-layout, .vat-layout, .overview-layout, .detail-grid, .backup-layout, .settings-grid, .templates-grid, .ai-import-grid, .split-panel, .mail-grid, .messages-grid, .cloud-grid, .crm-grid, .stock-grid, .invoice-grid, .public-grid, .sign-layout) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :where(.metrics-grid, .status-grid, .stats-grid, .kpi-grid, .cards-grid, .apps-grid, .modules-grid, .summary-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  :where(.topbar, .topbar-left, .topbar-right, .topbar-actions, .panel-header, .panel-heading, .admin-heading, .overview, .overview-header, .section-header, .module-header, .page-header, .public-topbar, .user-menu-header) {
+    min-width: 0 !important;
+    align-items: stretch !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+
+  :where(.topbar, .panel-header, .panel-heading, .admin-heading, .overview, .overview-header, .section-header, .module-header, .page-header, .public-topbar) > * {
+    min-width: 0 !important;
+  }
+
+  :where(.topbar-actions, .form-actions, .ai-actions, .prestashop-actions, .company-actions, .service-actions, .filters-actions, .bulk-actions, .mail-actions, .compose-actions, .toolbar, .services-toolbar, .control-panel) {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+
+  :where(.topbar-actions, .form-actions, .ai-actions, .prestashop-actions, .company-actions, .service-actions, .filters-actions, .bulk-actions, .mail-actions, .compose-actions, .toolbar, .services-toolbar, .control-panel) > :where(button, a, select, input, .button, .btn, .primary, .secondary) {
+    flex: 1 1 min(100%, 154px) !important;
+    min-width: 0 !important;
+  }
+
+  :where(.view-tabs, .tabs, .tab-list, .view-switcher, .segmented-control, .module-tabs) {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding-bottom: 3px !important;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  :where(.view-tabs, .tabs, .tab-list, .view-switcher, .segmented-control, .module-tabs)::-webkit-scrollbar {
+    display: none;
+  }
+
+  :where(.view-tabs, .tabs, .tab-list, .view-switcher, .segmented-control, .module-tabs) > * {
+    flex: 0 0 auto !important;
+    min-height: 44px !important;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  :where(.form-grid, .filters-form, .stack-form, .public-fields, .fee-grid, .user-create-form, .user-row-fields, .company-form, .ai-form, .prestashop-form, .service-form, .settings-form, .login-form, .compose-form, .reply-form, .contact-form, .field-grid) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-width: 0 !important;
+  }
+
+  :where(label, .field, .form-field, .input-group, .search-field, .select-field) {
+    min-width: 0 !important;
+  }
+
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea, [contenteditable]:not([contenteditable="false"])) {
+    max-width: 100% !important;
+    min-height: 44px;
+    font-size: 16px !important;
+  }
+
+  :where(form input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), form select, form textarea, .filters-form input, .filters-form select, .filters-form textarea, .search-field input, .input-group input, .field input, .field select, .field textarea) {
+    width: 100% !important;
+  }
+
+  textarea,
+  :where([contenteditable]:not([contenteditable="false"])) {
+    min-height: 104px;
+  }
+
+  :where(button, .button, .btn, [role="button"], input[type="submit"], input[type="button"]) {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  :where(.panel, .card, .metric-card, .stat-card, .kpi-card, .app-card, .module-card, .user-row, .service-row, .mail-card, .message-card, .document-card, .product-card, .order-card, .quote-card, .invoice-card, .task-card) {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden;
+    border-radius: var(--oceanos-mobile-radius) !important;
+  }
+
+  :where(.panel, .card, .metric-card, .stat-card, .kpi-card, .app-card, .module-card, .user-row, .service-row, .mail-card, .message-card, .document-card, .product-card, .order-card, .quote-card, .invoice-card, .task-card) {
+    padding: min(16px, 4vw) !important;
+  }
+
+  :where(.table-shell, .table-list, .table-wrapper, .products-table, .orders-table, .history-lines-table, .invoices-table, .quotes-table, .users-table, .services-table, .mail-table, .data-table, .list-table) {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    max-width: 100%;
+  }
+
+  :where(.table-shell, .table-list, .table-wrapper, .products-table, .orders-table, .history-lines-table, .invoices-table, .quotes-table, .users-table, .services-table, .mail-table, .data-table, .list-table) table {
+    min-width: 640px;
+  }
+
+  :where(.list, .mail-list, .conversation-list, .messages-list, .documents-list, .orders-list, .products-list, .tasks-list) {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :where(.mail-grid, .mail-layout, .conversation-layout) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :where(.mails-panel, .mail-detail, .reply-panel, .conversation-panel, .compose-panel) {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  :where(.mail-list, .conversation-list) {
+    max-height: min(48vh, 420px) !important;
+    overflow-y: auto !important;
+  }
+
+  :where(.workspace-shell) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :where(.sidebar) {
+    max-width: min(88vw, 360px) !important;
+  }
+
+  :where(.sidebar.open) {
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.46) !important;
+  }
+
+  :where(.modal, .dialog-backdrop, .drawer-backdrop, .user-menu) {
+    align-items: flex-end !important;
+    padding: 10px !important;
+  }
+
+  :where(.modal-panel, .dialog, .drawer, .side-panel, .user-menu-panel, .sheet, .popup) {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(var(--oceanos-dvh, 100vh) - 24px) !important;
+    overflow-y: auto !important;
+    border-radius: 14px 14px 0 0 !important;
+  }
+
+  :where(.oceanos-return-button) {
+    right: max(12px, env(safe-area-inset-right)) !important;
+    bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
+  :where(.oceanos-notification-hub) {
+    right: max(12px, env(safe-area-inset-right)) !important;
+    bottom: max(62px, calc(env(safe-area-inset-bottom) + 62px)) !important;
+  }
+
+  :where(.oceanos-notification-panel) {
+    position: fixed !important;
+    right: max(12px, env(safe-area-inset-right)) !important;
+    left: max(12px, env(safe-area-inset-left)) !important;
+    bottom: max(116px, calc(env(safe-area-inset-bottom) + 116px)) !important;
+    width: auto !important;
+    max-height: calc(var(--oceanos-dvh, 100vh) - 138px) !important;
+  }
+
+  :where(.oceanos-notification-list) {
+    max-height: calc(var(--oceanos-dvh, 100vh) - 260px) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --oceanos-mobile-gutter: 12px;
+  }
+
+  :where(body > .app-shell, body > .shell, body > .page-shell, body > .dashboard-shell, body > .workspace-shell, body > .public-view, body > main) {
+    padding: var(--oceanos-mobile-gutter) !important;
+  }
+
+  :where(.metrics-grid, .status-grid, .stats-grid, .kpi-grid, .cards-grid, .apps-grid, .modules-grid, .summary-grid) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :where(.topbar, .panel-header, .panel-heading, .admin-heading, .overview, .overview-header, .section-header, .module-header, .page-header, .public-topbar) {
+    gap: 10px !important;
+  }
+
+  :where(h1, .hero-title, .page-title, .module-title) {
+    font-size: clamp(2rem, 11vw, 3rem) !important;
+    line-height: 1.04 !important;
+  }
+
+  :where(h2, .section-title, .panel-title) {
+    font-size: clamp(1.35rem, 7vw, 2rem) !important;
+    line-height: 1.1 !important;
+  }
+
+  :where(.topbar-actions, .form-actions, .ai-actions, .prestashop-actions, .company-actions, .service-actions, .filters-actions, .bulk-actions, .mail-actions, .compose-actions, .toolbar, .services-toolbar, .control-panel) > :where(button, a, select, input, .button, .btn, .primary, .secondary) {
+    flex-basis: 100% !important;
+  }
+
+  :where(.view-tabs, .tabs, .tab-list, .view-switcher, .segmented-control, .module-tabs) > * {
+    min-width: max-content;
+  }
+
+  :where(.panel, .card, .metric-card, .stat-card, .kpi-card, .app-card, .module-card, .user-row, .service-row, .mail-card, .message-card, .document-card, .product-card, .order-card, .quote-card, .invoice-card, .task-card) {
+    padding: 14px !important;
+  }
+
+  :where(.oceanos-notification-panel) {
+    right: 8px !important;
+    left: 8px !important;
+    bottom: max(108px, calc(env(safe-area-inset-bottom) + 108px)) !important;
+    max-height: calc(var(--oceanos-dvh, 100vh) - 124px) !important;
+  }
+
+  :where(.oceanos-notification-panel-head, .oceanos-push-panel) {
+    padding: 12px !important;
+  }
+}

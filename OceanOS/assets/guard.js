@@ -254,6 +254,56 @@
     document.addEventListener("click", focusEditableTextTarget, true);
   }
 
+  function setDocumentClass(className, active) {
+    document.documentElement.classList.toggle(className, active);
+    if (document.body) {
+      document.body.classList.toggle(className, active);
+    }
+  }
+
+  function watchMediaQuery(query, callback) {
+    if (!query) return;
+    if (query.addEventListener) {
+      query.addEventListener("change", callback);
+      return;
+    }
+    if (query.addListener) {
+      query.addListener(callback);
+    }
+  }
+
+  function installMobileLayoutClasses() {
+    if (installMobileLayoutClasses.installed) return;
+    installMobileLayoutClasses.installed = true;
+
+    const coarsePointerQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+    const compactViewportQuery = window.matchMedia ? window.matchMedia("(max-width: 820px)") : null;
+    const standaloneQuery = window.matchMedia ? window.matchMedia("(display-mode: standalone)") : null;
+
+    const update = () => {
+      const hasTouch = Boolean(coarsePointerQuery?.matches)
+        || "ontouchstart" in window
+        || Number(navigator.maxTouchPoints || 0) > 0;
+      const compactViewport = Boolean(compactViewportQuery?.matches) || window.innerWidth <= 820;
+      const standalone = Boolean(standaloneQuery?.matches) || window.navigator.standalone === true;
+
+      setDocumentClass("oceanos-touch-device", hasTouch);
+      setDocumentClass("oceanos-mobile-viewport", compactViewport);
+      setDocumentClass("oceanos-standalone-webapp", standalone);
+      setDocumentClass("oceanos-mobile-webapp", hasTouch && compactViewport);
+
+      const viewportHeight = Math.max(window.innerHeight || 0, 320);
+      document.documentElement.style.setProperty("--oceanos-dvh", `${viewportHeight}px`);
+    };
+
+    update();
+    watchMediaQuery(coarsePointerQuery, update);
+    watchMediaQuery(compactViewportQuery, update);
+    watchMediaQuery(standaloneQuery, update);
+    window.addEventListener("resize", update, { passive: true });
+    window.addEventListener("orientationchange", () => window.setTimeout(update, 80), { passive: true });
+  }
+
   async function updateAppBadge(count) {
     if (!window.isSecureContext || !("setAppBadge" in navigator)) return;
 
@@ -728,6 +778,7 @@
 
     onReady(() => {
       installPwaMetadata();
+      installMobileLayoutClasses();
       installMobileTextInputBridge();
       void registerServiceWorker().catch(() => {});
       installButton();

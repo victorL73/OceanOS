@@ -20,7 +20,7 @@ if (!oceanos_is_super_user($user)) {
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>Backup - Acces refuse</title>
-      <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260505-mobile-keyboard">
+      <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-shell">
       <link rel="stylesheet" href="/Backup/assets/style.css?v=20260502">
     </head>
     <body>
@@ -51,10 +51,10 @@ function backup_h(string $value): string
   <title>Backup OceanOS</title>
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/backup.svg?v=20260502">
   <meta name="description" content="Backup OceanOS - archives ZIP du dossier www et export SQL de la base.">
-  <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260505-mobile-keyboard">
+  <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-shell">
   <link rel="stylesheet" href="assets/style.css?v=20260502">
-  <script defer src="/OceanOS/assets/guard.js?v=20260505-mobile-keyboard"></script>
-  <script defer src="assets/app.js?v=20260502-cron-auto"></script>
+  <script defer src="/OceanOS/assets/guard.js?v=20260506-mobile-shell"></script>
+  <script defer src="assets/app.js?v=20260506-restore"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -191,6 +191,34 @@ function backup_h(string $value): string
           <button class="ghost-button" id="run-scheduled-button" type="button">Tester le cron</button>
         </div>
       </form>
+    </section>
+
+    <section class="panel restore-panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Reprise</p>
+          <h2>Restauration</h2>
+        </div>
+      </div>
+
+      <div class="restore-grid">
+        <label class="field">
+          <span>ZIP Backup</span>
+          <input id="restore-file" type="file" accept=".zip,application/zip">
+        </label>
+
+        <label class="field">
+          <span>Confirmation</span>
+          <input id="restore-confirmation" type="text" placeholder="RESTAURER" autocomplete="off">
+        </label>
+
+        <label class="check-row restore-check">
+          <input id="restore-pre-backup" type="checkbox" checked>
+          <span>Backup de securite avant restauration</span>
+        </label>
+
+        <button class="danger-button" id="restore-upload-button" type="button">Restaurer le ZIP</button>
+      </div>
     </section>
 
     <section class="panel cron-panel">

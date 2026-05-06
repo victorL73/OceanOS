@@ -337,8 +337,30 @@ a:focus-visible {
 }
 
 .cron-panel,
+.restore-panel,
 .backups-panel {
   margin-top: 16px;
+}
+
+.restore-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.7fr) auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.check-row {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+}
+
+.check-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
 }
 
 .cron-command {
@@ -437,7 +459,8 @@ a:focus-visible {
   }
 
   .metrics-grid,
-  .form-grid {
+  .form-grid,
+  .restore-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -450,6 +473,7 @@ a:focus-visible {
 @media (max-width: 560px) {
   .metrics-grid,
   .form-grid,
+  .restore-grid,
   .path-list div {
     grid-template-columns: 1fr;
   }

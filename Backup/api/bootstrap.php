@@ -1025,6 +1025,351 @@ function backup_delete_backup(string $fileName): void
     @unlink($metadataPath);
 }
 
+function backup_restore_existing_backup(string $fileName, array $actorUser, string $confirmation, bool $preRestoreBackup = true): array
+{
+    backup_require_restore_confirmation($confirmation);
+    $zipName = backup_sanitize_zip_name($fileName);
+    $restorePath = backup_tmp_path('restore-existing-' . bin2hex(random_bytes(6)) . '.zip');
+    if (!copy(backup_find_zip_path($zipName), $restorePath)) {
+        throw new RuntimeException('Impossible de preparer le ZIP de restauration.');
+    }
+
+    try {
+        return backup_restore_from_zip($restorePath, $zipName, $actorUser, $preRestoreBackup);
+    } finally {
+        @unlink($restorePath);
+    }
+}
+
+function backup_restore_uploaded_backup(mixed $uploadedFile, array $actorUser, string $confirmation, bool $preRestoreBackup = true): array
+{
+    backup_require_restore_confirmation($confirmation);
+    if (!is_array($uploadedFile)) {
+        throw new InvalidArgumentException('Aucun fichier ZIP recu.');
+    }
+
+    $error = (int) ($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new InvalidArgumentException(backup_upload_error_message($error));
+    }
+
+    $originalName = basename(str_replace('\\', '/', (string) ($uploadedFile['name'] ?? 'backup.zip')));
+    if (!str_ends_with(strtolower($originalName), '.zip')) {
+        throw new InvalidArgumentException('Le fichier de restauration doit etre un ZIP.');
+    }
+
+    $tmpUpload = (string) ($uploadedFile['tmp_name'] ?? '');
+    if ($tmpUpload === '' || !is_file($tmpUpload)) {
+        throw new InvalidArgumentException('Fichier ZIP temporaire introuvable.');
+    }
+
+    $restorePath = backup_tmp_path('restore-upload-' . bin2hex(random_bytes(6)) . '.zip');
+    if (!move_uploaded_file($tmpUpload, $restorePath)) {
+        if (!copy($tmpUpload, $restorePath)) {
+            throw new RuntimeException('Impossible de preparer le ZIP de restauration.');
+        }
+    }
+
+    try {
+        return backup_restore_from_zip($restorePath, $originalName, $actorUser, $preRestoreBackup);
+    } finally {
+        @unlink($restorePath);
+    }
+}
+
+function backup_require_restore_confirmation(string $confirmation): void
+{
+    if (strtoupper(trim($confirmation)) !== 'RESTAURER') {
+        throw new InvalidArgumentException('Confirmation de restauration invalide.');
+    }
+}
+
+function backup_upload_error_message(int $error): string
+{
+    return match ($error) {
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'Le ZIP depasse la taille autorisee par PHP.',
+        UPLOAD_ERR_PARTIAL => 'Le ZIP a ete envoye partiellement.',
+        UPLOAD_ERR_NO_FILE => 'Aucun fichier ZIP recu.',
+        default => 'Erreur upload ZIP : ' . $error,
+    };
+}
+
+function backup_restore_from_zip(string $zipPath, string $sourceName, array $actorUser, bool $preRestoreBackup): array
+{
+    backup_ensure_storage();
+    backup_assert_writable_directory(backup_www_root(), 'dossier www');
+    backup_assert_writable_directory(backup_runtime_tmp_root(), 'dossier temporaire Backup');
+    if (!class_exists(ZipArchive::class)) {
+        throw new RuntimeException('Extension PHP ZipArchive indisponible.');
+    }
+
+    if ($preRestoreBackup) {
+        $safetyBackup = backup_create_backup($actorUser, 'pre-restore');
+    } else {
+        $safetyBackup = null;
+    }
+
+    $lockHandle = fopen(backup_lock_path(), 'c+');
+    if ($lockHandle === false) {
+        throw new RuntimeException('Impossible de creer le verrou Backup dans ' . dirname(backup_lock_path()) . '.');
+    }
+    if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
+        fclose($lockHandle);
+        throw new RuntimeException('Un backup ou une restauration est deja en cours.');
+    }
+
+    $zip = new ZipArchive();
+    $zipOpen = false;
+    $sqlPath = backup_tmp_path('restore-database-' . bin2hex(random_bytes(6)) . '.sql');
+    $startedAt = new DateTimeImmutable('now');
+
+    try {
+        if ($zip->open($zipPath) !== true) {
+            throw new InvalidArgumentException('ZIP de restauration illisible.');
+        }
+        $zipOpen = true;
+
+        $manifest = backup_restore_manifest($zip);
+        $sqlEntry = backup_restore_sql_entry($zip);
+        backup_extract_zip_entry_to_file($zip, $sqlEntry, $sqlPath);
+        backup_import_database_with_mysql($sqlPath);
+        $fileStats = backup_restore_www_from_zip($zip);
+        $zip->close();
+        $zipOpen = false;
+
+        return [
+            'sourceName' => $sourceName,
+            'restoredAt' => $startedAt->format(DateTimeInterface::ATOM),
+            'durationSeconds' => round(max(0.001, microtime(true) - (float) $startedAt->format('U.u')), 3),
+            'databaseImported' => true,
+            'databaseEntry' => $sqlEntry,
+            'filesRestored' => $fileStats['files'],
+            'directoriesCreated' => $fileStats['directories'],
+            'entriesSkipped' => $fileStats['skipped'],
+            'safetyBackup' => $safetyBackup,
+            'manifest' => [
+                'createdAt' => backup_nullable_string($manifest['created_at'] ?? null),
+                'database' => backup_nullable_string($manifest['database'] ?? null),
+                'sourcePath' => backup_nullable_string($manifest['source_path'] ?? null),
+            ],
+        ];
+    } finally {
+        if ($zipOpen) {
+            $zip->close();
+        }
+        @unlink($sqlPath);
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
+    }
+}
+
+function backup_restore_manifest(ZipArchive $zip): array
+{
+    $contents = $zip->getFromName('manifest.json');
+    if (!is_string($contents) || trim($contents) === '') {
+        throw new InvalidArgumentException('ZIP invalide : manifest.json manquant.');
+    }
+
+    $manifest = json_decode($contents, true);
+    if (!is_array($manifest)) {
+        throw new InvalidArgumentException('ZIP invalide : manifest.json illisible.');
+    }
+
+    return $manifest;
+}
+
+function backup_restore_sql_entry(ZipArchive $zip): string
+{
+    for ($index = 0; $index < $zip->numFiles; $index++) {
+        $name = (string) $zip->getNameIndex($index);
+        if (preg_match('#^database/[^/]+\.sql$#', $name) === 1 && backup_zip_entry_name_is_safe($name)) {
+            return $name;
+        }
+    }
+
+    throw new InvalidArgumentException('ZIP invalide : dump SQL manquant.');
+}
+
+function backup_extract_zip_entry_to_file(ZipArchive $zip, string $entryName, string $targetPath): void
+{
+    if (!backup_zip_entry_name_is_safe($entryName)) {
+        throw new InvalidArgumentException('Entree ZIP dangereuse : ' . $entryName);
+    }
+
+    $source = $zip->getStream($entryName);
+    if (!is_resource($source)) {
+        throw new RuntimeException('Impossible de lire ' . $entryName . ' dans le ZIP.');
+    }
+    $target = fopen($targetPath, 'wb');
+    if ($target === false) {
+        fclose($source);
+        throw new RuntimeException('Impossible de preparer le fichier temporaire de restauration.');
+    }
+
+    try {
+        if (stream_copy_to_stream($source, $target) === false) {
+            throw new RuntimeException('Impossible d extraire ' . $entryName . '.');
+        }
+    } finally {
+        fclose($source);
+        fclose($target);
+    }
+}
+
+function backup_import_database_with_mysql(string $sqlPath): void
+{
+    if (!function_exists('proc_open')) {
+        throw new RuntimeException('proc_open indisponible pour importer la base.');
+    }
+
+    $config = oceanos_config();
+    $defaultsPath = backup_tmp_path('mysql-restore-' . bin2hex(random_bytes(4)) . '.cnf');
+    $defaultsContent = "[client]\n"
+        . 'host=' . backup_mysql_option_value((string) $config['db_host']) . "\n"
+        . 'port=' . (int) $config['db_port'] . "\n"
+        . 'user=' . backup_mysql_option_value((string) $config['db_user']) . "\n"
+        . 'password=' . backup_mysql_option_value((string) $config['db_pass']) . "\n"
+        . "default-character-set=utf8mb4\n";
+    file_put_contents($defaultsPath, $defaultsContent, LOCK_EX);
+    @chmod($defaultsPath, 0600);
+
+    $binary = trim((string) (getenv('OCEANOS_MYSQL_PATH') ?: 'mysql'));
+    $command = implode(' ', array_map('backup_shell_arg', [
+        $binary,
+        '--defaults-extra-file=' . $defaultsPath,
+        '--default-character-set=utf8mb4',
+    ]));
+    $descriptors = [
+        0 => ['file', $sqlPath, 'rb'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+
+    try {
+        $process = proc_open($command, $descriptors, $pipes);
+        if (!is_resource($process)) {
+            throw new RuntimeException('Impossible de lancer mysql.');
+        }
+
+        $stdout = stream_get_contents($pipes[1]) ?: '';
+        $stderr = stream_get_contents($pipes[2]) ?: '';
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+        if ($exitCode !== 0) {
+            $message = trim($stderr) !== '' ? trim($stderr) : trim($stdout);
+            throw new RuntimeException($message !== '' ? $message : 'mysql a echoue pendant la restauration.');
+        }
+    } finally {
+        @unlink($defaultsPath);
+    }
+}
+
+function backup_restore_www_from_zip(ZipArchive $zip): array
+{
+    $files = 0;
+    $directories = 0;
+    $skipped = 0;
+
+    for ($index = 0; $index < $zip->numFiles; $index++) {
+        $name = (string) $zip->getNameIndex($index);
+        if (!str_starts_with($name, 'www/')) {
+            continue;
+        }
+        if (!backup_zip_entry_name_is_safe($name)) {
+            throw new InvalidArgumentException('Entree ZIP dangereuse : ' . $name);
+        }
+
+        $relative = substr($name, 4);
+        if ($relative === '') {
+            continue;
+        }
+        $target = backup_restore_target_path($relative);
+        if (!backup_restore_target_allowed($target)) {
+            $skipped++;
+            continue;
+        }
+
+        if (str_ends_with($name, '/')) {
+            if (!is_dir($target) && !mkdir($target, 0775, true) && !is_dir($target)) {
+                throw new RuntimeException('Impossible de creer le dossier restaure : ' . $target);
+            }
+            $directories++;
+            continue;
+        }
+
+        $parent = dirname($target);
+        if (!is_dir($parent) && !mkdir($parent, 0775, true) && !is_dir($parent)) {
+            throw new RuntimeException('Impossible de creer le dossier parent : ' . $parent);
+        }
+        if (is_dir($target)) {
+            throw new RuntimeException('Conflit restauration : un dossier existe a la place du fichier ' . $relative);
+        }
+
+        $temporaryTarget = tempnam($parent, '.restore-');
+        if ($temporaryTarget === false) {
+            throw new RuntimeException('Impossible de preparer le fichier restaure : ' . $relative);
+        }
+
+        try {
+            backup_extract_zip_entry_to_file($zip, $name, $temporaryTarget);
+            if (is_file($target) || is_link($target)) {
+                @unlink($target);
+            }
+            if (!rename($temporaryTarget, $target)) {
+                if (!copy($temporaryTarget, $target)) {
+                    throw new RuntimeException('Impossible de restaurer le fichier : ' . $relative);
+                }
+                @unlink($temporaryTarget);
+            }
+            @chmod($target, 0664);
+            $files++;
+        } finally {
+            @unlink($temporaryTarget);
+        }
+    }
+
+    if ($files === 0) {
+        throw new InvalidArgumentException('ZIP invalide : dossier www vide ou manquant.');
+    }
+
+    return ['files' => $files, 'directories' => $directories, 'skipped' => $skipped];
+}
+
+function backup_zip_entry_name_is_safe(string $name): bool
+{
+    $name = str_replace('\\', '/', $name);
+    if ($name === '' || str_starts_with($name, '/') || preg_match('#^[a-zA-Z]:/#', $name) === 1) {
+        return false;
+    }
+
+    foreach (explode('/', $name) as $segment) {
+        if ($segment === '..') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function backup_restore_target_path(string $relativePath): string
+{
+    if (!backup_zip_entry_name_is_safe($relativePath)) {
+        throw new InvalidArgumentException('Chemin de restauration dangereux : ' . $relativePath);
+    }
+
+    return backup_www_root() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+}
+
+function backup_restore_target_allowed(string $targetPath): bool
+{
+    return !backup_path_is_excluded($targetPath, [
+        backup_storage_path(),
+        backup_www_root() . DIRECTORY_SEPARATOR . '_backups',
+        backup_www_root() . DIRECTORY_SEPARATOR . '.git',
+    ]);
+}
+
 function backup_apply_retention(): void
 {
     $schedule = backup_load_schedule();
