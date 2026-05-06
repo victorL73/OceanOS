@@ -839,7 +839,12 @@ async function runServiceAction(serviceId, action) {
     servicesState = payload.services || [];
     servicesControlAvailable = Boolean(payload.controlAvailable);
     renderServices();
-    showServicesStatus(`${label} : action ${serviceActionLabel(action).toLowerCase()} terminee.`, "success");
+    showServicesStatus(`${label} : action ${serviceActionLabel(action).toLowerCase()} terminee. Rechargement de la page...`, "success");
+    if (!(serviceId === "web" && action === "stop")) {
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 900);
+    }
   } catch (error) {
     showServicesStatus(error.message || "Action service impossible.", "error");
     await loadServices();
