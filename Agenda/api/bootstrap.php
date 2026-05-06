@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
+require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'OceanOS' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'module_preview.php';
 require_once dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'MeetOcean' . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 $agendaProjectRoot = dirname(__DIR__, 2);
@@ -143,7 +144,7 @@ function agenda_public_users(PDO $pdo): array
 
 function agenda_settings_catalog(): array
 {
-    return [
+    $catalog = [
         'Agenda' => [
             'moduleId' => 'agenda',
             'label' => 'Agenda',
@@ -256,6 +257,18 @@ function agenda_settings_catalog(): array
             ],
         ],
     ];
+
+    foreach (oceanos_preview_module_definitions() as $definition) {
+        $catalog[(string) $definition['label']] = [
+            'moduleId' => (string) $definition['moduleId'],
+            'label' => (string) $definition['label'],
+            'types' => is_array($definition['agendaTypes'] ?? null) ? $definition['agendaTypes'] : [
+                'task' => 'Taches',
+            ],
+        ];
+    }
+
+    return $catalog;
 }
 
 function agenda_default_settings(): array
@@ -1199,6 +1212,13 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     if (agenda_user_has_module($user, 'tresorcean') && agenda_settings_module_enabled($settings, 'Tresorcean')) {
         $tasks = array_merge($tasks, agenda_collect_tresorcean_tasks($pdo, $user));
     }
+    foreach (oceanos_preview_module_definitions() as $definition) {
+        $moduleId = (string) $definition['moduleId'];
+        $label = (string) $definition['label'];
+        if (agenda_user_has_module($user, $moduleId) && agenda_settings_module_enabled($settings, $label)) {
+            $tasks = array_merge($tasks, agenda_collect_preview_module_tasks($pdo, $user, $definition));
+        }
+    }
 
     $tasks = array_values(array_filter($tasks, static fn(array $task): bool => agenda_settings_allows(
         $settings,
@@ -1219,6 +1239,97 @@ function agenda_collect_module_tasks(PDO $pdo, array $user, ?array $settings = n
     });
 
     return array_slice($tasks, 0, 240);
+}
+
+function agenda_preview_badge_score(mixed $badge): float
+{
+    $text = str_replace(["\xc2\xa0", ' '], '', (string) $badge);
+    $text = str_replace(',', '.', $text);
+    if (!preg_match('/-?\d+(?:\.\d+)?/', $text, $match)) {
+        return 0.0;
+    }
+
+    return (float) $match[0];
+}
+
+function agenda_preview_task_priority(float $score, int $index): string
+{
+    if ($score >= 10 || $index === 0) {
+        return 'high';
+    }
+
+    return $score > 0 ? 'normal' : 'low';
+}
+
+function agenda_collect_preview_module_tasks(PDO $pdo, array $user, array $definition): array
+{
+    $tasks = [];
+    $label = (string) ($definition['label'] ?? '');
+    $moduleId = (string) ($definition['moduleId'] ?? strtolower($label));
+    $href = (string) ($definition['href'] ?? '/OceanOS/');
+    $agendaTypes = array_keys(is_array($definition['agendaTypes'] ?? null) ? $definition['agendaTypes'] : ['task' => 'Taches']);
+
+    try {
+        $payload = oceanos_preview_module_payload($pdo, $user, $moduleId);
+    } catch (Throwable) {
+        $payload = [];
+    }
+
+    $priorities = is_array($payload['priorities'] ?? null) ? $payload['priorities'] : [];
+    foreach ($priorities as $index => $priorityRow) {
+        if (!is_array($priorityRow)) {
+            continue;
+        }
+
+        $title = agenda_clean_text($priorityRow[0] ?? $label, 190, true);
+        $source = agenda_clean_text($priorityRow[1] ?? '', 260, true);
+        $badge = agenda_clean_text($priorityRow[2] ?? '', 80, true);
+        $actionUrl = agenda_clean_text($priorityRow[3] ?? $href, 500, true) ?: $href;
+        $score = agenda_preview_badge_score($badge);
+        if ($score <= 0 && $tasks !== []) {
+            continue;
+        }
+
+        $sourceType = (string) ($agendaTypes[$index % max(1, count($agendaTypes))] ?? 'task');
+        $start = (new DateTimeImmutable('today'))->modify('+' . ($index + 1) . ' days')->setTime(9, 0, 0);
+        $tasks[] = agenda_external_task(
+            $label,
+            $moduleId . ':priority:' . $index . ':' . substr(sha1($title . '|' . $source . '|' . $actionUrl), 0, 10),
+            $title,
+            agenda_sql_datetime($start),
+            trim($source . ($badge !== '' ? ' - Indicateur: ' . $badge : '')),
+            agenda_preview_task_priority($score, $index),
+            $actionUrl,
+            $sourceType
+        );
+    }
+
+    if ($tasks !== []) {
+        return array_slice($tasks, 0, 4);
+    }
+
+    $agendaTasks = is_array($definition['agendaTasks'] ?? null) ? $definition['agendaTasks'] : [];
+
+    foreach ($agendaTasks as $index => $agendaTask) {
+        if (!is_array($agendaTask)) {
+            continue;
+        }
+        $sourceType = (string) ($agendaTask['sourceType'] ?? 'task');
+        $offsetDays = (int) ($agendaTask['offsetDays'] ?? ($index + 1));
+        $start = (new DateTimeImmutable('today'))->modify('+' . max(0, $offsetDays) . ' days')->setTime(9, 0, 0);
+        $tasks[] = agenda_external_task(
+            $label,
+            $moduleId . ':' . $sourceType . ':' . $index,
+            (string) ($agendaTask['title'] ?? $label),
+            agenda_sql_datetime($start),
+            (string) ($agendaTask['description'] ?? ''),
+            (string) ($agendaTask['priority'] ?? 'normal'),
+            $href,
+            $sourceType
+        );
+    }
+
+    return $tasks;
 }
 
 function agenda_collect_flowcean_tasks(PDO $pdo, array $user): array

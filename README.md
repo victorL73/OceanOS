@@ -75,9 +75,9 @@ Les applications concernées actuellement sont :
 - MeetOcean
 - Backup
 
-## Modules en vue preparatoire
+## Modules de consolidation
 
-Les modules suivants disposent d'une premiere vue OceanOS sans backend dedie ni tables propres pour l'instant :
+Les modules suivants disposent d'une vue OceanOS sans tables propres pour l'instant, mais raccordee aux donnees existantes de l'ERP :
 
 - PilotOcean : cockpit ERP et priorites transversales.
 - Portail Client : espace client pour documents, commandes et SAV.
@@ -85,6 +85,14 @@ Les modules suivants disposent d'une premiere vue OceanOS sans backend dedie ni 
 - ContratOcean : contrats, abonnements, garanties et renouvellements.
 - QualiOcean : checklists qualite, controles, non-conformites et audits.
 - DataOcean : BI, KPI, rapports et exports.
+
+Leur couche de consolidation est centralisee dans `OceanOS/api/module_preview.php` et exposee aux vues par `OceanOS/api/module_preview_data.php`. Elle lit les tables Invocean, Devis, Stockcean, Tresorcean, NautiCRM, Prospection, NautiMail, Nautisign, Formcean, Agenda et SeoCean quand elles existent.
+
+Cette couche alimente aussi :
+
+- les droits modules OceanOS
+- le centre de notifications, avec les alertes quotidiennes des modules visibles
+- Agenda, avec des taches basees sur les priorites consolidees et filtrables dans les parametres Agenda
 
 ## Page de configuration serveur
 

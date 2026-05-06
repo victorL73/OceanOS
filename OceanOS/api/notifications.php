@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/module_preview.php';
 
 function oceanos_dispatch_module_notifications(PDO $pdo, int $userId): void
 {
@@ -52,6 +53,12 @@ function oceanos_dispatch_module_notifications(PDO $pdo, int $userId): void
         } catch (Throwable $exception) {
             // Les notifications OceanOS restent disponibles meme si un module optionnel echoue.
         }
+    }
+
+    try {
+        oceanos_dispatch_preview_module_notifications($pdo, $userId);
+    } catch (Throwable $exception) {
+        // Les notifications natives restent disponibles meme si la couche de prefiguration echoue.
     }
 }
 

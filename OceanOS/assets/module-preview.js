@@ -1,4 +1,5 @@
 const AUTH_URL = "/OceanOS/api/auth.php";
+const MODULE_DATA_URL = "/OceanOS/api/module_preview_data.php";
 
 const moduleCatalog = {
   pilotocean: {
@@ -236,6 +237,9 @@ const $ = (id) => document.getElementById(id);
 const state = {
   query: "",
   activeTab: "",
+  moduleData: null,
+  loadingData: false,
+  dataError: "",
 };
 
 function escapeHtml(value) {
@@ -256,11 +260,26 @@ function normalize(value) {
 
 function config() {
   const moduleId = document.body.dataset.module || "pilotocean";
-  return moduleCatalog[moduleId] || moduleCatalog.pilotocean;
+  const fallback = moduleCatalog[moduleId] || moduleCatalog.pilotocean;
+  const data = state.moduleData?.moduleId === moduleId ? state.moduleData : null;
+  if (!data) return fallback;
+
+  return {
+    ...fallback,
+    status: "Donnees reliees",
+    metrics: rowsOrFallback(data.metrics, fallback.metrics),
+    priorities: rowsOrFallback(data.priorities, fallback.priorities),
+    flows: rowsOrFallback(data.flows, fallback.flows),
+    statusRows: rowsOrFallback(data.statusRows, rowsOrFallback(data.sources, fallback.statusRows)),
+  };
 }
 
 function currentModuleId() {
   return document.body.dataset.module || "pilotocean";
+}
+
+function rowsOrFallback(rows, fallback) {
+  return Array.isArray(rows) && rows.length > 0 ? rows : fallback;
 }
 
 function userCanOpenModule(user) {
@@ -280,7 +299,7 @@ function setVisible(ready) {
 function rowMatches(row) {
   const query = normalize(state.query);
   if (!query) return true;
-  return normalize(row.join(" ")).includes(query);
+  return normalize(row.filter(Boolean).join(" ")).includes(query);
 }
 
 function renderMetrics(moduleConfig) {
@@ -304,14 +323,17 @@ function renderPriorities(moduleConfig) {
   if (rows.length === 0) {
     return '<div class="empty-state">Aucun element ne correspond a la recherche.</div>';
   }
-  return rows.map(([title, source, badge]) => `
+  return rows.map(([title, source, badge, actionUrl]) => `
     <article class="priority-item">
       <div>
         <span class="item-kicker">${escapeHtml(state.activeTab)}</span>
         <strong>${escapeHtml(title)}</strong>
         <p>${escapeHtml(source)}</p>
       </div>
-      <span class="item-badge">${escapeHtml(badge)}</span>
+      <div class="priority-actions">
+        <span class="item-badge">${escapeHtml(badge)}</span>
+        ${actionUrl ? `<a class="ghost-link compact-link" href="${escapeHtml(actionUrl)}">Ouvrir</a>` : ""}
+      </div>
     </article>
   `).join("");
 }
@@ -321,11 +343,15 @@ function renderFlows(moduleConfig) {
   if (rows.length === 0) {
     return '<tr><td colspan="3">Aucun flux trouve.</td></tr>';
   }
-  return rows.map(([flow, volume, status]) => `
+  return rows.map(([flow, volume, status, actionUrl]) => `
     <tr>
       <td><strong>${escapeHtml(flow)}</strong><small>${escapeHtml(state.activeTab)}</small></td>
       <td>${escapeHtml(volume)}</td>
-      <td><span class="status-pill">${escapeHtml(status)}</span></td>
+      <td>
+        ${actionUrl
+          ? `<a class="status-pill status-link" href="${escapeHtml(actionUrl)}">${escapeHtml(status)}</a>`
+          : `<span class="status-pill">${escapeHtml(status)}</span>`}
+      </td>
     </tr>
   `).join("");
 }
@@ -352,6 +378,17 @@ function renderMeta(moduleConfig) {
   return moduleConfig.tabs.map((tab) => `<span>${escapeHtml(tab)}</span>`).join("");
 }
 
+function renderDataNotice() {
+  if (state.loadingData) {
+    return '<p class="app-message">Connexion aux donnees ERP en cours.</p>';
+  }
+  if (!state.dataError) {
+    return "";
+  }
+
+  return `<p class="app-message" data-type="error">${escapeHtml(state.dataError)}</p>`;
+}
+
 function renderApp(user) {
   const moduleConfig = config();
   if (!state.activeTab) state.activeTab = moduleConfig.tabs[0];
@@ -370,6 +407,7 @@ function renderApp(user) {
         <p class="eyebrow">${escapeHtml(moduleConfig.eyebrow)}</p>
         <h1>${escapeHtml(moduleConfig.title)}</h1>
         <p>${escapeHtml(moduleConfig.subtitle)}</p>
+        ${renderDataNotice()}
       </div>
       <div class="topbar-actions">
         <a class="ghost-link" href="/OceanOS/">OceanOS</a>
@@ -406,8 +444,8 @@ function renderApp(user) {
             ${renderPriorities(moduleConfig)}
           </div>
           <div class="action-row">
-            <button class="ghost-button" type="button">Exporter</button>
-            <button class="primary-button" type="button">Nouvelle entree</button>
+            <a class="ghost-link" href="/Agenda/">Agenda</a>
+            <button class="primary-button" id="refresh-data-button" type="button">Actualiser</button>
           </div>
         </section>
 
@@ -436,7 +474,7 @@ function renderApp(user) {
           <div class="panel-header compact">
             <div>
               <p class="eyebrow">Configuration</p>
-              <h2>Module pret pour backend</h2>
+              <h2>Raccords modules</h2>
             </div>
           </div>
           ${renderStatusRows(moduleConfig)}
@@ -473,7 +511,40 @@ function renderApp(user) {
     });
   });
 
+  $("refresh-data-button")?.addEventListener("click", () => {
+    refreshModuleData(user);
+  });
+
   setVisible(true);
+}
+
+async function fetchModuleData() {
+  const response = await fetch(`${MODULE_DATA_URL}?module=${encodeURIComponent(currentModuleId())}`, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.message || "Donnees ERP indisponibles pour ce module.");
+  }
+
+  return payload;
+}
+
+async function refreshModuleData(user) {
+  state.loadingData = true;
+  state.dataError = "";
+  renderApp(user);
+
+  try {
+    state.moduleData = await fetchModuleData();
+  } catch (error) {
+    state.moduleData = null;
+    state.dataError = error?.message || "Donnees ERP indisponibles pour ce module.";
+  } finally {
+    state.loadingData = false;
+    renderApp(user);
+  }
 }
 
 async function boot() {
@@ -488,7 +559,9 @@ async function boot() {
       window.location.href = "/OceanOS/";
       return;
     }
-    renderApp(payload.user || null);
+    const user = payload.user || null;
+    renderApp(user);
+    refreshModuleData(user);
   } catch (error) {
     return;
   }
