@@ -7,6 +7,14 @@ const COMPANY_URL = "/OceanOS/api/company.php";
 
 const apps = [
   {
+    id: "pilotocean",
+    title: "PilotOcean",
+    subtitle: "Cockpit ERP, indicateurs et priorites transversales.",
+    href: "/PilotOcean/",
+    mark: "PI",
+    color: "#38a3ff",
+  },
+  {
     id: "agenda",
     title: "Agenda",
     subtitle: "Calendrier personnel, taches modules et reunions MeetOcean.",
@@ -47,6 +55,22 @@ const apps = [
     color: "#7ed66f",
   },
   {
+    id: "portailclient",
+    title: "Portail Client",
+    subtitle: "Espace client pour devis, factures, commandes, documents et SAV.",
+    href: "/PortailClient/",
+    mark: "PC",
+    color: "#1fd1b2",
+  },
+  {
+    id: "pimcean",
+    title: "PIMcean",
+    subtitle: "Catalogue produit, medias, variantes, marges et sync PrestaShop.",
+    href: "/PIMcean/",
+    mark: "PIM",
+    color: "#d8c45f",
+  },
+  {
     id: "sav",
     title: "SAV",
     subtitle: "Demandes clients PrestaShop, conversations et reponses support.",
@@ -63,12 +87,36 @@ const apps = [
     color: "#7ed66f",
   },
   {
+    id: "contratocean",
+    title: "ContratOcean",
+    subtitle: "Contrats, abonnements, garanties et renouvellements.",
+    href: "/ContratOcean/",
+    mark: "CT",
+    color: "#36c9b6",
+  },
+  {
+    id: "qualiocean",
+    title: "QualiOcean",
+    subtitle: "Checklists, controles, non-conformites et audits.",
+    href: "/QualiOcean/",
+    mark: "QL",
+    color: "#7ed66f",
+  },
+  {
     id: "tresorcean",
     title: "Tresorcean",
     subtitle: "Finance, tresorerie, benefices et TVA.",
     href: "/Tresorcean/",
     mark: "TR",
     color: "#256fbd",
+  },
+  {
+    id: "dataocean",
+    title: "DataOcean",
+    subtitle: "BI, KPI, rapports, analyses et exports OceanOS.",
+    href: "/DataOcean/",
+    mark: "DA",
+    color: "#9adf68",
   },
   {
     id: "nauticrm",

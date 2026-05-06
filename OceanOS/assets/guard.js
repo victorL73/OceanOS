@@ -13,14 +13,20 @@
     && (searchParams.has("invite") || searchParams.has("token"))
     && (searchParams.has("room") || searchParams.has("code"));
   const modulePaths = [
+    ["/pilotocean/", "pilotocean"],
     ["/agenda/", "agenda"],
     ["/flowcean/", "flowcean"],
     ["/invocean/", "invocean"],
     ["/devis/", "devis"],
     ["/commandes/", "commandes"],
+    ["/portailclient/", "portailclient"],
+    ["/pimcean/", "pimcean"],
     ["/sav/", "sav"],
     ["/stockcean/", "stockcean"],
+    ["/contratocean/", "contratocean"],
+    ["/qualiocean/", "qualiocean"],
     ["/tresorcean/", "tresorcean"],
+    ["/dataocean/", "dataocean"],
     ["/nauticrm/", "nauticrm"],
     ["/nautimail/", "nautimail"],
     ["/nautipost/", "nautipost"],

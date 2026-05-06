@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="OceanOS">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="OceanOS - Portail ERP central pour Agenda, Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
+  <meta name="description" content="OceanOS - Portail ERP central pour PilotOcean, Agenda, Flowcean, Invocean, Devis, Commandes, Portail Client, PIMcean, SAV, Stockcean, ContratOcean, QualiOcean, Tresorcean, DataOcean, NautiCRM, NautiMail, NautiPost, NautiCloud, Formcean, Nautisign, Naviplan, SeoCean, MeetOcean et Backup.">
   <link rel="stylesheet" href="assets/guard.css?v=20260506-mobile-menu">
   <link rel="stylesheet" href="assets/oceanos.css?v=20260503-git-revision-pill">
 </head>
@@ -34,13 +34,19 @@
         <p class="lead">Une seule connexion pour ouvrir vos applications internes et garder la session active sur tout le site.</p>
         <div class="mini-map" aria-hidden="true">
           <span>Agenda</span>
+          <span>PilotOcean</span>
           <span>Flowcean</span>
           <span>Invocean</span>
           <span>Devis</span>
           <span>Commandes</span>
+          <span>Portail Client</span>
+          <span>PIMcean</span>
           <span>SAV</span>
           <span>Stockcean</span>
+          <span>ContratOcean</span>
+          <span>QualiOcean</span>
           <span>Tresorcean</span>
+          <span>DataOcean</span>
           <span>NautiCRM</span>
           <span>NautiMail</span>
           <span>NautiPost</span>

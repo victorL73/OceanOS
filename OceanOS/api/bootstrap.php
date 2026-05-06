@@ -443,7 +443,32 @@ function oceanos_user_permissions(array $user): array
 
 function oceanos_available_module_ids(): array
 {
-    return ['agenda', 'flowcean', 'invocean', 'devis', 'commandes', 'sav', 'stockcean', 'tresorcean', 'nauticrm', 'prospection', 'nautimail', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean'];
+    return [
+        'pilotocean',
+        'agenda',
+        'flowcean',
+        'invocean',
+        'devis',
+        'commandes',
+        'portailclient',
+        'pimcean',
+        'sav',
+        'stockcean',
+        'contratocean',
+        'qualiocean',
+        'tresorcean',
+        'dataocean',
+        'nauticrm',
+        'prospection',
+        'nautimail',
+        'nautipost',
+        'nauticloud',
+        'formcean',
+        'nautisign',
+        'naviplan',
+        'visiocean',
+        'meetocean',
+    ];
 }
 
 function oceanos_normalize_visible_modules(mixed $modules, ?array $fallback = null): array
@@ -530,6 +555,14 @@ function oceanos_decode_visible_modules(?string $json): array
     $legacyModulesWithSav = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes', 'sav'];
     if (!in_array('tresorcean', $modules, true) && count(array_diff($legacyModulesWithSav, $modules)) === 0) {
         $modules[] = 'tresorcean';
+    }
+    $legacyModulesWithTresorcean = ['flowcean', 'invocean', 'stockcean', 'nautipost', 'nauticloud', 'formcean', 'nautisign', 'naviplan', 'visiocean', 'meetocean', 'agenda', 'nauticrm', 'nautimail', 'devis', 'commandes', 'sav', 'tresorcean'];
+    if (count(array_diff($legacyModulesWithTresorcean, $modules)) === 0) {
+        foreach (['pilotocean', 'portailclient', 'pimcean', 'contratocean', 'qualiocean', 'dataocean'] as $moduleId) {
+            if (!in_array($moduleId, $modules, true)) {
+                $modules[] = $moduleId;
+            }
+        }
     }
 
     return oceanos_normalize_visible_modules($modules);

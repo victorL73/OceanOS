@@ -8,14 +8,20 @@ OceanOS est le portail principal du dossier `www`. Il centralise la connexion, l
 www/
   admin/                 Page de configuration initiale serveur
   OceanOS/               Portail ERP, session centrale, comptes, IA Groq
+  PilotOcean/            Cockpit ERP, indicateurs et priorites transversales
   Agenda/                Agenda personnel, taches consolidees et reunions MeetOcean
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
   Devis/                 Devis PDF Renovboat depuis les produits PrestaShop
   Commandes/             Visualisation et traitement des commandes PrestaShop
+  PortailClient/         Espace client pour devis, factures, commandes, documents et SAV
+  PIMcean/               Catalogue produit, medias, variantes, marges et synchronisation PrestaShop
   SAV/                   Demandes clients PrestaShop et reponses support
   Stockcean/             Stocks, achats, fournisseurs et synchronisation PrestaShop
+  ContratOcean/          Contrats, abonnements, garanties et renouvellements
+  QualiOcean/            Checklists, controles, non-conformites et audits internes
   Tresorcean/            Finance, tresorerie, benefices et TVA
+  DataOcean/             BI, KPI, rapports, analyses et exports OceanOS
   NautiCRM/              CRM clients, contacts, relances, flux besoins recurrents et opportunites
   Prospection/           Prospects, templates mail, IA et transfert NautiCRM
   NautiMail/             Boites mail partagees, releve IMAP, tri IA et reponses SMTP
@@ -44,14 +50,20 @@ OceanOS est la passerelle d'entrée du CRM.
 
 Les applications concernées actuellement sont :
 
+- PilotOcean
 - Agenda
 - Flowcean
 - Invocean
 - Devis
 - Commandes
+- Portail Client
+- PIMcean
 - SAV
 - Stockcean
+- ContratOcean
+- QualiOcean
 - Tresorcean
+- DataOcean
 - NautiCRM
 - Prospection
 - NautiMail
@@ -62,6 +74,17 @@ Les applications concernées actuellement sont :
 - SeoCean
 - MeetOcean
 - Backup
+
+## Modules en vue preparatoire
+
+Les modules suivants disposent d'une premiere vue OceanOS sans backend dedie ni tables propres pour l'instant :
+
+- PilotOcean : cockpit ERP et priorites transversales.
+- Portail Client : espace client pour documents, commandes et SAV.
+- PIMcean : referentiel catalogue produit et publication PrestaShop.
+- ContratOcean : contrats, abonnements, garanties et renouvellements.
+- QualiOcean : checklists qualite, controles, non-conformites et audits.
+- DataOcean : BI, KPI, rapports et exports.
 
 ## Page de configuration serveur
 

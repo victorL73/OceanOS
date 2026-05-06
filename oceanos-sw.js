@@ -1,9 +1,11 @@
-const CACHE_NAME = "oceanos-pwa-20260506-mobile-menu";
+const CACHE_NAME = "oceanos-pwa-20260506-new-modules";
 const CORE_ASSETS = [
   "/OceanOS/",
   "/OceanOS/manifest.webmanifest",
   "/OceanOS/assets/guard.css",
   "/OceanOS/assets/guard.js",
+  "/OceanOS/assets/module-preview.css",
+  "/OceanOS/assets/module-preview.js",
   "/OceanOS/assets/oceanos.css",
   "/OceanOS/assets/oceanos.js",
   "/OceanOS/assets/favicons/oceanos.svg",
