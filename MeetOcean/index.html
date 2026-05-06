@@ -7,9 +7,9 @@
   <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/meetocean.svg?v=20260501">
   <meta name="description" content="MeetOcean - reunions video, transcription et traduction en temps reel.">
   <link rel="stylesheet" href="/OceanOS/assets/guard.css?v=20260506-mobile-menu">
-  <link rel="stylesheet" href="assets/style.css?v=20260502-meeting-reminders">
+  <link rel="stylesheet" href="assets/style.css?v=20260506-camera-backgrounds">
   <script defer src="/OceanOS/assets/guard.js?v=20260506-mobile-menu"></script>
-  <script defer src="assets/app.js?v=20260502-meeting-reminders"></script>
+  <script defer src="assets/app.js?v=20260506-camera-backgrounds"></script>
 </head>
 <body>
   <main class="app-shell">
@@ -157,6 +157,21 @@
               <label class="field hidden">
                 <span>Langue souhaitee</span>
                 <select id="active-target-language"></select>
+              </label>
+              <label class="field">
+                <span>Arriere-plan camera</span>
+                <select id="camera-background-effect">
+                  <option value="none">Aucun effet</option>
+                  <option value="blur">Flou</option>
+                  <option value="ocean">Fond ocean</option>
+                  <option value="studio">Fond studio</option>
+                  <option value="workshop">Fond atelier</option>
+                  <option value="custom">Image personnalisee</option>
+                </select>
+              </label>
+              <label class="field background-file-field hidden" id="camera-background-file-field">
+                <span>Image de fond</span>
+                <input id="camera-background-file" type="file" accept="image/*">
               </label>
             </div>
           </section>

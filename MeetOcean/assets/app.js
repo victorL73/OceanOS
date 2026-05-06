@@ -29,6 +29,9 @@ const elements = {
   targetLanguage: $("target-language"),
   activeSourceLanguage: $("active-source-language"),
   activeTargetLanguage: $("active-target-language"),
+  cameraBackgroundEffect: $("camera-background-effect"),
+  cameraBackgroundFileField: $("camera-background-file-field"),
+  cameraBackgroundFile: $("camera-background-file"),
   createRoomButton: $("create-room-button"),
   joinRoomButton: $("join-room-button"),
   recentRooms: $("recent-rooms"),
@@ -70,6 +73,9 @@ const state = {
   localStream: null,
   cameraStream: null,
   screenStream: null,
+  cameraBackgroundEffect: "none",
+  cameraBackgroundImage: null,
+  cameraBackgroundProcessor: null,
   peers: new Map(),
   videoTiles: new Map(),
   transcriptMap: new Map(),
@@ -318,6 +324,311 @@ function localInputToUtcSql(value) {
 function syncScheduledStartInput() {
   if (!elements.roomScheduledStart) return;
   elements.roomScheduledStart.min = localDatetimeValue(0);
+}
+
+const CAMERA_BACKGROUND_EFFECTS = new Set(["none", "blur", "ocean", "studio", "workshop", "custom"]);
+
+function loadCameraBackgroundPreference() {
+  try {
+    const saved = localStorage.getItem("meetocean_camera_background") || "none";
+    state.cameraBackgroundEffect = CAMERA_BACKGROUND_EFFECTS.has(saved) && saved !== "custom" ? saved : "none";
+  } catch (error) {
+    state.cameraBackgroundEffect = "none";
+  }
+}
+
+function saveCameraBackgroundPreference() {
+  try {
+    if (state.cameraBackgroundEffect === "custom") return;
+    localStorage.setItem("meetocean_camera_background", state.cameraBackgroundEffect);
+  } catch (error) {}
+}
+
+function syncCameraBackgroundControls() {
+  if (!elements.cameraBackgroundEffect) return;
+  elements.cameraBackgroundEffect.value = state.cameraBackgroundEffect;
+  elements.cameraBackgroundFileField?.classList.toggle("hidden", state.cameraBackgroundEffect !== "custom");
+}
+
+function cameraBackgroundUsesProcessor() {
+  return state.cameraBackgroundEffect !== "none";
+}
+
+function drawCoverSource(ctx, source, width, height) {
+  const sourceWidth = source.videoWidth || source.naturalWidth || width;
+  const sourceHeight = source.videoHeight || source.naturalHeight || height;
+  const scale = Math.max(width / sourceWidth, height / sourceHeight);
+  const drawWidth = sourceWidth * scale;
+  const drawHeight = sourceHeight * scale;
+  const x = (width - drawWidth) / 2;
+  const y = (height - drawHeight) / 2;
+  ctx.drawImage(source, x, y, drawWidth, drawHeight);
+}
+
+function drawStudioBackground(ctx, width, height) {
+  const wall = ctx.createLinearGradient(0, 0, width, height);
+  wall.addColorStop(0, "#e8edf0");
+  wall.addColorStop(0.48, "#cad6dc");
+  wall.addColorStop(1, "#9aa9b3");
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "rgba(255,255,255,0.34)";
+  for (let index = 0; index < 5; index += 1) {
+    const x = width * (0.12 + index * 0.18);
+    ctx.fillRect(x, height * 0.12, 2, height * 0.76);
+  }
+  ctx.fillStyle = "rgba(28,45,55,0.18)";
+  ctx.fillRect(0, height * 0.74, width, height * 0.26);
+}
+
+function drawOceanBackground(ctx, width, height) {
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, "#d7f0ff");
+  sky.addColorStop(0.48, "#84c7df");
+  sky.addColorStop(0.49, "#1d7f9c");
+  sky.addColorStop(1, "#0c506c");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.beginPath();
+  ctx.arc(width * 0.78, height * 0.18, Math.min(width, height) * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.26)";
+  ctx.lineWidth = Math.max(2, width * 0.003);
+  for (let index = 0; index < 8; index += 1) {
+    const y = height * (0.56 + index * 0.045);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(width * 0.25, y - 16, width * 0.48, y + 18, width, y - 6);
+    ctx.stroke();
+  }
+}
+
+function drawWorkshopBackground(ctx, width, height) {
+  const wall = ctx.createLinearGradient(0, 0, width, height);
+  wall.addColorStop(0, "#d8e2df");
+  wall.addColorStop(1, "#738784");
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "rgba(23,33,31,0.16)";
+  ctx.fillRect(width * 0.08, height * 0.16, width * 0.84, height * 0.08);
+  ctx.fillRect(width * 0.1, height * 0.32, width * 0.78, height * 0.06);
+  ctx.fillStyle = "rgba(22,143,131,0.28)";
+  ctx.fillRect(width * 0.12, height * 0.49, width * 0.76, height * 0.05);
+  ctx.fillStyle = "rgba(23,33,31,0.26)";
+  ctx.fillRect(0, height * 0.76, width, height * 0.24);
+}
+
+function drawSelectedVirtualBackground(processor, width, height) {
+  const { ctx, sourceVideo } = processor;
+  const effect = state.cameraBackgroundEffect;
+
+  if (effect === "blur") {
+    ctx.save();
+    ctx.filter = "blur(22px) saturate(1.08)";
+    drawCoverSource(ctx, sourceVideo, width, height);
+    ctx.restore();
+    return;
+  }
+
+  if (effect === "custom" && state.cameraBackgroundImage) {
+    drawCoverSource(ctx, state.cameraBackgroundImage, width, height);
+    return;
+  }
+
+  if (effect === "ocean") {
+    drawOceanBackground(ctx, width, height);
+    return;
+  }
+
+  if (effect === "workshop") {
+    drawWorkshopBackground(ctx, width, height);
+    return;
+  }
+
+  drawStudioBackground(ctx, width, height);
+}
+
+function drawSoftPortraitForeground(processor, width, height) {
+  const { ctx, sourceVideo, foregroundCanvas, maskCanvas } = processor;
+  foregroundCanvas.width = width;
+  foregroundCanvas.height = height;
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+
+  const fg = foregroundCanvas.getContext("2d");
+  fg.clearRect(0, 0, width, height);
+  drawCoverSource(fg, sourceVideo, width, height);
+
+  const mask = maskCanvas.getContext("2d");
+  mask.clearRect(0, 0, width, height);
+  mask.filter = `blur(${Math.max(18, Math.round(width * 0.025))}px)`;
+  mask.fillStyle = "#000";
+  mask.beginPath();
+  mask.ellipse(width * 0.5, height * 0.48, width * 0.31, height * 0.52, 0, 0, Math.PI * 2);
+  mask.fill();
+  mask.filter = "none";
+
+  fg.globalCompositeOperation = "destination-in";
+  fg.drawImage(maskCanvas, 0, 0);
+  fg.globalCompositeOperation = "source-over";
+
+  ctx.drawImage(foregroundCanvas, 0, 0);
+}
+
+function stopCameraBackgroundProcessor() {
+  const processor = state.cameraBackgroundProcessor;
+  if (!processor) return;
+
+  window.cancelAnimationFrame(processor.animationFrame);
+  processor.outputTrack?.stop();
+  processor.sourceVideo.pause();
+  processor.sourceVideo.srcObject = null;
+  state.cameraBackgroundProcessor = null;
+}
+
+async function startCameraBackgroundProcessor(sourceTrack) {
+  if (!sourceTrack || sourceTrack.readyState !== "live") return null;
+  if (!HTMLCanvasElement.prototype.captureStream) {
+    throw new Error("Effets camera indisponibles dans ce navigateur.");
+  }
+
+  const sourceStream = new MediaStream([sourceTrack]);
+  const sourceVideo = document.createElement("video");
+  sourceVideo.muted = true;
+  sourceVideo.playsInline = true;
+  sourceVideo.srcObject = sourceStream;
+  await sourceVideo.play();
+
+  const settings = sourceTrack.getSettings ? sourceTrack.getSettings() : {};
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const foregroundCanvas = document.createElement("canvas");
+  const maskCanvas = document.createElement("canvas");
+  const frameRate = Math.min(30, Number(settings.frameRate || 24) || 24);
+  const outputStream = canvas.captureStream(frameRate);
+  const outputTrack = outputStream.getVideoTracks()[0] || null;
+  if (!ctx || !outputTrack) {
+    throw new Error("Effets camera indisponibles dans ce navigateur.");
+  }
+
+  outputTrack.enabled = sourceTrack.enabled;
+  const processor = {
+    sourceTrack,
+    sourceVideo,
+    canvas,
+    ctx,
+    foregroundCanvas,
+    maskCanvas,
+    outputStream,
+    outputTrack,
+    animationFrame: 0,
+  };
+
+  const draw = () => {
+    if (state.cameraBackgroundProcessor !== processor || sourceTrack.readyState !== "live") {
+      return;
+    }
+
+    const width = sourceVideo.videoWidth || Number(settings.width || 1280);
+    const height = sourceVideo.videoHeight || Number(settings.height || 720);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    drawSelectedVirtualBackground(processor, width, height);
+    drawSoftPortraitForeground(processor, width, height);
+    outputTrack.enabled = sourceTrack.enabled;
+    processor.animationFrame = window.requestAnimationFrame(draw);
+  };
+
+  state.cameraBackgroundProcessor = processor;
+  draw();
+  return outputTrack;
+}
+
+function activeCameraSourceTrack() {
+  return state.cameraStream?.getVideoTracks().find((track) => track.readyState === "live") || null;
+}
+
+async function applyCameraBackgroundEffect(options = {}) {
+  const { sync = true, quiet = false } = options;
+  if (!state.localStream || state.media.screen) return;
+
+  const sourceTrack = activeCameraSourceTrack();
+  stopCameraBackgroundProcessor();
+
+  if (!sourceTrack || !sourceTrack.enabled) {
+    replaceLocalVideoTrack(null);
+    refreshMediaStateFromTracks();
+    updateControlButtons();
+    if (sync) void syncNow();
+    return;
+  }
+
+  let nextTrack = sourceTrack;
+  if (cameraBackgroundUsesProcessor()) {
+    try {
+      nextTrack = await startCameraBackgroundProcessor(sourceTrack);
+    } catch (error) {
+      state.cameraBackgroundEffect = "none";
+      syncCameraBackgroundControls();
+      saveCameraBackgroundPreference();
+      nextTrack = sourceTrack;
+      if (!quiet) {
+        setMessage(error.message || "Effet camera indisponible, camera normale active.", "info");
+      }
+    }
+  }
+
+  replaceLocalVideoTrack(nextTrack);
+  refreshMediaStateFromTracks();
+  updateControlButtons();
+  renderVideos();
+  if (sync) void syncNow();
+}
+
+async function changeCameraBackgroundEffect() {
+  const selected = elements.cameraBackgroundEffect?.value || "none";
+  if (selected === "custom" && !state.cameraBackgroundImage) {
+    elements.cameraBackgroundEffect.value = state.cameraBackgroundEffect;
+    elements.cameraBackgroundFileField?.classList.remove("hidden");
+    setMessage("Choisissez une image de fond pour l'activer.", "info");
+    elements.cameraBackgroundFile?.click();
+    return;
+  }
+
+  state.cameraBackgroundEffect = CAMERA_BACKGROUND_EFFECTS.has(selected) ? selected : "none";
+  syncCameraBackgroundControls();
+  saveCameraBackgroundPreference();
+  await applyCameraBackgroundEffect();
+}
+
+async function loadCustomCameraBackground() {
+  const file = elements.cameraBackgroundFile?.files?.[0] || null;
+  if (!file) return;
+
+  const image = new Image();
+  const url = URL.createObjectURL(file);
+  try {
+    image.src = url;
+    await image.decode();
+    state.cameraBackgroundImage = image;
+    state.cameraBackgroundEffect = "custom";
+    syncCameraBackgroundControls();
+    await applyCameraBackgroundEffect();
+    setMessage("Fond camera personnalise active.", "success");
+  } catch (error) {
+    setMessage("Image de fond illisible.", "error");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function initials(name) {
@@ -770,6 +1081,10 @@ async function ensureLocalMedia(options = {}) {
     }
   }
 
+  if (needsVideo && !state.media.screen) {
+    await applyCameraBackgroundEffect({ sync: false, quiet: true });
+  }
+
   refreshMediaStateFromTracks();
   attachLocalTracksToPeers();
   renderVideos();
@@ -852,6 +1167,8 @@ async function toggleCamera() {
     track.enabled = enabled;
   });
   if (!state.media.screen) {
+    await applyCameraBackgroundEffect({ sync: false });
+  } else {
     state.localStream?.getVideoTracks().forEach((track) => {
       track.enabled = enabled;
     });
@@ -880,6 +1197,7 @@ async function shareScreen() {
     const [screenTrack] = state.screenStream.getVideoTracks();
     if (!screenTrack) return;
     screenTrack.onended = () => stopScreenShare();
+    stopCameraBackgroundProcessor();
     state.media.screen = true;
     replaceLocalVideoTrack(screenTrack);
     updateControlButtons();
@@ -893,10 +1211,8 @@ function stopScreenShare() {
   state.screenStream?.getTracks().forEach((track) => track.stop());
   state.screenStream = null;
   state.media.screen = false;
-  const cameraTrack = state.cameraStream?.getVideoTracks()[0] || null;
-  replaceLocalVideoTrack(cameraTrack && state.media.camera ? cameraTrack : null);
+  void applyCameraBackgroundEffect();
   updateControlButtons();
-  void syncNow();
 }
 
 function shouldInitiate(peerId) {
@@ -1216,6 +1532,7 @@ async function leaveRoom() {
 function cleanupMeeting() {
   stopSyncLoop();
   stopRecognition();
+  stopCameraBackgroundProcessor();
   state.recognitionShouldRun = false;
   clearPendingTranscript();
   state.peers.forEach((peer) => peer.pc.close());
@@ -1621,6 +1938,8 @@ function bindEvents() {
   elements.translationToggle.addEventListener("change", toggleTranslation);
   elements.activeSourceLanguage.addEventListener("change", changeActiveLanguage);
   elements.activeTargetLanguage.addEventListener("change", changeActiveLanguage);
+  elements.cameraBackgroundEffect?.addEventListener("change", () => void changeCameraBackgroundEffect());
+  elements.cameraBackgroundFile?.addEventListener("change", () => void loadCustomCameraBackground());
   elements.sourceLanguage.addEventListener("change", changeStartLanguage);
   elements.targetLanguage.addEventListener("change", changeStartLanguage);
   elements.clearTranscriptButton.addEventListener("click", () => {
@@ -1671,6 +1990,8 @@ async function loadDashboard(showReadyMessage = true) {
 }
 
 async function boot() {
+  loadCameraBackgroundPreference();
+  syncCameraBackgroundControls();
   bindEvents();
   renderParticipants();
   renderTranscripts();

@@ -360,6 +360,10 @@ select:disabled {
   padding: 9px 12px;
 }
 
+.field input[type="file"] {
+  padding: 8px 10px;
+}
+
 .field input:focus,
 .field select:focus {
   border-color: rgba(22, 143, 131, 0.68);
