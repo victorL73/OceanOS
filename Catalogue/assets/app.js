@@ -69,6 +69,10 @@ const elements = {
   authEmail: $("auth-email"),
   authPassword: $("auth-password"),
   authSubmitButton: $("auth-submit-button"),
+  productDetailModal: $("product-detail-modal"),
+  productDetailTitle: $("product-detail-title"),
+  productDetailContent: $("product-detail-content"),
+  closeProductDetailButton: $("close-product-detail-button"),
 };
 
 const state = {
@@ -84,6 +88,7 @@ const state = {
   authMode: "login",
   cart: loadCart(),
   selectedProductId: null,
+  detailProductId: null,
 };
 
 const money = new Intl.NumberFormat("fr-FR", {
@@ -169,10 +174,10 @@ function applyDashboard(payload) {
   state.orders = Array.isArray(payload.orders) ? payload.orders : [];
   state.client = payload.client || null;
   state.internalUser = payload.internalUser || null;
-  state.isBackoffice = Boolean(payload.isBackoffice);
+  state.isBackoffice = Boolean(payload.isBackoffice) && !state.client;
   state.canSeePrices = Boolean(payload.canSeePrices);
   state.company = payload.company || null;
-  state.backoffice = payload.backoffice || null;
+  state.backoffice = state.isBackoffice ? payload.backoffice || null : null;
   if (!state.isBackoffice && state.activeView === "backoffice") {
     state.activeView = "front";
   }
@@ -215,6 +220,10 @@ function productById(productId) {
   return state.products.find((product) => Number(product.id) === Number(productId))
     || state.backoffice?.products?.find((product) => Number(product.id) === Number(productId))
     || null;
+}
+
+function detailProduct() {
+  return state.detailProductId ? productById(state.detailProductId) : null;
 }
 
 function productInitials(product) {
@@ -321,7 +330,7 @@ function renderProducts() {
       : `<button class="ghost-button compact" data-open-auth type="button">Connexion</button>`;
 
     return `
-      <article class="product-card">
+      <article class="product-card" data-view-product="${product.id}" tabindex="0" role="button" aria-label="Voir ${escapeHtml(product.name || "produit")}">
         <div class="product-media">
           ${image}
           ${product.featured ? '<span class="product-badge">Selection</span>' : ""}
@@ -434,6 +443,7 @@ function renderAdminProducts() {
             <span>${escapeHtml(product.reference || "Sans ref")}</span>
             <span>${escapeHtml(product.category || "Sans categorie")}</span>
             <span class="source-pill">${escapeHtml(product.source || "manual")}</span>
+            ${product.prestashopSyncLocked ? '<span class="lock-pill">Sync protegee</span>' : ""}
             <span>${product.active ? "Actif" : "Masque"}</span>
           </div>
         </div>
@@ -552,6 +562,60 @@ function renderAuthModal() {
   elements.authPassword.autocomplete = isRegister ? "new-password" : "current-password";
 }
 
+function renderProductDetail() {
+  const product = detailProduct();
+  elements.productDetailModal.classList.toggle("hidden", !product);
+  if (!product) {
+    elements.productDetailContent.innerHTML = "";
+    return;
+  }
+
+  const images = Array.isArray(product.images) && product.images.length > 0
+    ? product.images.map((image) => image.imageUrl).filter(Boolean)
+    : (product.imageUrl ? [product.imageUrl] : []);
+  const imageMarkup = images.length > 0
+    ? `<img src="${escapeHtml(images[0])}" alt="${escapeHtml(product.name || "Produit")}">`
+    : `<div class="product-placeholder">${escapeHtml(productInitials(product))}</div>`;
+  const galleryMarkup = images.length > 1
+    ? `<div class="detail-gallery">${images.slice(1, 5).map((url) => `<img src="${escapeHtml(url)}" alt="${escapeHtml(product.name || "Produit")}">`).join("")}</div>`
+    : "";
+  const description = product.description || product.shortDescription || "Description indisponible.";
+  const price = state.canSeePrices
+    ? `<strong class="price">${escapeHtml(money.format(productPriceTtc(product)))}</strong>`
+    : '<strong class="price locked">Prix visible apres connexion</strong>';
+  const action = state.canSeePrices
+    ? `<button class="primary-button" data-detail-add="${product.id}" type="button">Ajouter au panier</button>`
+    : '<button class="primary-button" data-detail-auth type="button">Se connecter</button>';
+
+  elements.productDetailTitle.textContent = product.name || "Produit";
+  elements.productDetailContent.innerHTML = `
+    <div class="product-detail-grid">
+      <div class="product-detail-media">
+        ${imageMarkup}
+        ${galleryMarkup}
+      </div>
+      <div class="product-detail-body">
+        <div class="detail-tags">
+          ${product.sku ? `<span>SKU ${escapeHtml(product.sku)}</span>` : ""}
+          ${product.reference ? `<span>Ref. ${escapeHtml(product.reference)}</span>` : ""}
+          ${product.category ? `<span>${escapeHtml(product.category)}</span>` : ""}
+          ${product.brand ? `<span>${escapeHtml(product.brand)}</span>` : ""}
+        </div>
+        <p class="detail-description">${escapeHtml(description).replace(/\n/g, "<br>")}</p>
+        <div class="detail-meta">
+          <span>Unite</span><strong>${escapeHtml(product.unit || "piece")}</strong>
+          <span>Stock</span><strong>${escapeHtml(String(product.stockQuantity ?? 0))}</strong>
+          <span>TVA</span><strong>${escapeHtml(String(product.taxRate ?? 20))} %</strong>
+        </div>
+        <div class="detail-actions">
+          ${price}
+          ${action}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function render() {
   renderChrome();
   renderMetrics();
@@ -561,6 +625,7 @@ function render() {
   renderOrders();
   renderBackoffice();
   renderAuthModal();
+  renderProductDetail();
 }
 
 function openAuth(mode = "login") {
@@ -572,6 +637,16 @@ function openAuth(mode = "login") {
 
 function closeAuth() {
   elements.authModal.classList.add("hidden");
+}
+
+function openProductDetail(productId) {
+  state.detailProductId = Number(productId);
+  renderProductDetail();
+}
+
+function closeProductDetail() {
+  state.detailProductId = null;
+  renderProductDetail();
 }
 
 function addToCart(productId) {
@@ -765,6 +840,7 @@ function installListeners() {
     render();
   });
   elements.backofficeTabButton.addEventListener("click", () => {
+    if (!state.isBackoffice) return;
     state.activeView = "backoffice";
     render();
   });
@@ -783,8 +859,35 @@ function installListeners() {
       return;
     }
     const button = event.target.closest("[data-add-product]");
-    if (button) addToCart(button.dataset.addProduct);
+    if (button) {
+      addToCart(button.dataset.addProduct);
+      return;
+    }
+    const card = event.target.closest("[data-view-product]");
+    if (card) openProductDetail(card.dataset.viewProduct);
   });
+  elements.productGrid.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    if (event.target.closest("button, a, input, select, textarea")) return;
+    const card = event.target.closest("[data-view-product]");
+    if (!card) return;
+    event.preventDefault();
+    openProductDetail(card.dataset.viewProduct);
+  });
+  elements.productDetailModal.addEventListener("click", (event) => {
+    if (event.target === elements.productDetailModal) {
+      closeProductDetail();
+      return;
+    }
+    if (event.target.closest("[data-detail-auth]")) {
+      closeProductDetail();
+      openAuth("login");
+      return;
+    }
+    const addButton = event.target.closest("[data-detail-add]");
+    if (addButton) addToCart(addButton.dataset.detailAdd);
+  });
+  elements.closeProductDetailButton.addEventListener("click", closeProductDetail);
   elements.cartList.addEventListener("change", (event) => {
     const input = event.target.closest("[data-cart-quantity]");
     if (input) updateCartQuantity(input.dataset.cartQuantity, input.value);
@@ -818,7 +921,10 @@ function installListeners() {
   });
   elements.authForm.addEventListener("submit", (event) => { void submitAuth(event); });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeAuth();
+    if (event.key === "Escape") {
+      closeProductDetail();
+      closeAuth();
+    }
   });
 }
 

@@ -113,6 +113,8 @@ function catalogue_ensure_schema(PDO $pdo): void
             prestashop_image_id BIGINT UNSIGNED NULL,
             prestashop_updated_at VARCHAR(80) NULL,
             synced_at DATETIME NULL,
+            prestashop_sync_locked TINYINT(1) NOT NULL DEFAULT 0,
+            local_override_at DATETIME NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_catalogue_products_prestashop (prestashop_id),
@@ -161,6 +163,8 @@ function catalogue_ensure_schema(PDO $pdo): void
 
     catalogue_ensure_column($pdo, 'catalogue_products', 'prestashop_image_id', 'BIGINT UNSIGNED NULL');
     catalogue_ensure_column($pdo, 'catalogue_products', 'sku', 'VARCHAR(160) NULL AFTER reference');
+    catalogue_ensure_column($pdo, 'catalogue_products', 'prestashop_sync_locked', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER synced_at');
+    catalogue_ensure_column($pdo, 'catalogue_products', 'local_override_at', 'DATETIME NULL AFTER prestashop_sync_locked');
     catalogue_ensure_column($pdo, 'catalogue_orders', 'pdf_file_path', 'VARCHAR(500) NULL');
     catalogue_backfill_product_skus($pdo);
     catalogue_ensure_unique_sku_index($pdo);
@@ -300,6 +304,9 @@ function catalogue_require_admin(PDO $pdo): array
     $user = oceanos_current_user($pdo);
     if (!catalogue_is_admin($user)) {
         throw new CatalogueForbiddenException('Acces backoffice reserve aux administrateurs OceanOS.');
+    }
+    if (catalogue_current_client($pdo) !== null) {
+        throw new CatalogueForbiddenException('Deconnectez la session client catalogue avant d ouvrir le backoffice.');
     }
 
     return $user;
@@ -578,6 +585,8 @@ function catalogue_public_product(array $row, bool $includePrices = false, array
         'unit' => (string) ($row['unit'] ?? 'piece'),
         'active' => (int) ($row['active'] ?? 1) === 1,
         'featured' => (int) ($row['featured'] ?? 0) === 1,
+        'prestashopSyncLocked' => (int) ($row['prestashop_sync_locked'] ?? 0) === 1,
+        'localOverrideAt' => (string) ($row['local_override_at'] ?? ''),
         'imageUrl' => catalogue_product_image_url($row, $images),
         'images' => $images,
         'syncedAt' => (string) ($row['synced_at'] ?? ''),
@@ -657,6 +666,7 @@ function catalogue_admin_stats(PDO $pdo): array
         'products' => (int) $pdo->query('SELECT COUNT(*) FROM catalogue_products')->fetchColumn(),
         'activeProducts' => (int) $pdo->query('SELECT COUNT(*) FROM catalogue_products WHERE active = 1')->fetchColumn(),
         'prestashopProducts' => (int) $pdo->query("SELECT COUNT(*) FROM catalogue_products WHERE source = 'prestashop'")->fetchColumn(),
+        'lockedPrestashopProducts' => (int) $pdo->query("SELECT COUNT(*) FROM catalogue_products WHERE source = 'prestashop' AND prestashop_sync_locked = 1")->fetchColumn(),
         'manualProducts' => (int) $pdo->query("SELECT COUNT(*) FROM catalogue_products WHERE source = 'manual'")->fetchColumn(),
         'orders' => (int) $pdo->query('SELECT COUNT(*) FROM catalogue_orders')->fetchColumn(),
     ];
@@ -667,22 +677,23 @@ function catalogue_dashboard(PDO $pdo): array
     $internalUser = oceanos_current_user($pdo);
     $client = catalogue_current_client($pdo);
     $isAdmin = catalogue_is_admin($internalUser);
-    $canSeePrices = $client !== null || $isAdmin;
+    $isBackoffice = $isAdmin && $client === null;
+    $canSeePrices = $client !== null || $isBackoffice;
 
     $payload = [
         'ok' => true,
         'managedBy' => 'OceanOS',
         'clientAuthenticated' => $client !== null,
         'client' => $client ? catalogue_public_client($client) : null,
-        'internalUser' => $internalUser ? oceanos_public_user($internalUser) : null,
-        'isBackoffice' => $isAdmin,
+        'internalUser' => $isBackoffice && $internalUser ? oceanos_public_user($internalUser) : null,
+        'isBackoffice' => $isBackoffice,
         'canSeePrices' => $canSeePrices,
         'products' => catalogue_list_products($pdo, false, $canSeePrices),
         'orders' => $client ? catalogue_client_orders($pdo, (int) $client['id']) : [],
         'company' => devis_public_company_settings($pdo),
     ];
 
-    if ($isAdmin) {
+    if ($isBackoffice) {
         $payload['backoffice'] = [
             'products' => catalogue_list_products($pdo, true, true),
             'orders' => catalogue_admin_orders($pdo),
@@ -740,19 +751,19 @@ function catalogue_sync_prestashop(PDO $pdo): array
             (:prestashop_id, "prestashop", :reference, :sku, :name, :slug, :short_description, :description, :price_ht, :tax_rate, :active, :prestashop_image_id, :prestashop_updated_at, NOW())
          ON DUPLICATE KEY UPDATE
             source = "prestashop",
-            reference = VALUES(reference),
-            sku = VALUES(sku),
-            name = VALUES(name),
-            slug = VALUES(slug),
-            short_description = VALUES(short_description),
-            description = VALUES(description),
-            price_ht = VALUES(price_ht),
-            tax_rate = VALUES(tax_rate),
-            active = VALUES(active),
-            prestashop_image_id = VALUES(prestashop_image_id),
+            reference = CASE WHEN prestashop_sync_locked = 1 THEN reference ELSE VALUES(reference) END,
+            sku = CASE WHEN prestashop_sync_locked = 1 THEN sku ELSE VALUES(sku) END,
+            name = CASE WHEN prestashop_sync_locked = 1 THEN name ELSE VALUES(name) END,
+            slug = CASE WHEN prestashop_sync_locked = 1 THEN slug ELSE VALUES(slug) END,
+            short_description = CASE WHEN prestashop_sync_locked = 1 THEN short_description ELSE VALUES(short_description) END,
+            description = CASE WHEN prestashop_sync_locked = 1 THEN description ELSE VALUES(description) END,
+            price_ht = CASE WHEN prestashop_sync_locked = 1 THEN price_ht ELSE VALUES(price_ht) END,
+            tax_rate = CASE WHEN prestashop_sync_locked = 1 THEN tax_rate ELSE VALUES(tax_rate) END,
+            active = CASE WHEN prestashop_sync_locked = 1 THEN active ELSE VALUES(active) END,
+            prestashop_image_id = CASE WHEN prestashop_sync_locked = 1 THEN prestashop_image_id ELSE VALUES(prestashop_image_id) END,
             prestashop_updated_at = VALUES(prestashop_updated_at),
             synced_at = NOW(),
-            updated_at = NOW()'
+            updated_at = CASE WHEN prestashop_sync_locked = 1 THEN updated_at ELSE NOW() END'
     );
 
     foreach ($products as $product) {
@@ -788,6 +799,15 @@ function catalogue_sync_prestashop(PDO $pdo): array
 function catalogue_save_product(PDO $pdo, array $input): array
 {
     $id = (int) ($input['id'] ?? 0);
+    $existingProduct = null;
+    if ($id > 0) {
+        $existingStatement = $pdo->prepare('SELECT * FROM catalogue_products WHERE id = :id LIMIT 1');
+        $existingStatement->execute(['id' => $id]);
+        $existingProduct = $existingStatement->fetch();
+        if (!is_array($existingProduct)) {
+            throw new InvalidArgumentException('Produit introuvable.');
+        }
+    }
     $name = catalogue_clean_text($input['name'] ?? '', 255);
     if ($name === '') {
         throw new InvalidArgumentException('Nom du produit obligatoire.');
@@ -819,6 +839,9 @@ function catalogue_save_product(PDO $pdo, array $input): array
 
     if ($id > 0) {
         $params['id'] = $id;
+        $lockPrestashopSync = ((int) ($existingProduct['prestashop_id'] ?? 0) > 0 || (string) ($existingProduct['source'] ?? '') === 'prestashop');
+        $params['prestashop_sync_locked'] = $lockPrestashopSync ? 1 : (int) ($existingProduct['prestashop_sync_locked'] ?? 0);
+        $params['local_override_locked'] = $params['prestashop_sync_locked'];
         $statement = $pdo->prepare(
             'UPDATE catalogue_products
              SET reference = :reference,
@@ -835,6 +858,8 @@ function catalogue_save_product(PDO $pdo, array $input): array
                  unit = :unit,
                  active = :active,
                  featured = :featured,
+                 prestashop_sync_locked = :prestashop_sync_locked,
+                 local_override_at = CASE WHEN :local_override_locked = 1 THEN NOW() ELSE local_override_at END,
                  updated_at = NOW()
              WHERE id = :id'
         );
@@ -866,7 +891,14 @@ function catalogue_disable_product(PDO $pdo, int $id): void
     if ($id <= 0) {
         throw new InvalidArgumentException('Produit invalide.');
     }
-    $statement = $pdo->prepare('UPDATE catalogue_products SET active = 0, updated_at = NOW() WHERE id = :id');
+    $statement = $pdo->prepare(
+        'UPDATE catalogue_products
+         SET active = 0,
+             prestashop_sync_locked = CASE WHEN prestashop_id IS NOT NULL THEN 1 ELSE prestashop_sync_locked END,
+             local_override_at = CASE WHEN prestashop_id IS NOT NULL THEN NOW() ELSE local_override_at END,
+             updated_at = NOW()
+         WHERE id = :id'
+    );
     $statement->execute(['id' => $id]);
 }
 
@@ -919,7 +951,7 @@ function catalogue_upload_images(PDO $pdo, int $productId): array
         throw new InvalidArgumentException('Produit invalide pour l ajout de photos.');
     }
 
-    $statement = $pdo->prepare('SELECT id, image_path, name FROM catalogue_products WHERE id = :id LIMIT 1');
+    $statement = $pdo->prepare('SELECT id, image_path, name, source, prestashop_id FROM catalogue_products WHERE id = :id LIMIT 1');
     $statement->execute(['id' => $productId]);
     $product = $statement->fetch();
     if (!is_array($product)) {
@@ -969,7 +1001,13 @@ function catalogue_upload_images(PDO $pdo, int $productId): array
             'is_primary' => $isPrimary ? 1 : 0,
         ]);
         if ($isPrimary) {
-            $update = $pdo->prepare('UPDATE catalogue_products SET image_path = :image_path WHERE id = :id');
+            $update = $pdo->prepare(
+                'UPDATE catalogue_products
+                 SET image_path = :image_path,
+                     prestashop_sync_locked = CASE WHEN prestashop_id IS NOT NULL THEN 1 ELSE prestashop_sync_locked END,
+                     local_override_at = CASE WHEN prestashop_id IS NOT NULL THEN NOW() ELSE local_override_at END
+                 WHERE id = :id'
+            );
             $update->execute(['image_path' => $relativePath, 'id' => $productId]);
         }
         $uploaded[] = $relativePath;
@@ -977,6 +1015,10 @@ function catalogue_upload_images(PDO $pdo, int $productId): array
 
     if ($uploaded === []) {
         throw new InvalidArgumentException('Aucune photo valide recue.');
+    }
+    if ((int) ($product['prestashop_id'] ?? 0) > 0 || (string) ($product['source'] ?? '') === 'prestashop') {
+        $lock = $pdo->prepare('UPDATE catalogue_products SET prestashop_sync_locked = 1, local_override_at = NOW(), updated_at = NOW() WHERE id = :id');
+        $lock->execute(['id' => $productId]);
     }
 
     $statement = $pdo->prepare('SELECT * FROM catalogue_products WHERE id = :id LIMIT 1');
@@ -1178,9 +1220,9 @@ function catalogue_download_order_pdf(PDO $pdo, int $orderId): void
 
     $client = catalogue_current_client($pdo);
     $internalUser = oceanos_current_user($pdo);
-    $isAdmin = catalogue_is_admin($internalUser);
+    $isBackoffice = catalogue_is_admin($internalUser) && $client === null;
 
-    if ($isAdmin) {
+    if ($isBackoffice) {
         $statement = $pdo->prepare('SELECT * FROM catalogue_orders WHERE id = :id LIMIT 1');
         $statement->execute(['id' => $orderId]);
     } elseif ($client !== null) {
