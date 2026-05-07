@@ -13,6 +13,7 @@ www/
   Flowcean/              Workspace, notes, espaces et collaboration
   Invocean/              Facturation, exports et synchronisation PrestaShop
   Devis/                 Devis PDF Renovboat depuis les produits PrestaShop
+  Catalogue/             Catalogue client public/prive, commandes et devis PDF
   Commandes/             Visualisation et traitement des commandes PrestaShop
   PortailClient/         Espace client pour devis, factures, commandes, documents et SAV
   PIMcean/               Catalogue produit, medias, variantes, marges et synchronisation PrestaShop
@@ -55,6 +56,7 @@ Les applications concernées actuellement sont :
 - Flowcean
 - Invocean
 - Devis
+- Catalogue
 - Commandes
 - Portail Client
 - PIMcean
@@ -154,7 +156,7 @@ Ce fichier contient :
 - utilisateur MySQL
 - mot de passe MySQL
 
-Flowcean, Invocean, Devis, Commandes, SAV et Stockcean lisent aussi cette configuration partagee.
+Flowcean, Invocean, Devis, Catalogue, Commandes, SAV et Stockcean lisent aussi cette configuration partagee.
 
 Sur une installation serveur :
 
@@ -259,6 +261,14 @@ Tables Devis :
 devis_quotes
 ```
 
+Tables Catalogue :
+
+```text
+catalogue_clients
+catalogue_products
+catalogue_product_images
+catalogue_orders
+```
 
 Tables NautiCRM :
 
@@ -453,6 +463,22 @@ Il utilise OceanOS pour :
 - enregistrer les devis dans MySQL
 - generer des PDF Renovboat avec le logo de l'entreprise
 - servir les PDF uniquement via une API authentifiee
+
+## Catalogue
+
+Catalogue se trouve au meme niveau que les autres applications :
+
+```text
+www/Catalogue/
+```
+
+Il utilise OceanOS et Devis pour :
+
+- afficher un catalogue public sans prix
+- connecter les clients catalogue pour afficher les prix et commander
+- recuperer les produits PrestaShop depuis le connecteur commun
+- creer des produits manuels avec SKU unique, descriptions et photos
+- transformer une commande catalogue en devis `Devis` avec PDF local
 
 ## NautiCRM
 
@@ -656,7 +682,7 @@ Checklist de déploiement :
 5. Créer un super-utilisateur.
 6. Modifier immédiatement le mot de passe de la page admin.
 7. Tester `/OceanOS/`.
-8. Tester l'ouverture de Flowcean, Invocean, Devis, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, Prospection, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
+8. Tester l'ouverture de Flowcean, Invocean, Devis, Catalogue, Commandes, SAV, Stockcean, Tresorcean, NautiCRM, Prospection, NautiMail, NautiPost, NautiCloud, Formcean, Naviplan, SeoCean et MeetOcean depuis OceanOS.
 9. Configurer la clé Groq dans OceanOS si les modules IA sont utilisés.
 10. Configurer PrestaShop dans OceanOS si les modules e-commerce sont utilises.
 11. Faire une sauvegarde SQL apres validation.
@@ -667,7 +693,7 @@ Points à vérifier avant production :
 
 - Ne pas exposer `admin/storage/`.
 - Ne pas exposer `NautiCloud/storage/`.
-- Ne pas exposer `Invocean/storage/`, `Devis/storage/` ni `Tresorcean/storage/`.
+- Ne pas exposer `Invocean/storage/`, `Devis/storage/` ni `Tresorcean/storage/`; `Catalogue/storage/products/` ne doit servir que des images.
 - Ne pas exposer `OceanOS/config/server.php`.
 - Ne jamais versionner les fichiers `.env`, `*.secret`, les bases locales, les logs, les uploads ou les exports generes.
 - Regenerer les cles Groq, SMTP/IMAP, PrestaShop et secrets de pont si elles ont deja ete stockees dans le depot.
@@ -723,6 +749,7 @@ http://localhost/OceanOS/
 http://localhost/Flowcean/
 http://localhost/Invocean/
 http://localhost/Devis/
+http://localhost/Catalogue/
 http://localhost/Stockcean/
 http://localhost/NautiCRM/
 http://localhost/Prospection/

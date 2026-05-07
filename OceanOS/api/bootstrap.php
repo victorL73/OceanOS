@@ -449,6 +449,7 @@ function oceanos_available_module_ids(): array
         'flowcean',
         'invocean',
         'devis',
+        'catalogue',
         'commandes',
         'portailclient',
         'pimcean',
@@ -563,6 +564,9 @@ function oceanos_decode_visible_modules(?string $json): array
                 $modules[] = $moduleId;
             }
         }
+    }
+    if (!in_array('catalogue', $modules, true) && (in_array('devis', $modules, true) || in_array('pimcean', $modules, true))) {
+        $modules[] = 'catalogue';
     }
 
     return oceanos_normalize_visible_modules($modules);

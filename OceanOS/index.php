@@ -371,6 +371,6 @@
   </main>
 
   <script defer src="assets/guard.js?v=20260506-mobile-menu"></script>
-  <script src="assets/oceanos.js?v=20260503-git-update-backend"></script>
+  <script src="assets/oceanos.js?v=20260507-catalogue-module"></script>
 </body>
 </html>

@@ -34,6 +34,10 @@ NautiCloud/storage/*
 !NautiCloud/storage/.htaccess
 Nautisign/storage/*
 !Nautisign/storage/.htaccess
+Catalogue/storage/*
+!Catalogue/storage/products/
+Catalogue/storage/products/*
+!Catalogue/storage/products/.htaccess
 Backup/storage/*
 !Backup/storage/.htaccess
 !Backup/storage/backups/

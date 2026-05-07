@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catalogue</title>
+  <link rel="icon" type="image/svg+xml" href="/OceanOS/assets/favicons/catalogue.svg?v=20260507">
+  <meta name="description" content="Catalogue produits avec commande client et generation de devis PDF.">
+  <link rel="stylesheet" href="assets/style.css?v=20260507-catalogue">
+</head>
+<body>
+  <main class="catalogue-shell">
+    <section id="loading-view" class="loading-view">
+      <span class="brand-mark">CA</span>
+      <p>Chargement Catalogue...</p>
+    </section>
+
+    <section id="app-view" class="app-view hidden">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <span class="brand-mark compact">CA</span>
+            <span id="price-chip" class="status-pill muted-pill">Prix masques</span>
+          </div>
+          <h1>Catalogue</h1>
+          <p id="catalogue-subtitle">Catalogue produits RenovBoat.</p>
+        </div>
+        <div class="topbar-actions">
+          <a class="ghost-link" href="/OceanOS/">OceanOS</a>
+          <button id="front-tab-button" class="ghost-button is-active" type="button">Frontoffice</button>
+          <button id="backoffice-tab-button" class="ghost-button hidden" type="button">Backoffice</button>
+          <button id="client-button" class="primary-button" type="button">Connexion client</button>
+        </div>
+      </header>
+
+      <p id="app-message" class="app-message hidden"></p>
+
+      <section id="front-view">
+        <section class="metrics-grid">
+          <article class="metric-card">
+            <span>Produits</span>
+            <strong id="metric-products">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Categories</span>
+            <strong id="metric-categories">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Panier</span>
+            <strong id="metric-cart">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Devis</span>
+            <strong id="metric-orders">0</strong>
+          </article>
+        </section>
+
+        <section class="front-grid">
+          <section class="catalogue-panel">
+            <div class="control-strip">
+              <label class="search-field">
+                <span>Recherche</span>
+                <input id="search-input" type="search" placeholder="Nom, SKU, reference, categorie...">
+              </label>
+              <label class="search-field">
+                <span>Categorie</span>
+                <select id="category-filter"></select>
+              </label>
+            </div>
+            <div id="product-grid" class="product-grid"></div>
+          </section>
+
+          <aside class="cart-panel">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Commande</p>
+                  <h2>Panier</h2>
+                </div>
+                <button id="clear-cart-button" class="ghost-button compact" type="button">Vider</button>
+              </div>
+              <div id="cart-list" class="cart-list"></div>
+              <label class="field">
+                <span>Message</span>
+                <textarea id="order-message" rows="4" placeholder="Reference bateau, delai souhaite, precision..."></textarea>
+              </label>
+              <div class="totals-box">
+                <div><span>Total HT</span><strong id="cart-total-ht">0,00 EUR</strong></div>
+                <div><span>Total TTC</span><strong id="cart-total-ttc">0,00 EUR</strong></div>
+              </div>
+              <button id="place-order-button" class="primary-button wide" type="button">Generer le devis</button>
+            </section>
+
+            <section id="orders-panel" class="panel hidden">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Historique</p>
+                  <h2>Mes devis</h2>
+                </div>
+              </div>
+              <div id="orders-list" class="orders-list"></div>
+            </section>
+          </aside>
+        </section>
+      </section>
+
+      <section id="backoffice-view" class="hidden">
+        <section class="metrics-grid compact-metrics">
+          <article class="metric-card">
+            <span>Total</span>
+            <strong id="admin-metric-products">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Actifs</span>
+            <strong id="admin-metric-active">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>PrestaShop</span>
+            <strong id="admin-metric-presta">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>Commandes</span>
+            <strong id="admin-metric-orders">0</strong>
+          </article>
+        </section>
+
+        <section class="backoffice-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Backoffice</p>
+                <h2>Produits</h2>
+              </div>
+              <div class="panel-actions">
+                <button id="sync-prestashop-button" class="primary-button" type="button">Recuperer PrestaShop</button>
+                <button id="new-product-button" class="ghost-button" type="button">Nouveau</button>
+              </div>
+            </div>
+            <div class="admin-search-row">
+              <input id="admin-search-input" class="compact-input" type="search" placeholder="Filtrer les produits">
+            </div>
+            <div id="admin-products-list" class="admin-products-list"></div>
+          </section>
+
+          <aside class="panel editor-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Fiche</p>
+                <h2 id="editor-title">Nouveau produit</h2>
+              </div>
+            </div>
+            <form id="product-form" class="product-form">
+              <div class="form-grid three">
+                <label class="field">
+                  <span>Nom</span>
+                  <input id="product-name" type="text" required>
+                </label>
+                <label class="field">
+                  <span>SKU</span>
+                  <input id="product-sku" type="text" placeholder="SKU unique">
+                </label>
+                <label class="field">
+                  <span>Reference</span>
+                  <input id="product-reference" type="text">
+                </label>
+              </div>
+              <div class="form-grid two">
+                <label class="field">
+                  <span>Categorie</span>
+                  <input id="product-category" type="text">
+                </label>
+                <label class="field">
+                  <span>Marque</span>
+                  <input id="product-brand" type="text">
+                </label>
+              </div>
+              <div class="form-grid three">
+                <label class="field">
+                  <span>Prix HT</span>
+                  <input id="product-price" type="number" min="0" step="0.01">
+                </label>
+                <label class="field">
+                  <span>TVA</span>
+                  <input id="product-tax" type="number" min="0" step="0.1" value="20">
+                </label>
+                <label class="field">
+                  <span>Stock</span>
+                  <input id="product-stock" type="number" min="0" step="1">
+                </label>
+              </div>
+              <label class="field">
+                <span>Description courte</span>
+                <textarea id="product-short-description" rows="3"></textarea>
+              </label>
+              <label class="field">
+                <span>Description complete</span>
+                <textarea id="product-description" rows="6"></textarea>
+              </label>
+              <div class="switch-row">
+                <label><input id="product-active" type="checkbox" checked> Actif</label>
+                <label><input id="product-featured" type="checkbox"> Mis en avant</label>
+              </div>
+              <label class="field">
+                <span>Photos</span>
+                <input id="product-images" type="file" accept="image/*" multiple>
+              </label>
+              <div id="product-photo-list" class="photo-list"></div>
+              <div class="editor-actions">
+                <button id="save-product-button" class="primary-button" type="submit">Enregistrer</button>
+                <button id="disable-product-button" class="ghost-button danger-text" type="button">Masquer</button>
+              </div>
+            </form>
+          </aside>
+        </section>
+
+        <section class="panel admin-orders-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Commandes</p>
+              <h2>Devis generes</h2>
+            </div>
+          </div>
+          <div id="admin-orders-list" class="orders-list"></div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <div id="auth-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <div class="modal-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Client</p>
+          <h2 id="auth-title">Connexion catalogue</h2>
+        </div>
+        <button id="close-auth-button" class="icon-button" type="button" aria-label="Fermer">x</button>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <div class="auth-mode">
+          <button id="login-mode-button" class="ghost-button is-active" type="button">Connexion</button>
+          <button id="register-mode-button" class="ghost-button" type="button">Creation</button>
+        </div>
+        <label id="auth-name-field" class="field hidden">
+          <span>Nom</span>
+          <input id="auth-name" type="text" autocomplete="name">
+        </label>
+        <label id="auth-company-field" class="field hidden">
+          <span>Societe</span>
+          <input id="auth-company" type="text" autocomplete="organization">
+        </label>
+        <label class="field">
+          <span>Email</span>
+          <input id="auth-email" type="email" autocomplete="email" required>
+        </label>
+        <label class="field">
+          <span>Mot de passe</span>
+          <input id="auth-password" type="password" autocomplete="current-password" required>
+        </label>
+        <button id="auth-submit-button" class="primary-button wide" type="submit">Se connecter</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="assets/app.js?v=20260507-catalogue-sku"></script>
+</body>
+</html>

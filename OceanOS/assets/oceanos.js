@@ -47,6 +47,14 @@ const apps = [
     color: "#35b6e8",
   },
   {
+    id: "catalogue",
+    title: "Catalogue",
+    subtitle: "Catalogue client, prix connectes et commandes en devis PDF.",
+    href: "/Catalogue/",
+    mark: "CA",
+    color: "#f2b84b",
+  },
+  {
     id: "commandes",
     title: "Commandes",
     subtitle: "Commandes PrestaShop, details, clients et changements de statut.",

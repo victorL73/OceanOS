@@ -1,4 +1,4 @@
-const CACHE_NAME = "oceanos-pwa-20260506-new-modules";
+const CACHE_NAME = "oceanos-pwa-20260507-catalogue-module";
 const CORE_ASSETS = [
   "/OceanOS/",
   "/OceanOS/manifest.webmanifest",
