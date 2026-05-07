@@ -33,6 +33,7 @@ const elements = {
   adminMetricActive: $("admin-metric-active"),
   adminMetricPresta: $("admin-metric-presta"),
   adminMetricOrders: $("admin-metric-orders"),
+  openFrontButton: $("open-front-button"),
   syncPrestashopButton: $("sync-prestashop-button"),
   newProductButton: $("new-product-button"),
   adminSearchInput: $("admin-search-input"),
@@ -84,12 +85,17 @@ const state = {
   canSeePrices: false,
   company: null,
   backoffice: null,
-  activeView: "front",
+  activeView: initialRequestedView(),
   authMode: "login",
   cart: loadCart(),
   selectedProductId: null,
   detailProductId: null,
 };
+
+function initialRequestedView() {
+  const view = new URLSearchParams(window.location.search).get("view");
+  return ["backoffice", "admin"].includes(String(view || "").toLowerCase()) ? "backoffice" : "front";
+}
 
 const money = new Intl.NumberFormat("fr-FR", {
   style: "currency",
@@ -628,6 +634,18 @@ function render() {
   renderProductDetail();
 }
 
+function setActiveView(view) {
+  state.activeView = view === "backoffice" && state.isBackoffice ? "backoffice" : "front";
+  const url = new URL(window.location.href);
+  if (state.activeView === "backoffice") {
+    url.searchParams.set("view", "backoffice");
+  } else {
+    url.searchParams.delete("view");
+  }
+  window.history.replaceState({}, "", url);
+  render();
+}
+
 function openAuth(mode = "login") {
   state.authMode = mode;
   renderAuthModal();
@@ -836,14 +854,13 @@ async function disableProduct() {
 
 function installListeners() {
   elements.frontTabButton.addEventListener("click", () => {
-    state.activeView = "front";
-    render();
+    setActiveView("front");
   });
   elements.backofficeTabButton.addEventListener("click", () => {
     if (!state.isBackoffice) return;
-    state.activeView = "backoffice";
-    render();
+    setActiveView("backoffice");
   });
+  elements.openFrontButton.addEventListener("click", () => setActiveView("front"));
   elements.clientButton.addEventListener("click", () => {
     if (state.client) {
       void logoutClient();

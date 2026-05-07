@@ -50,7 +50,7 @@ const apps = [
     id: "catalogue",
     title: "Catalogue",
     subtitle: "Catalogue client, prix connectes et commandes en devis PDF.",
-    href: "/Catalogue/",
+    href: "/Catalogue/?view=backoffice",
     mark: "CA",
     color: "#f2b84b",
   },
